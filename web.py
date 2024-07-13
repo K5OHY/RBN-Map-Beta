@@ -67,13 +67,13 @@ def create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons
     
     # Define colors for different ham bands
     band_colors = {
-        '160m': 'brown',
-        '80m': 'orange',
+        '160m': 'red',
+        '80m': 'blue',
         '40m': 'green',
         '30m': 'purple',
-        '20m': 'blue',
+        '20m': 'orange',
         '17m': 'pink',
-        '15m': 'red',
+        '15m': 'brown',
         '12m': 'gray',
         '10m': 'black',
         '6m': 'cyan'
@@ -136,6 +136,14 @@ if st.button("Generate Map"):
         filtered_df = df[df['dx'] == callsign].copy()
         filtered_df['snr'] = pd.to_numeric(filtered_df['db'], errors='coerce')
 
+        # Debugging: Check if 'time' column exists and its data type
+        if 'time' in filtered_df.columns:
+            st.write("Time column exists. Data type:", filtered_df['time'].dtype)
+            st.write(filtered_df[['time']].head())
+        else:
+            st.write("Time column does not exist.")
+            raise ValueError("Time column not found in the data.")
+
         # Ensure the 'time' column is present and in integer format
         filtered_df['time'] = pd.to_numeric(filtered_df['time'], errors='coerce')
 
@@ -145,7 +153,7 @@ if st.button("Generate Map"):
 
         # Approximate coordinates for spotters (replace with accurate coordinates if available)
         spotter_coords = {
-            'OZ1AAB': (55.7, 12.6),
+              'OZ1AAB': (55.7, 12.6),
             'HA1VHF': (47.9, 19.2),
             'W6YX': (37.4, -122.2),
             'KV4TT': (36.0, -79.8),
