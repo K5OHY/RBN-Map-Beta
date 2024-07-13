@@ -8,7 +8,6 @@ import os
 from io import BytesIO
 import streamlit as st
 
-# Function to download and extract RBN data for a specific date
 def download_and_extract_rbn_data(date):
     url = f'https://data.reversebeacon.net/rbn_history/{date}.zip'
     response = requests.get(url)
@@ -26,12 +25,10 @@ def download_and_extract_rbn_data(date):
     else:
         raise Exception(f"Error downloading RBN data: {response.status_code}")
 
-# Function to get color based on SNR
 def get_color(snr):
     color_map = mcolors.LinearSegmentedColormap.from_list('custom', ['green', 'yellow', 'red'])
     return mcolors.to_hex(color_map(snr / 30))
 
-# Function to create the map
 def create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons):
     m = folium.Map(location=[39.8283, -98.5795], zoom_start=4)
 
@@ -70,13 +67,13 @@ def create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons
     
     # Define colors for different ham bands
     band_colors = {
-        '160m': 'red',
-        '80m': 'blue',
+        '160m': 'brown',
+        '80m': 'orange',
         '40m': 'green',
         '30m': 'purple',
-        '20m': 'orange',
+        '20m': 'blue',
         '17m': 'pink',
-        '15m': 'brown',
+        '15m': 'red',
         '12m': 'gray',
         '10m': 'black',
         '6m': 'cyan'
@@ -139,13 +136,16 @@ if st.button("Generate Map"):
         filtered_df = df[df['dx'] == callsign].copy()
         filtered_df['snr'] = pd.to_numeric(filtered_df['db'], errors='coerce')
 
+        # Ensure the 'time' column is present and in integer format
+        filtered_df['time'] = pd.to_numeric(filtered_df['time'], errors='coerce')
+
         # Filter by time if specified
         if start_time and end_time:
             filtered_df = filtered_df[(filtered_df['time'] >= int(start_time)) & (filtered_df['time'] <= int(end_time))]
 
         # Approximate coordinates for spotters (replace with accurate coordinates if available)
         spotter_coords = {
-             'OZ1AAB': (55.7, 12.6),
+            'OZ1AAB': (55.7, 12.6),
             'HA1VHF': (47.9, 19.2),
             'W6YX': (37.4, -122.2),
             'KV4TT': (36.0, -79.8),
