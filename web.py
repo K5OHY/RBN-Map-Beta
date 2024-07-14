@@ -189,7 +189,7 @@ if st.button("Generate Map"):
             filtered_df['snr'] = pd.to_numeric(filtered_df['db'], errors='coerce')
         
         spotter_coords = {
-                       'HA1VHF': (47.9, 19.2),
+                      'HA1VHF': (47.9, 19.2),
             'W6YX': (37.4, -122.2),
             'KV4TT': (36.0, -79.8),
             'W4AX': (34.2, -84.0),
@@ -557,4 +557,3 @@ if st.button("Generate Map"):
                 data=file,
                 file_name="RBN_signal_map_with_snr.html",
                 mime="text/html"
-           
