@@ -547,5 +547,19 @@ if st.button("Generate Map"):
         m = create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons)
         m.save('map.html')
         st.write("Map generated successfully!")
-        
+
+# Display map
+        st.components.v1.html(open('map.html', 'r').read(), height=700)
+
+        # Provide download link
+        with open("map.html", "rb") as file:
+            btn = st.download_button(
+                label="Download Map",
+                data=file,
+                file_name="RBN_signal_map_with_snr.html",
+                mime="text/html"
+            )
+    except Exception as e:
+        st.error(f"Error: {e}")
+
        
