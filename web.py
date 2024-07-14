@@ -7,6 +7,7 @@ import zipfile
 import os
 from io import BytesIO, StringIO
 import streamlit as st
+
 def download_and_extract_rbn_data(date):
     url = f'https://data.reversebeacon.net/rbn_history/{date}.zip'
     response = requests.get(url)
@@ -55,6 +56,7 @@ def process_pasted_data(pasted_data):
     df['freq'] = df['freq'].astype(float)
     
     return df
+
 def get_color(snr):
     color_map = mcolors.LinearSegmentedColormap.from_list('custom', ['green', 'yellow', 'red'])
     return mcolors.to_hex(color_map(snr / 30))
@@ -82,6 +84,7 @@ def get_band(freq):
         return '6m'
     else:
         return 'unknown'
+
 def create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons):
     m = folium.Map(location=[39.8283, -98.5795], zoom_start=4)
 
@@ -168,6 +171,7 @@ def create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons
     m.get_root().html.add_child(folium.Element(legend_html))
 
     return m
+
 # Streamlit app
 st.title("RBN Signal Map Generator")
 
