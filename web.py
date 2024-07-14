@@ -177,7 +177,10 @@ if st.button("Generate Map"):
     try:
         if use_paste_data:
             pasted_data = st.text_area("Paste your data here:")
-            filtered_df = parse_pasted_data(pasted_data)
+            if pasted_data:
+                filtered_df = parse_pasted_data(pasted_data)
+            else:
+                st.error("Please paste the data to use this option.")
         else:
             csv_filename = download_and_extract_rbn_data(date)
             df = pd.read_csv(csv_filename)
@@ -545,3 +548,4 @@ if st.button("Generate Map"):
         m.save('map.html')
         st.write("Map generated successfully!")
         
+       
