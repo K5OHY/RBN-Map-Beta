@@ -76,7 +76,6 @@ def get_band(freq):
         return '6m'
     else:
         return 'Unknown'
-
 def create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons):
     m = folium.Map(location=[39.8283, -98.5795], zoom_start=4)
 
@@ -163,7 +162,6 @@ def create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons
     m.get_root().html.add_child(folium.Element(legend_html))
 
     return m
-
 # Streamlit app
 st.title("RBN Signal Map Generator")
 
@@ -173,10 +171,13 @@ grid_square = st.text_input("Enter your grid square:")
 show_all_beacons = st.checkbox("Show all reverse beacons")
 use_paste_data = st.checkbox("Use copy-pasted data")
 
+pasted_data = ""
+if use_paste_data:
+    pasted_data = st.text_area("Paste your data here:")
+
 if st.button("Generate Map"):
     try:
         if use_paste_data:
-            pasted_data = st.text_area("Paste your data here:")
             if pasted_data:
                 filtered_df = parse_pasted_data(pasted_data)
             else:
@@ -189,7 +190,7 @@ if st.button("Generate Map"):
             filtered_df['snr'] = pd.to_numeric(filtered_df['db'], errors='coerce')
         
         spotter_coords = {
-               'OZ1AAB': (55.7, 12.6),
+             'OZ1AAB': (55.7, 12.6),
             'HA1VHF': (47.9, 19.2),
             'W6YX': (37.4, -122.2),
             'KV4TT': (36.0, -79.8),
@@ -552,12 +553,4 @@ if st.button("Generate Map"):
         st.components.v1.html(open('map.html', 'r').read(), height=700)
 
         # Provide download link
-        with open("map.html", "rb") as file:
-            st.download_button(
-                label="Download Map",
-                data=file,
-                file_name="RBN_signal_map_with_snr.html",
-                mime="text/html"
-            )
-    except Exception as e:
-        st.error(f"Error: {e}")
+        with open("map.html", "rb") as file
