@@ -71,7 +71,7 @@ def create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons
         '80m': 'green',
         '40m': 'teal',
         '30m': 'purple',
-        '20m': 'cyan',
+        '20m': 'darkblue',  # Set 20m to dark blue
         '17m': 'orange',
         '15m': 'lime',
         '12m': 'pink',
@@ -104,7 +104,7 @@ def create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons
      &nbsp; 80m &nbsp; <i class="fa fa-circle" style="color:green"></i><br>
      &nbsp; 40m &nbsp; <i class="fa fa-circle" style="color:teal"></i><br>
      &nbsp; 30m &nbsp; <i class="fa fa-circle" style="color:purple"></i><br>
-     &nbsp; 20m &nbsp; <i class="fa fa-circle" style="color:cyan"></i><br>
+     &nbsp; 20m &nbsp; <i class="fa fa-circle" style="color:darkblue"></i><br>
      &nbsp; 17m &nbsp; <i class="fa fa-circle" style="color:orange"></i><br>
      &nbsp; 15m &nbsp; <i class="fa fa-circle" style="color:lime"></i><br>
      &nbsp; 12m &nbsp; <i class="fa fa-circle" style="color:pink"></i><br>
