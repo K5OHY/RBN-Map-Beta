@@ -8,6 +8,7 @@ import os
 from io import BytesIO
 import streamlit as st
 from io import StringIO
+import tempfile
 
 def download_and_extract_rbn_data(date):
     url = f'https://data.reversebeacon.net/rbn_history/{date}.zip'
@@ -18,11 +19,12 @@ def download_and_extract_rbn_data(date):
             for file_info in z.infolist():
                 if file_info.filename.endswith('.csv'):
                     csv_filename = file_info.filename
-                    z.extract(csv_filename, path='/mnt/data')
+                    temp_dir = tempfile.gettempdir()
+                    z.extract(csv_filename, path=temp_dir)
                     break
             if csv_filename is None:
                 raise Exception("No CSV file found in the ZIP archive")
-            return f'/mnt/data/{csv_filename}'
+            return os.path.join(temp_dir, csv_filename)
     else:
         raise Exception(f"Error downloading RBN data: {response.status_code}")
 
@@ -200,7 +202,6 @@ if data_option == 'Download Data':
             csv_filename = download_and_extract_rbn_data(date)
             df = process_downloaded_data(csv_filename)
             filtered_df = df[df['spotted'] == callsign].copy()
-
             spotter_coords = {
                          'OZ1AAB': (55.7, 12.6),
             'HA1VHF': (47.9, 19.2),
@@ -554,18 +555,19 @@ if data_option == 'Download Data':
             'IV3DXW': (46.1, 13.2)
                   }
             
-            grid = Grid(grid_square)
+        grid = Grid(grid_square)
             grid_square_coords = (grid.lat, grid.long)
             
             m = create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons)
-            m.save('map.html')
+            temp_file_path = os.path.join(tempfile.gettempdir(), 'map.html')
+            m.save(temp_file_path)
             st.write("Map generated successfully!")
             
             # Display map
-            st.components.v1.html(open('map.html', 'r').read(), height=700)
+            st.components.v1.html(open(temp_file_path, 'r').read(), height=700)
 
             # Provide download link
-            with open("map.html", "rb") as file:
+            with open(temp_file_path, "rb") as file:
                 btn = st.download_button(
                     label="Download Map",
                     data=file,
@@ -935,18 +937,19 @@ else:
             'IV3DXW': (46.1, 13.2)
             }
             
-            grid = Grid(grid_square)
+  grid = Grid(grid_square)
             grid_square_coords = (grid.lat, grid.long)
             
             m = create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons)
-            m.save('map.html')
+            temp_file_path = os.path.join(tempfile.gettempdir(), 'map.html')
+            m.save(temp_file_path)
             st.write("Map generated successfully!")
             
             # Display map
-            st.components.v1.html(open('map.html', 'r').read(), height=700)
+            st.components.v1.html(open(temp_file_path, 'r').read(), height=700)
 
             # Provide download link
-            with open("map.html", "rb") as file:
+            with open(temp_file_path, "rb") as file:
                 btn = st.download_button(
                     label="Download Map",
                     data=file,
