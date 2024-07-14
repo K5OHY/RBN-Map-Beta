@@ -193,7 +193,10 @@ if st.button("Generate Map"):
             os.remove(csv_filename)
             
             filtered_df = df[df['dx'] == callsign].copy()
+            filtered_df['spotter'] = filtered_df['call']
+            filtered_df['freq'] = pd.to_numeric(filtered_df['freq'], errors='coerce')
             filtered_df['snr'] = pd.to_numeric(filtered_df['db'], errors='coerce')
+        
         
         spotter_coords = {
                     'OZ1AAB': (55.7, 12.6),
