@@ -41,7 +41,7 @@ def parse_pasted_data(pasted_data):
         columns = line.replace('● ', '').split()
         spotter = columns[0]
         spotted = columns[1]
-        distance = columns[2].replace('mi', '')
+        distance = float(columns[2].replace('mi', ''))
         freq = float(columns[3])
         mode = columns[4]
         type_ = columns[5]
