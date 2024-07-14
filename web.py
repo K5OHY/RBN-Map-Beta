@@ -35,14 +35,16 @@ def get_band(freq):
 
 def parse_pasted_data(pasted_data):
     lines = pasted_data.strip().split('\n')
+    headers = lines[0].split()
     data = []
-    for line in lines:
+    for line in lines[1:]:
         columns = line.split()
         spotter = columns[0]
         spotted = columns[1]
         distance = columns[2]
         freq = float(columns[3])
         mode = columns[4]
+        type_ = columns[5]
         snr = int(columns[6].replace('dB', ''))
         speed = columns[7]
         time = datetime.strptime(columns[8], '%H%Mz').time()
@@ -54,6 +56,7 @@ def parse_pasted_data(pasted_data):
             'distance': distance,
             'freq': freq,
             'mode': mode,
+            'type': type_,
             'snr': snr,
             'speed': speed,
             'time': time,
@@ -162,7 +165,7 @@ if st.button("Generate Map"):
         filtered_df = parse_pasted_data(pasted_data)
         
         spotter_coords = {
-                      'OZ1AAB': (55.7, 12.6),
+                    'OZ1AAB': (55.7, 12.6),
             'HA1VHF': (47.9, 19.2),
             'W6YX': (37.4, -122.2),
             'KV4TT': (36.0, -79.8),
