@@ -92,11 +92,11 @@ def create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons
                 weight=1
             ).add_to(m)
     
-    # Add a legend
+    # Add a smaller legend
     legend_html = '''
      <div style="position: fixed; 
-     bottom: 50px; left: 50px; width: 150px; height: 300px; 
-     border:2px solid grey; z-index:9999; font-size:14px;
+     bottom: 20px; left: 20px; width: 120px; height: 180px; 
+     border:1px solid grey; z-index:9999; font-size:10px;
      background-color:white;
      ">
      &nbsp; <b>Legend</b> <br>
@@ -134,7 +134,7 @@ if st.button("Generate Map"):
         filtered_df['snr'] = pd.to_numeric(filtered_df['db'], errors='coerce')
         
         spotter_coords = {
-           'OZ1AAB': (55.7, 12.6),
+       'OZ1AAB': (55.7, 12.6),
             'HA1VHF': (47.9, 19.2),
             'W6YX': (37.4, -122.2),
             'KV4TT': (36.0, -79.8),
