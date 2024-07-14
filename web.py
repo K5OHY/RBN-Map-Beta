@@ -2,12 +2,12 @@ import pandas as pd
 import folium
 import matplotlib.colors as mcolors
 from gridtools import Grid
-import streamlit as st
-from io import StringIO
-import os
 import requests
 import zipfile
-from io import BytesIO
+import os
+from io import BytesIO, StringIO
+import streamlit as st
+import tempfile
 
 def download_and_extract_rbn_data(date):
     url = f'https://data.reversebeacon.net/rbn_history/{date}.zip'
@@ -18,20 +18,22 @@ def download_and_extract_rbn_data(date):
             for file_info in z.infolist():
                 if file_info.filename.endswith('.csv'):
                     csv_filename = file_info.filename
-                    z.extract(csv_filename)
+                    temp_dir = tempfile.gettempdir()
+                    z.extract(csv_filename, path=temp_dir)
                     break
             if csv_filename is None:
                 raise Exception("No CSV file found in the ZIP archive")
-            return csv_filename
+            return os.path.join(temp_dir, csv_filename)
     else:
         raise Exception(f"Error downloading RBN data: {response.status_code}")
-        
+
 def process_pasted_data(pasted_data):
     df = pd.read_csv(StringIO(pasted_data), delimiter='\t')
+    df['snr'] = pd.to_numeric(df['db'], errors='coerce')
     return df
 
 def process_downloaded_data(file_path):
-    df = pd.read_csv(file_path, delimiter='\t')
+    df = pd.read_csv(file_path)
     df['snr'] = pd.to_numeric(df['db'], errors='coerce')
     return df
 
@@ -538,7 +540,8 @@ else:
     if st.button("Generate Map"):
         try:
             df = process_pasted_data(pasted_data)
-            filtered_df = df[df['spotted'] == callsign].copy()
+            filtered_df = df[df['dx'] == callsign].copy()
+
 
             spotter_coords = {
                          'OZ1AAB': (55.7, 12.6),
