@@ -189,7 +189,7 @@ if st.button("Generate Map"):
             filtered_df['snr'] = pd.to_numeric(filtered_df['db'], errors='coerce')
         
         spotter_coords = {
-          'OZ1AAB': (55.7, 12.6),
+         'OZ1AAB': (55.7, 12.6),
             'HA1VHF': (47.9, 19.2),
             'W6YX': (37.4, -122.2),
             'KV4TT': (36.0, -79.8),
@@ -548,4 +548,5 @@ if st.button("Generate Map"):
         m.save('map.html')
         st.write("Map generated successfully!")
         
+        # Display map
        
