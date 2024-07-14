@@ -5,8 +5,9 @@ from gridtools import Grid
 import requests
 import zipfile
 import os
-from io import BytesIO, StringIO
+from io import BytesIO
 import streamlit as st
+from io import StringIO
 
 def download_and_extract_rbn_data(date):
     url = f'https://data.reversebeacon.net/rbn_history/{date}.zip'
@@ -17,11 +18,11 @@ def download_and_extract_rbn_data(date):
             for file_info in z.infolist():
                 if file_info.filename.endswith('.csv'):
                     csv_filename = file_info.filename
-                    z.extract(csv_filename)
+                    z.extract(csv_filename, path='/mnt/data')
                     break
             if csv_filename is None:
                 raise Exception("No CSV file found in the ZIP archive")
-            return csv_filename
+            return f'/mnt/data/{csv_filename}'
     else:
         raise Exception(f"Error downloading RBN data: {response.status_code}")
 
@@ -55,6 +56,18 @@ def process_pasted_data(pasted_data):
     # Extract frequency as float
     df['freq'] = df['freq'].astype(float)
     
+    return df
+
+def process_downloaded_data(file_path):
+    df = pd.read_csv(file_path, delimiter='\t')
+    df = df.rename(columns={
+        'callsign': 'spotter',
+        'dx': 'spotted',
+        'db': 'snr',
+        'freq': 'freq'
+    })
+    df['snr'] = pd.to_numeric(df['snr'], errors='coerce')
+    df['freq'] = pd.to_numeric(df['freq'], errors='coerce')
     return df
 
 def get_color(snr):
@@ -178,18 +191,15 @@ st.title("RBN Signal Map Generator")
 callsign = st.text_input("Enter Callsign:")
 grid_square = st.text_input("Enter Grid Square:")
 show_all_beacons = st.checkbox("Show all reverse beacons")
-data_option = st.radio("Select data input method", ('Download by Date', 'Paste Data'))
+data_option = st.radio("Data Input Method", ('Download Data', 'Paste Data'))
 
-if data_option == 'Download by Date':
+if data_option == 'Download Data':
     date = st.text_input("Enter the date (YYYYMMDD):")
     if st.button("Generate Map"):
         try:
             csv_filename = download_and_extract_rbn_data(date)
-            df = pd.read_csv(csv_filename)
-            os.remove(csv_filename)
-            
-            filtered_df = df[df['dx'] == callsign].copy()
-            filtered_df['snr'] = pd.to_numeric(filtered_df['db'], errors='coerce')
+            df = process_downloaded_data(csv_filename)
+            filtered_df = df[df['spotted'] == callsign].copy()
             
             spotter_coords = {
                 'OZ1AAB': (55.7, 12.6),
