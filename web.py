@@ -65,55 +65,17 @@ def create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons
         popup=f'Your Location: {grid_square}'
     ).add_to(m)
     
-    # Define colors for different ham bands
-    band_colors = {
-        '160m': 'green',
-        '80m': 'brown',
-        '40m': 'orange',
-        '30m': 'purple',
-        '20m': 'blue',
-        '17m': 'pink',
-        '15m': 'red',
-        '12m': 'gray',
-        '10m': 'black',
-        '6m': 'cyan'
-    }
-
-    # Add lines with different colors based on ham bands
+    # Add lines from grid square to each spotter
     for _, row in filtered_df.iterrows():
         spotter = row['callsign']
         if spotter in spotter_coords:
             coords = spotter_coords[spotter]
-            band = row['band']
-            color = band_colors.get(band, 'blue')  # Default to blue if band not found
             folium.PolyLine(
                 locations=[grid_square_coords, coords],
-                color=color,
+                color='blue',
                 weight=1
             ).add_to(m)
     
-    # Add a legend
-    legend_html = '''
-     <div style="position: fixed; 
-     bottom: 50px; left: 50px; width: 150px; height: 300px; 
-     border:2px solid grey; z-index:9999; font-size:14px;
-     background-color:white;
-     ">
-     &nbsp; <b>Legend</b> <br>
-     &nbsp; 160m &nbsp; <i class="fa fa-circle" style="color:red"></i><br>
-     &nbsp; 80m &nbsp; <i class="fa fa-circle" style="color:blue"></i><br>
-     &nbsp; 40m &nbsp; <i class="fa fa-circle" style="color:green"></i><br>
-     &nbsp; 30m &nbsp; <i class="fa fa-circle" style="color:purple"></i><br>
-     &nbsp; 20m &nbsp; <i class="fa fa-circle" style="color:orange"></i><br>
-     &nbsp; 17m &nbsp; <i class="fa fa-circle" style="color:pink"></i><br>
-     &nbsp; 15m &nbsp; <i class="fa fa-circle" style="color:brown"></i><br>
-     &nbsp; 12m &nbsp; <i class="fa fa-circle" style="color:gray"></i><br>
-     &nbsp; 10m &nbsp; <i class="fa fa-circle" style="color:black"></i><br>
-     &nbsp; 6m &nbsp; <i class="fa fa-circle" style="color:cyan"></i><br>
-     </div>
-     '''
-    m.get_root().html.add_child(folium.Element(legend_html))
-
     return m
 
 # Streamlit app
@@ -130,13 +92,11 @@ if st.button("Generate Map"):
         df = pd.read_csv(csv_filename)
         os.remove(csv_filename)
         
-        # Filter data for the specified callsign
         filtered_df = df[df['dx'] == callsign].copy()
         filtered_df['snr'] = pd.to_numeric(filtered_df['db'], errors='coerce')
-
-        # Approximate coordinates for spotters (replace with accurate coordinates if available)
+        
         spotter_coords = {
-           'OZ1AAB': (55.7, 12.6),
+            'OZ1AAB': (55.7, 12.6),
             'HA1VHF': (47.9, 19.2),
             'W6YX': (37.4, -122.2),
             'KV4TT': (36.0, -79.8),
@@ -486,10 +446,8 @@ if st.button("Generate Map"):
             'NU6XB': (37.9, -122.3),
             'DM5I': (49.5, 11.5),
             'IV3DXW': (46.1, 13.2)
-            # Add more spotter coordinates as needed
         }
-
-        # Convert grid square to coordinates
+        
         grid = Grid(grid_square)
         grid_square_coords = (grid.lat, grid.long)
         
