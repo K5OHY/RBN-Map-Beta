@@ -3,8 +3,39 @@ import folium
 import matplotlib.colors as mcolors
 from gridtools import Grid
 import streamlit as st
-from datetime import datetime
 from io import StringIO
+
+def process_pasted_data(pasted_data):
+    # Remove unnecessary lines and split the data
+    lines = pasted_data.split('\n')
+    lines = [line.strip() for line in lines if line.strip() and not line.startswith('●')]
+    
+    # Extract columns and data
+    data = []
+    for line in lines[1:]:  # Skip the header
+        parts = line.split()
+        spotter = parts[0]
+        spotted = parts[1]
+        distance = parts[2] + ' ' + parts[3]
+        freq = parts[4]
+        mode = parts[5]
+        type_ = parts[6]
+        snr = parts[7] + ' ' + parts[8]
+        speed = parts[9] + ' ' + parts[10]
+        time = parts[11] + ' ' + parts[12] + ' ' + parts[13]
+        seen = ' '.join(parts[14:])
+        data.append([spotter, spotted, distance, freq, mode, type_, snr, speed, time, seen])
+    
+    # Create a DataFrame
+    df = pd.DataFrame(data, columns=['spotter', 'spotted', 'distance', 'freq', 'mode', 'type', 'snr', 'speed', 'time', 'seen'])
+    
+    # Convert SNR to numeric
+    df['snr'] = df['snr'].str.split().str[0].astype(float)
+    
+    # Extract frequency as float
+    df['freq'] = df['freq'].astype(float)
+    
+    return df
 
 def get_color(snr):
     color_map = mcolors.LinearSegmentedColormap.from_list('custom', ['green', 'yellow', 'red'])
@@ -32,59 +63,7 @@ def get_band(freq):
     elif 50.0 <= freq <= 54.0:
         return '6m'
     else:
-        return 'Unknown'
-
-def parse_pasted_data(pasted_data):
-    # Define the columns based on the provided data
-    columns = ['spotter', 'spotted', 'distance', 'freq', 'mode', 'type', 'snr', 'speed', 'time', 'seen']
-    
-    # Initialize a list to store the rows
-    rows = []
-    
-    # Split the pasted data into lines
-    lines = pasted_data.strip().split('\n')
-    
-    # Process each line
-    for line in lines:
-        parts = line.split()
-        
-        # Ensure there are enough parts to unpack
-        if len(parts) < 10:
-            continue
-        
-        spotter = parts[0]
-        spotted = parts[1]
-        distance = float(parts[2].replace('mi', ''))
-        freq = float(parts[3])
-        mode = parts[4]
-        type_ = parts[5]
-        snr = int(parts[6].replace('dB', ''))
-        speed = parts[7]
-        time = parts[8]
-        seen = ' '.join(parts[9:])
-        
-        # Create a row dictionary
-        row = {
-            'spotter': spotter,
-            'spotted': spotted,
-            'distance': distance,
-            'freq': freq,
-            'mode': mode,
-            'type': type_,
-            'snr': snr,
-            'speed': speed,
-            'time': time,
-            'seen': seen,
-            'band': get_band(freq)
-        }
-        
-        # Add the row to the list
-        rows.append(row)
-    
-    # Convert the list of rows into a DataFrame
-    df = pd.DataFrame(rows, columns=columns + ['band'])
-    
-    return df
+        return 'unknown'
 
 def create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons):
     m = folium.Map(location=[39.8283, -98.5795], zoom_start=4)
@@ -141,7 +120,7 @@ def create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons
         spotter = row['spotter']
         if spotter in spotter_coords:
             coords = spotter_coords[spotter]
-            band = row['band']
+            band = get_band(row['freq'])
             color = band_colors.get(band, 'blue')  # Default to blue if band not found
             folium.PolyLine(
                 locations=[grid_square_coords, coords],
@@ -179,15 +158,15 @@ st.title("RBN Signal Map Generator")
 callsign = st.text_input("Enter Callsign:")
 grid_square = st.text_input("Enter Grid Square:")
 show_all_beacons = st.checkbox("Show all reverse beacons")
-pasted_data = st.text_area("Paste your data here:")
 
+pasted_data = st.text_area("Paste the RBN data here:")
 if st.button("Generate Map"):
     try:
-        # Convert pasted data to CSV-like format and read into DataFrame
-        df = parse_pasted_data(pasted_data)
-        
+        df = process_pasted_data(pasted_data)
+        filtered_df = df[df['spotted'] == callsign].copy()
+
         spotter_coords = {
-                      'OZ1AAB': (55.7, 12.6),
+                     'OZ1AAB': (55.7, 12.6),
             'HA1VHF': (47.9, 19.2),
             'W6YX': (37.4, -122.2),
             'KV4TT': (36.0, -79.8),
@@ -542,7 +521,7 @@ if st.button("Generate Map"):
         grid = Grid(grid_square)
         grid_square_coords = (grid.lat, grid.long)
         
-        m = create_map(df, spotter_coords, grid_square_coords, show_all_beacons)
+        m = create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons)
         m.save('map.html')
         st.write("Map generated successfully!")
         
@@ -551,7 +530,7 @@ if st.button("Generate Map"):
 
         # Provide download link
         with open("map.html", "rb") as file:
-            st.download_button(
+            btn = st.download_button(
                 label="Download Map",
                 data=file,
                 file_name="RBN_signal_map_with_snr.html",
