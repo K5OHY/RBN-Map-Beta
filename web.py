@@ -197,11 +197,12 @@ data_option = st.radio("Data Input Method", ('Download Data', 'Paste Data'))
 
 if data_option == 'Download Data':
     date = st.text_input("Enter the date (YYYYMMDD):")
-    if st.button("Generate Map"):
+        if st.button("Generate Map"):
         try:
             csv_filename = download_and_extract_rbn_data(date)
             df = process_downloaded_data(csv_filename)
             filtered_df = df[df['spotted'] == callsign].copy()
+
             spotter_coords = {
                          'OZ1AAB': (55.7, 12.6),
             'HA1VHF': (47.9, 19.2),
@@ -553,9 +554,9 @@ if data_option == 'Download Data':
             'NU6XB': (37.9, -122.3),
             'DM5I': (49.5, 11.5),
             'IV3DXW': (46.1, 13.2)
-                  }
+            }
             
-        grid = Grid(grid_square)
+            grid = Grid(grid_square)
             grid_square_coords = (grid.lat, grid.long)
             
             m = create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons)
@@ -937,7 +938,7 @@ else:
             'IV3DXW': (46.1, 13.2)
             }
             
-  grid = Grid(grid_square)
+            grid = Grid(grid_square)
             grid_square_coords = (grid.lat, grid.long)
             
             m = create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons)
@@ -958,4 +959,3 @@ else:
                 )
         except Exception as e:
             st.error(f"Error: {e}")
-               
