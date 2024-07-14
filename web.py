@@ -1,3 +1,76 @@
+def parse_pasted_data(pasted_data):
+    lines = pasted_data.strip().split('\n')
+    data = []
+    for line in lines:
+        columns = line.split()
+        spotter = columns[0]
+        spotted = columns[1]
+        distance = columns[2]  # Added to handle the new column
+        freq = float(columns[3])
+        mode = columns[4]
+        snr = int(columns[6].replace('dB', ''))
+        speed = columns[7]  # Added to handle the new column
+        time = datetime.strptime(columns[8], '%H%Mz').time()
+        seen = columns[9]  # Added to handle the new column
+        band = get_band(freq)
+        data.append({
+            'spotter': spotter,
+            'spotted': spotted,
+            'distance': distance,
+            'freq': freq,
+            'mode': mode,
+            'snr': snr,
+            'speed': speed,
+            'time': time,
+            'seen': seen,
+            'band': band
+        })
+    return pd.DataFrame(data)
+Update the st.button("Generate Map") Handling:
+python
+Copy code
+if st.button("Generate Map"):
+    try:
+        if use_paste_data and pasted_data:
+            filtered_df = parse_pasted_data(pasted_data)
+        else:
+            csv_filename = download_and_extract_rbn_data(date)
+            df = pd.read_csv(csv_filename)
+            os.remove(csv_filename)
+            filtered_df = df[df['dx'] == callsign].copy()
+            filtered_df['snr'] = pd.to_numeric(filtered_df['db'], errors='coerce')
+        
+        spotter_coords = {
+            'OZ1AAB': (55.7, 12.6),
+            'HA1VHF': (47.9, 19.2),
+            'W6YX': (37.4, -122.2),
+            'KV4TT': (36.0, -79.8),
+            'W4AX': (34.2, -84.0)
+        }
+        
+        grid = Grid(grid_square)
+        grid_square_coords = (grid.lat, grid.long)
+        
+        m = create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons)
+        m.save('map.html')
+        st.write("Map generated successfully!")
+        
+        # Display map
+        st.components.v1.html(open('map.html', 'r').read(), height=700)
+
+        # Provide download link
+        with open("map.html", "rb") as file:
+            st.download_button(
+                label="Download Map",
+                data=file,
+                file_name="RBN_signal_map_with_snr.html",
+                mime="text/html"
+            )
+    except Exception as e:
+        st.error(f"Error: {e}")
+Full Updated Code:
+python
+Copy code
 import pandas as pd
 import folium
 import matplotlib.colors as mcolors
@@ -61,18 +134,24 @@ def parse_pasted_data(pasted_data):
         columns = line.split()
         spotter = columns[0]
         spotted = columns[1]
+        distance = columns[2]  # Added to handle the new column
         freq = float(columns[3])
         mode = columns[4]
         snr = int(columns[6].replace('dB', ''))
-        time = datetime.strptime(columns[9], '%H%Mz').time()
+        speed = columns[7]  # Added to handle the new column
+        time = datetime.strptime(columns[8], '%H%Mz').time()
+        seen = columns[9]  # Added to handle the new column
         band = get_band(freq)
         data.append({
             'spotter': spotter,
             'spotted': spotted,
+            'distance': distance,
             'freq': freq,
             'mode': mode,
             'snr': snr,
+            'speed': speed,
             'time': time,
+            'seen': seen,
             'band': band
         })
     return pd.DataFrame(data)
@@ -139,6 +218,7 @@ def create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons
                 color=color,
                 weight=1
             ).add_to(m)
+    
     
     # Add a smaller legend
     legend_html = '''
