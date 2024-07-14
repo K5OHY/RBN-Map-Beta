@@ -119,9 +119,9 @@ def create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons
 # Streamlit app
 st.title("RBN Signal Map Generator")
 
-callsign = st.text_input("Enter your callsign:")
+callsign = st.text_input("Enter Callsign:")
 date = st.text_input("Enter the date (YYYYMMDD):")
-grid_square = st.text_input("Enter your grid square:")
+grid_square = st.text_input("Enter Grid Square:")
 show_all_beacons = st.checkbox("Show all reverse beacons")
 
 if st.button("Generate Map"):
