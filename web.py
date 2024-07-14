@@ -2,32 +2,65 @@ import pandas as pd
 import folium
 import matplotlib.colors as mcolors
 from gridtools import Grid
-import requests
-import zipfile
-import os
-from io import BytesIO
 import streamlit as st
-
-def download_and_extract_rbn_data(date):
-    url = f'https://data.reversebeacon.net/rbn_history/{date}.zip'
-    response = requests.get(url)
-    if response.status_code == 200:
-        with zipfile.ZipFile(BytesIO(response.content)) as z:
-            csv_filename = None
-            for file_info in z.infolist():
-                if file_info.filename.endswith('.csv'):
-                    csv_filename = file_info.filename
-                    z.extract(csv_filename)
-                    break
-            if csv_filename is None:
-                raise Exception("No CSV file found in the ZIP archive")
-            return csv_filename
-    else:
-        raise Exception(f"Error downloading RBN data: {response.status_code}")
+from datetime import datetime
 
 def get_color(snr):
     color_map = mcolors.LinearSegmentedColormap.from_list('custom', ['green', 'yellow', 'red'])
     return mcolors.to_hex(color_map(snr / 30))
+
+def get_band(freq):
+    if 1.8 <= freq <= 2.0:
+        return '160m'
+    elif 3.5 <= freq <= 4.0:
+        return '80m'
+    elif 7.0 <= freq <= 7.3:
+        return '40m'
+    elif 10.1 <= freq <= 10.15:
+        return '30m'
+    elif 14.0 <= freq <= 14.35:
+        return '20m'
+    elif 18.068 <= freq <= 18.168:
+        return '17m'
+    elif 21.0 <= freq <= 21.45:
+        return '15m'
+    elif 24.89 <= freq <= 24.99:
+        return '12m'
+    elif 28.0 <= freq <= 29.7:
+        return '10m'
+    elif 50.0 <= freq <= 54.0:
+        return '6m'
+    else:
+        return 'Unknown'
+
+def parse_pasted_data(pasted_data):
+    lines = pasted_data.strip().split('\n')
+    data = []
+    for line in lines:
+        columns = line.split()
+        spotter = columns[0]
+        spotted = columns[1]
+        distance = columns[2]
+        freq = float(columns[3])
+        mode = columns[4]
+        snr = int(columns[6].replace('dB', ''))
+        speed = columns[7]
+        time = datetime.strptime(columns[8], '%H%Mz').time()
+        seen = columns[9]
+        band = get_band(freq)
+        data.append({
+            'spotter': spotter,
+            'spotted': spotted,
+            'distance': distance,
+            'freq': freq,
+            'mode': mode,
+            'snr': snr,
+            'speed': speed,
+            'time': time,
+            'seen': seen,
+            'band': band
+        })
+    return pd.DataFrame(data)
 
 def create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons):
     m = folium.Map(location=[39.8283, -98.5795], zoom_start=4)
@@ -45,7 +78,7 @@ def create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons
 
     # Add the spotter locations to the map with varying marker sizes based on SNR
     for _, row in filtered_df.iterrows():
-        spotter = row['callsign']
+        spotter = row['spotter']
         if spotter in spotter_coords:
             coords = spotter_coords[spotter]
             snr = row['snr']
@@ -81,7 +114,7 @@ def create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons
 
     # Add lines with different colors based on ham bands
     for _, row in filtered_df.iterrows():
-        spotter = row['callsign']
+        spotter = row['spotter']
         if spotter in spotter_coords:
             coords = spotter_coords[spotter]
             band = row['band']
@@ -120,21 +153,16 @@ def create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons
 st.title("RBN Signal Map Generator")
 
 callsign = st.text_input("Enter Callsign:")
-date = st.text_input("Enter the date (YYYYMMDD):")
 grid_square = st.text_input("Enter Grid Square:")
 show_all_beacons = st.checkbox("Show all reverse beacons")
+pasted_data = st.text_area("Paste your data here:")
 
 if st.button("Generate Map"):
     try:
-        csv_filename = download_and_extract_rbn_data(date)
-        df = pd.read_csv(csv_filename)
-        os.remove(csv_filename)
-        
-        filtered_df = df[df['dx'] == callsign].copy()
-        filtered_df['snr'] = pd.to_numeric(filtered_df['db'], errors='coerce')
+        filtered_df = parse_pasted_data(pasted_data)
         
         spotter_coords = {
-           'OZ1AAB': (55.7, 12.6),
+                      'OZ1AAB': (55.7, 12.6),
             'HA1VHF': (47.9, 19.2),
             'W6YX': (37.4, -122.2),
             'KV4TT': (36.0, -79.8),
@@ -498,7 +526,7 @@ if st.button("Generate Map"):
 
         # Provide download link
         with open("map.html", "rb") as file:
-            btn = st.download_button(
+            st.download_button(
                 label="Download Map",
                 data=file,
                 file_name="RBN_signal_map_with_snr.html",
