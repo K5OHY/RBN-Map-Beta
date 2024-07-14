@@ -2,12 +2,12 @@ import pandas as pd
 import folium
 import matplotlib.colors as mcolors
 from gridtools import Grid
+import streamlit as st
+from io import StringIO
+import os
 import requests
 import zipfile
-import os
-from io import BytesIO, StringIO
-import streamlit as st
-import tempfile
+from io import BytesIO
 
 def download_and_extract_rbn_data(date):
     url = f'https://data.reversebeacon.net/rbn_history/{date}.zip'
@@ -18,15 +18,14 @@ def download_and_extract_rbn_data(date):
             for file_info in z.infolist():
                 if file_info.filename.endswith('.csv'):
                     csv_filename = file_info.filename
-                    temp_dir = tempfile.gettempdir()
-                    z.extract(csv_filename, path=temp_dir)
+                    z.extract(csv_filename)
                     break
             if csv_filename is None:
                 raise Exception("No CSV file found in the ZIP archive")
-            return os.path.join(temp_dir, csv_filename)
+            return csv_filename
     else:
         raise Exception(f"Error downloading RBN data: {response.status_code}")
-
+        
 def process_pasted_data(pasted_data):
     df = pd.read_csv(StringIO(pasted_data), delimiter='\t')
     return df
