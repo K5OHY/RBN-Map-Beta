@@ -91,26 +91,6 @@ def create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons
                 fill_color='black'
             ).add_to(m)
 
-    for _, row in filtered_df.iterrows():
-        spotter = row['callsign'] if 'callsign' in row else row['spotter']
-        if spotter in spotter_coords:
-            coords = spotter_coords[spotter]
-            snr = row['snr']
-            folium.CircleMarker(
-                location=coords,
-                radius=snr / 2,
-                popup=f'Spotter: {spotter}<br>SNR: {snr} dB',
-                color=get_color(snr),
-                fill=True,
-                fill_color=get_color(snr)
-            ).add_to(m)
-
-    folium.Marker(
-        location=grid_square_coords,
-        icon=folium.Icon(icon='star', color='red'),
-        popup=f'Your Location: {grid_square}'
-    ).add_to(m)
-    
     band_colors = {
         '160m': 'blue',
         '80m': 'green',
@@ -125,34 +105,44 @@ def create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons
     }
 
     for _, row in filtered_df.iterrows():
-        spotter = row['callsign'] if 'callsign' in row else row['spotter']
+        spotter = row['spotter']
         if spotter in spotter_coords:
             coords = spotter_coords[spotter]
-            band = get_band(row['freq']) if 'freq' in row else row['band']
+            band = get_band(row['freq'])
             color = band_colors.get(band, 'blue')
             folium.PolyLine(
                 locations=[grid_square_coords, coords],
                 color=color,
                 weight=1
             ).add_to(m)
-    
+
+            folium.CircleMarker(
+                location=coords,
+                radius=row['snr'] / 2,
+                popup=f'Spotter: {spotter}<br>SNR: {row["snr"]} dB<br>Band: {band}',
+                color=get_color(row['snr']),
+                fill=True,
+                fill_color=get_color(row['snr'])
+            ).add_to(m)
+
     legend_html = '''
      <div style="position: fixed; 
-     bottom: 20px; left: 20px; width: 120px; height: 180px; 
-     border:1px solid grey; z-index:9999; font-size:10px;
+     bottom: 20px; left: 20px; width: 150px; height: 280px; 
+     border:2px solid grey; z-index:9999; font-size:10px;
      background-color:white;
+     padding: 10px;
      ">
-     &nbsp; <b>Legend</b> <br>
-     &nbsp; 160m &nbsp; <i class="fa fa-circle" style="color:blue"></i><br>
-     &nbsp; 80m &nbsp; <i class="fa fa-circle" style="color:green"></i><br>
-     &nbsp; 40m &nbsp; <i class="fa fa-circle" style="color:teal"></i><br>
-     &nbsp; 30m &nbsp; <i class="fa fa-circle" style="color:purple"></i><br>
-     &nbsp; 20m &nbsp; <i class="fa fa-circle" style="color:darkblue"></i><br>
-     &nbsp; 17m &nbsp; <i class="fa fa-circle" style="color:orange"></i><br>
-     &nbsp; 15m &nbsp; <i class="fa fa-circle" style="color:lime"></i><br>
-     &nbsp; 12m &nbsp; <i class="fa fa-circle" style="color:pink"></i><br>
-     &nbsp; 10m &nbsp; <i class="fa fa-circle" style="color:red"></i><br>
-     &nbsp; 6m &nbsp; <i class="fa fa-circle" style="color:magenta"></i><br>
+     <b>Legend</b><br>
+     160m <i style="color:blue">■</i><br>
+     80m <i style="color:green">■</i><br>
+     40m <i style="color:teal">■</i><br>
+     30m <i style="color:purple">■</i><br>
+     20m <i style="color:darkblue">■</i><br>
+     17m <i style="color:orange">■</i><br>
+     15m <i style="color:lime">■</i><br>
+     12m <i style="color:pink">■</i><br>
+     10m <i style="color:red">■</i><br>
+     6m <i style="color:magenta">■</i><br>
      </div>
      '''
     m.get_root().html.add_child(folium.Element(legend_html))
@@ -180,7 +170,7 @@ if data_source == 'Download by Date':
             filtered_df['snr'] = pd.to_numeric(filtered_df['db'], errors='coerce')
             
             spotter_coords = {
-                'OZ1AAB': (55.7, 12.6),
+                      'OZ1AAB': (55.7, 12.6),
                 'HA1VHF': (47.9, 19.2),
                 'W6YX': (37.4, -122.2),
                 'KV4TT': (36.0, -79.8),
@@ -530,6 +520,7 @@ if data_source == 'Download by Date':
                 'NU6XB': (37.9, -122.3),
                 'DM5I': (49.5, 11.5),
                 'IV3DXW': (46.1, 13.2)
+                # Add other spotter coordinates here
             }
             
             grid = Grid(grid_square)
@@ -559,7 +550,7 @@ elif data_source == 'Paste Data':
             filtered_df = df[df['spotted'] == callsign].copy()
 
             spotter_coords = {
-                'OZ1AAB': (55.7, 12.6),
+                       'OZ1AAB': (55.7, 12.6),
                 'HA1VHF': (47.9, 19.2),
                 'W6YX': (37.4, -122.2),
                 'KV4TT': (36.0, -79.8),
@@ -909,6 +900,7 @@ elif data_source == 'Paste Data':
                 'NU6XB': (37.9, -122.3),
                 'DM5I': (49.5, 11.5),
                 'IV3DXW': (46.1, 13.2)
+                # Add other spotter coordinates here
             }
             
             grid = Grid(grid_square)
