@@ -5,7 +5,7 @@ from gridtools import Grid
 import requests
 import zipfile
 import os
-from io import BytesIO
+from io import BytesIO, StringIO
 import streamlit as st
 
 def download_and_extract_rbn_data(date):
@@ -163,17 +163,17 @@ if st.button("Generate Map"):
         else:
             raise Exception("Either a date or pasted data must be provided.")
 
+        # Dynamically handle column names
+        if 'dx' in df.columns:
+            df.rename(columns={'dx': 'callsign', 'db': 'snr'}, inplace=True)
         if 'spotter' not in df.columns:
-            df.columns = ['spotter', 'dx', 'distance', 'freq', 'mode', 'type', 'snr', 'speed', 'time', 'seen']
+            df.columns = ['spotter', 'callsign', 'distance', 'freq', 'mode', 'type', 'snr', 'speed', 'time', 'seen']
         
-        if 'db' in df.columns:
-            df.rename(columns={'db': 'snr'}, inplace=True)
-        
-        filtered_df = df[df['dx'] == callsign].copy()
+        filtered_df = df[df['callsign'] == callsign].copy()
         filtered_df['snr'] = pd.to_numeric(filtered_df['snr'], errors='coerce')
 
-               # Minimal spotter coordinates
-        spotter_coords.update({
+        # Minimal spotter coordinates
+        spotter_coords = {
             'OZ1AAB': (55.7, 12.6),
             'HA1VHF': (47.9, 19.2),
             'W6YX': (37.4, -122.2),
@@ -524,7 +524,7 @@ if st.button("Generate Map"):
             'NU6XB': (37.9, -122.3),
             'DM5I': (49.5, 11.5),
             'IV3DXW': (46.1, 13.2)
-        })
+        }
         
         grid = Grid(grid_square)
         grid_square_coords = (grid.lat, grid.long)
@@ -545,4 +545,4 @@ if st.button("Generate Map"):
                 mime="text/html"
             )
     except Exception as e:
-        st.error(f"Error: {e}")
+        st.error(f"Error: {
