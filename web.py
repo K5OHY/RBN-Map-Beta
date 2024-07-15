@@ -8,7 +8,6 @@ import os
 from io import BytesIO
 import streamlit as st
 
-
 def download_and_extract_rbn_data(date):
     url = f'https://data.reversebeacon.net/rbn_history/{date}.zip'
     response = requests.get(url)
@@ -26,45 +25,14 @@ def download_and_extract_rbn_data(date):
     else:
         raise Exception(f"Error downloading RBN data: {response.status_code}")
 
-
 def process_pasted_data(pasted_data):
-      # Remove unnecessary lines and split the data
-    lines = pasted_data.split('\n')
-    lines = [line.strip() for line in lines if line.strip() and not line.startswith('●')]
-    
-    # Extract columns and data
-    data = []
-    for line in lines[1:]:  # Skip the header
-        parts = line.split()
-        spotter = parts[0]
-        spotted = parts[1]
-        distance = parts[2] + ' ' + parts[3]
-        freq = parts[4]
-        mode = parts[5]
-        type_ = parts[6]
-        snr = parts[7] + ' ' + parts[8]
-        speed = parts[9] + ' ' + parts[10]
-        time = parts[11] + ' ' + parts[12] + ' ' + parts[13]
-        seen = ' '.join(parts[14:])
-        data.append([spotter, spotted, distance, freq, mode, type_, snr, speed, time, seen])
-    
-    # Create a DataFrame
-    df = pd.DataFrame(data, columns=['spotter', 'spotted', 'distance', 'freq', 'mode', 'type', 'snr', 'speed', 'time', 'seen'])
-    
-    # Convert SNR to numeric
-    df['snr'] = df['snr'].str.split().str[0].astype(float)
-    
-    # Extract frequency as float
-    df['freq'] = df['freq'].astype(float)
-    
+    # Load data directly into DataFrame
+    df = pd.read_csv(StringIO(pasted_data), sep='\t')
     return df
-
-
 
 def get_color(snr):
     color_map = mcolors.LinearSegmentedColormap.from_list('custom', ['green', 'yellow', 'red'])
     return mcolors.to_hex(color_map(snr / 30))
-
 
 def get_band(freq):
     if 1.8 <= freq <= 2.0:
@@ -91,7 +59,7 @@ def get_band(freq):
         return 'unknown'
 
 def create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons):
-     m = folium.Map(location=[39.8283, -98.5795], zoom_start=4)
+    m = folium.Map(location=[39.8283, -98.5795], zoom_start=4)
 
     # Add small black dots at every beacon's location if show_all_beacons is True
     if show_all_beacons:
@@ -178,72 +146,34 @@ def create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons
     return m
 
 # Streamlit app
-# Streamlit app
 st.title("RBN Signal Map Generator")
-#Session State initialization
-if 'button_clicked' not in st.session_state:
-    st.session_state['button_clicked'] = False
 
 callsign = st.text_input("Enter Callsign:")
+date = st.text_input("Enter the date (YYYYMMDD):")
 grid_square = st.text_input("Enter Grid Square:")
 show_all_beacons = st.checkbox("Show all reverse beacons")
 
+pasted_data = st.text_area("Paste the RBN data here:")
 
-data_source = st.radio("Select Data Source:", ("Download from RBN", "Paste RBN Data"))
-
-if data_source == "Download from RBN":
-    st.session_state['button_clicked'] = False #added this
-    date = st.text_input("Enter the date (YYYYMMDD):")
-    if st.button("Generate Map"):
-        try:
+if st.button("Generate Map"):
+    try:
+        if date:
             csv_filename = download_and_extract_rbn_data(date)
             df = pd.read_csv(csv_filename)
             os.remove(csv_filename)
-        except Exception as e:
-            st.error(f"Error downloading data: {e}")
-elif data_source == "Paste RBN Data":
-    st.session_state['button_clicked'] = False  #added this
-    pasted_data = st.text_area("Paste the RBN data here:")
-    if st.button("Generate Map"):
-        try:
+        elif pasted_data:
             df = process_pasted_data(pasted_data)
-        except Exception as e:
-            st.error(f"Error processing pasted data: {e}")
-
-# Filter data and create map (shared logic)
-if st.session_state.get('button_clicked'):
-    try:
-        if data_source == "Download from RBN" and 'dx' in df.columns:
-            filtered_df = df[df['dx'] == callsign].copy()
-            filtered_df['snr'] = pd.to_numeric(filtered_df['db'], errors='coerce')
-        elif data_source == "Paste RBN Data" and 'spotted' in df.columns:
-            filtered_df = df[df['spotted'] == callsign].copy()
         else:
-            st.error("Callsign not found in the data.")
-            st.stop()
+            raise Exception("Either a date or pasted data must be provided.")
 
-        grid = Grid(grid_square)
-        grid_square_coords = (grid.lat, grid.long)
-
-        m = create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons)
-        m.save('map.html')
-        st.write("Map generated successfully!")
-
-        # Display map
-        st.components.v1.html(open('map.html', 'r').read(), height=700)
-
-        # Provide download link
-        with open("map.html", "rb") as file:
-            btn = st.download_button(
-                label="Download Map",
-                data=file,
-                file_name="RBN_signal_map_with_snr.html",
-                mime="text/html"
-            )
-
-    except Exception as e:
-        st.error(f"An error occurred while generating the map: {e}")
-    st.session_state['button_clicked'] = True
+        if 'spotter' not in df.columns:
+            df.columns = ['spotter', 'dx', 'distance', 'freq', 'mode', 'type', 'snr', 'speed', 'time', 'seen']
+        
+        if 'db' in df.columns:
+            df.rename(columns={'db': 'snr'}, inplace=True)
+        
+        filtered_df = df[df['dx'] == callsign].copy()
+        filtered_df['snr'] = pd.to_numeric(filtered_df['snr'], errors='coerce')
 
 spotter_coords = {
     'OZ1AAB': (55.7, 12.6),
