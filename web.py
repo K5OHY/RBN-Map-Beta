@@ -9,26 +9,27 @@ from io import BytesIO
 import streamlit as st
 
 def download_and_extract_rbn_data(date):
-    """Download and extract RBN data for a given date."""
     url = f'https://data.reversebeacon.net/rbn_history/{date}.zip'
     response = requests.get(url)
     if response.status_code == 200:
         with zipfile.ZipFile(BytesIO(response.content)) as z:
+            csv_filename = None
             for file_info in z.infolist():
                 if file_info.filename.endswith('.csv'):
-                    z.extract(file_info.filename)
-                    return file_info.filename
-            raise Exception("No CSV file found in the ZIP archive")
+                    csv_filename = file_info.filename
+                    z.extract(csv_filename)
+                    break
+            if csv_filename is None:
+                raise Exception("No CSV file found in the ZIP archive")
+            return csv_filename
     else:
         raise Exception(f"Error downloading RBN data: {response.status_code}")
 
 def get_color(snr):
-    """Get color based on SNR value."""
     color_map = mcolors.LinearSegmentedColormap.from_list('custom', ['green', 'yellow', 'red'])
     return mcolors.to_hex(color_map(snr / 30))
 
 def get_band(freq):
-    """Determine the ham band based on the frequency."""
     freq = float(freq)
     if 1.8 <= freq <= 2.0:
         return '160m'
@@ -54,7 +55,6 @@ def get_band(freq):
         return 'unknown'
 
 def create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons, grid_square):
-    """Create a folium map with the given parameters."""
     m = folium.Map(location=[39.8283, -98.5795], zoom_start=4)
 
     if show_all_beacons:
@@ -80,8 +80,6 @@ def create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons
                 fill=True,
                 fill_color=get_color(snr)
             ).add_to(m)
-        else:
-            st.warning(f"Spotter {spotter} not found in coordinates list")
 
     folium.Marker(
         location=grid_square_coords,
@@ -113,8 +111,6 @@ def create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons
                 color=color,
                 weight=1
             ).add_to(m)
-        else:
-            st.warning(f"Spotter {spotter} not found in coordinates list for band {band}")
 
     legend_html = '''
     <div style="position: fixed; 
@@ -140,7 +136,6 @@ def create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons
     return m
 
 def process_pasted_data(pasted_data):
-    """Process pasted RBN data into a DataFrame."""
     lines = pasted_data.split('\n')
     lines = [line.strip() for line in lines if line.strip()]
     
@@ -167,7 +162,6 @@ def process_pasted_data(pasted_data):
     return df
 
 def process_downloaded_data(filename):
-    """Process downloaded RBN data into a DataFrame."""
     df = pd.read_csv(filename)
     df = df.rename(columns={'callsign': 'spotter', 'dx': 'dx', 'db': 'snr', 'freq': 'freq'})
     df['snr'] = pd.to_numeric(df['snr'], errors='coerce')
