@@ -42,7 +42,7 @@ def create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons
             ).add_to(m)
 
     for _, row in filtered_df.iterrows():
-        spotter = row['callsign']
+        spotter = row['spotter']
         if spotter in spotter_coords:
             coords = spotter_coords[spotter]
             snr = row['snr']
@@ -77,7 +77,7 @@ def create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons
     }
 
     for _, row in filtered_df.iterrows():
-        spotter = row['callsign']
+        spotter = row['spotter']
         if spotter in spotter_coords:
             coords = spotter_coords[spotter]
             band = row['band']
@@ -120,7 +120,7 @@ def parse_pasted_data(pasted_data):
     for line in lines:
         parts = line.split()
         spotter = parts[0]
-        spotted = parts[1]
+        dx = parts[1]
         distance = parts[2]
         freq = parts[3]
         mode = parts[4]
@@ -128,9 +128,10 @@ def parse_pasted_data(pasted_data):
         snr = parts[6]
         speed = parts[7]
         time = parts[8]
-        date = parts[9]
-        data.append([spotter, spotted, distance, freq, mode, type_, snr, speed, time, date])
-    df = pd.DataFrame(data, columns=['spotter', 'spotted', 'distance', 'freq', 'mode', 'type', 'snr', 'speed', 'time', 'date'])
+        date = parts[9:]
+        date = " ".join(date)  # Handle date with spaces
+        data.append([spotter, dx, distance, freq, mode, type_, snr, speed, time, date])
+    df = pd.DataFrame(data, columns=['spotter', 'dx', 'distance', 'freq', 'mode', 'type', 'snr', 'speed', 'time', 'date'])
     return df
 
 def main():
@@ -153,7 +154,7 @@ def main():
                 os.remove(csv_filename)
                 st.write("Using downloaded data.")
 
-            filtered_df = df[df['spotted'] == callsign].copy()
+            filtered_df = df[df['dx'] == callsign].copy()
             filtered_df['snr'] = pd.to_numeric(filtered_df['snr'].str.replace('dB', ''), errors='coerce')
             
             spotter_coords_df = pd.read_csv('spotter_coords.csv')
