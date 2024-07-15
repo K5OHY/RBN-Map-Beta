@@ -178,11 +178,72 @@ def create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons
     return m
 
 # Streamlit app
+# Streamlit app
 st.title("RBN Signal Map Generator")
+#Session State initialization
+if 'button_clicked' not in st.session_state:
+    st.session_state['button_clicked'] = False
 
 callsign = st.text_input("Enter Callsign:")
 grid_square = st.text_input("Enter Grid Square:")
 show_all_beacons = st.checkbox("Show all reverse beacons")
+
+
+data_source = st.radio("Select Data Source:", ("Download from RBN", "Paste RBN Data"))
+
+if data_source == "Download from RBN":
+    st.session_state['button_clicked'] = False #added this
+    date = st.text_input("Enter the date (YYYYMMDD):")
+    if st.button("Generate Map"):
+        try:
+            csv_filename = download_and_extract_rbn_data(date)
+            df = pd.read_csv(csv_filename)
+            os.remove(csv_filename)
+        except Exception as e:
+            st.error(f"Error downloading data: {e}")
+elif data_source == "Paste RBN Data":
+    st.session_state['button_clicked'] = False  #added this
+    pasted_data = st.text_area("Paste the RBN data here:")
+    if st.button("Generate Map"):
+        try:
+            df = process_pasted_data(pasted_data)
+        except Exception as e:
+            st.error(f"Error processing pasted data: {e}")
+
+# Filter data and create map (shared logic)
+if st.session_state.get('button_clicked'):
+    try:
+        if data_source == "Download from RBN" and 'dx' in df.columns:
+            filtered_df = df[df['dx'] == callsign].copy()
+            filtered_df['snr'] = pd.to_numeric(filtered_df['db'], errors='coerce')
+        elif data_source == "Paste RBN Data" and 'spotted' in df.columns:
+            filtered_df = df[df['spotted'] == callsign].copy()
+        else:
+            st.error("Callsign not found in the data.")
+            st.stop()
+
+        grid = Grid(grid_square)
+        grid_square_coords = (grid.lat, grid.long)
+
+        m = create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons)
+        m.save('map.html')
+        st.write("Map generated successfully!")
+
+        # Display map
+        st.components.v1.html(open('map.html', 'r').read(), height=700)
+
+        # Provide download link
+        with open("map.html", "rb") as file:
+            btn = st.download_button(
+                label="Download Map",
+                data=file,
+                file_name="RBN_signal_map_with_snr.html",
+                mime="text/html"
+            )
+
+    except Exception as e:
+        st.error(f"An error occurred while generating the map: {e}")
+    st.session_state['button_clicked'] = True
 
 spotter_coords = {
     'OZ1AAB': (55.7, 12.6),
