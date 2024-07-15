@@ -34,7 +34,7 @@ def get_band(freq):
         freq = float(freq)
     except ValueError:
         return 'unknown'
-
+    
     if 1.8 <= freq <= 2.0:
         return '160m'
     elif 3.5 <= freq <= 4.0:
