@@ -58,7 +58,6 @@ def get_band(freq):
     else:
         return 'unknown'
 
-
 def create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons, grid_square, use_band_column):
     m = folium.Map(location=[39.8283, -98.5795], zoom_start=4)
 
@@ -97,12 +96,12 @@ def create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons
         '80m': 'green',
         '40m': 'teal',
         '30m': 'purple',
-        '20m': 'darkblue',
+        '20m': 'navy',
         '17m': 'orange',
         '15m': 'lime',
         '12m': 'pink',
         '10m': 'red',
-        '6m': 'magenta'
+        '6m': 'brown'
     }
 
     for _, row in filtered_df.iterrows():
@@ -115,9 +114,6 @@ def create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons
                 freq = row['freq']
                 band = get_band(freq)
             color = band_colors.get(band, 'blue')
-
-            # Debug output for checking band and color assignment
-            st.write(f"Spotter: {spotter}, Band: {band}, Color: {color}")
 
             folium.PolyLine(
                 locations=[grid_square_coords, coords],
@@ -136,12 +132,12 @@ def create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons
      &nbsp; 80m &nbsp; <i class="fa fa-circle" style="color:green"></i><br>
      &nbsp; 40m &nbsp; <i class="fa fa-circle" style="color:teal"></i><br>
      &nbsp; 30m &nbsp; <i class="fa fa-circle" style="color:purple"></i><br>
-     &nbsp; 20m &nbsp; <i class="fa fa-circle" style="color:darkblue"></i><br>
+     &nbsp; 20m &nbsp; <i class="fa fa-circle" style="color:navy"></i><br>
      &nbsp; 17m &nbsp; <i class="fa fa-circle" style="color:orange"></i><br>
      &nbsp; 15m &nbsp; <i class="fa fa-circle" style="color:lime"></i><br>
      &nbsp; 12m &nbsp; <i class="fa fa-circle" style="color:pink"></i><br>
      &nbsp; 10m &nbsp; <i class="fa fa-circle" style="color:red"></i><br>
-     &nbsp; 6m &nbsp; <i class="fa fa-circle" style="color:magenta"></i><br>
+     &nbsp; 6m &nbsp; <i class="fa fa-circle" style="color:brown"></i><br>
      </div>
      '''
     m.get_root().html.add_child(folium.Element(legend_html))
