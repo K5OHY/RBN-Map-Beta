@@ -221,10 +221,8 @@ def main():
             m.save('map.html')
             st.write("Map generated successfully!")
             
-            # Display map
             st.components.v1.html(open('map.html', 'r').read(), height=700)
 
-            # Provide download link
             with open("map.html", "rb") as file:
                 st.download_button(
                     label="Download Map",
