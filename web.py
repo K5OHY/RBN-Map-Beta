@@ -111,7 +111,7 @@ def create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons
             if use_band_column:
                 band = row['band']
             else:
-                freq = row['freq']
+                freq = row['freq'] / 1000.0  # Convert kHz to MHz for pasted data
                 band = get_band(freq)
             color = band_colors.get(band, 'blue')
 
@@ -169,7 +169,7 @@ def process_pasted_data(pasted_data):
     df = pd.DataFrame(data, columns=['spotter', 'dx', 'distance', 'freq', 'mode', 'type', 'snr', 'speed', 'time', 'seen'])
     
     df['snr'] = df['snr'].str.split().str[0].astype(float)
-    df['freq'] = df['freq'].astype(float)
+    df['freq'] = df['freq'].astype(float) / 1000.0  # Convert kHz to MHz
     
     return df
 
