@@ -34,28 +34,30 @@ def get_band(freq):
         freq = float(freq)
     except ValueError:
         return 'unknown'
+    
     if 1800 <= freq <= 2000:
-    return '160m'
-elif 3500 <= freq <= 4000:
-    return '80m'
-elif 7000 <= freq <= 7300:
-    return '40m'
-elif 10100 <= freq <= 10150:
-    return '30m'
-elif 14000 <= freq <= 14350:
-    return '20m'
-elif 18068 <= freq <= 18168:
-    return '17m'
-elif 21000 <= freq <= 21450:
-    return '15m'
-elif 24890 <= freq <= 24990:
-    return '12m'
-elif 28000 <= freq <= 29700:
-    return '10m'
-elif 50000 <= freq <= 54000:
-    return '6m'
+        return '160m'
+    elif 3500 <= freq <= 4000:
+        return '80m'
+    elif 7000 <= freq <= 7300:
+        return '40m'
+    elif 10100 <= freq <= 10150:
+        return '30m'
+    elif 14000 <= freq <= 14350:
+        return '20m'
+    elif 18068 <= freq <= 18168:
+        return '17m'
+    elif 21000 <= freq <= 21450:
+        return '15m'
+    elif 24890 <= freq <= 24990:
+        return '12m'
+    elif 28000 <= freq <= 29700:
+        return '10m'
+    elif 50000 <= freq <= 54000:
+        return '6m'
     else:
         return 'unknown'
+
 
 def create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons, grid_square, use_band_column):
     m = folium.Map(location=[39.8283, -98.5795], zoom_start=4)
