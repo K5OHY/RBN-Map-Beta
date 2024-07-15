@@ -54,6 +54,8 @@ def create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons
                 fill=True,
                 fill_color=get_color(snr)
             ).add_to(m)
+        else:
+            st.warning(f"Spotter {spotter} not found in coordinates list")
 
     folium.Marker(
         location=grid_square_coords,
@@ -85,26 +87,28 @@ def create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons
                 color=color,
                 weight=1
             ).add_to(m)
+        else:
+            st.warning(f"Spotter {spotter} not found in coordinates list for band {band}")
 
     legend_html = '''
-     <div style="position: fixed; 
-     bottom: 20px; left: 20px; width: 120px; height: 180px; 
-     border:1px solid grey; z-index:9999; font-size:10px;
-     background-color:white;
-     ">
-     &nbsp; <b>Legend</b> <br>
-     &nbsp; 160m &nbsp; <i class="fa fa-circle" style="color:blue"></i><br>
-     &nbsp; 80m &nbsp; <i class="fa fa-circle" style="color:green"></i><br>
-     &nbsp; 40m &nbsp; <i class="fa fa-circle" style="color:teal"></i><br>
-     &nbsp; 30m &nbsp; <i class="fa fa-circle" style="color:purple"></i><br>
-     &nbsp; 20m &nbsp; <i class="fa fa-circle" style="color:darkblue"></i><br>
-     &nbsp; 17m &nbsp; <i class="fa fa-circle" style="color:orange"></i><br>
-     &nbsp; 15m &nbsp; <i class="fa fa-circle" style="color:lime"></i><br>
-     &nbsp; 12m &nbsp; <i class="fa fa-circle" style="color:pink"></i><br>
-     &nbsp; 10m &nbsp; <i class="fa fa-circle" style="color:red"></i><br>
-     &nbsp; 6m &nbsp; <i class="fa fa-circle" style="color:magenta"></i><br>
-     </div>
-     '''
+    <div style="position: fixed; 
+    bottom: 20px; left: 20px; width: 120px; height: 180px; 
+    border:1px solid grey; z-index:9999; font-size:10px;
+    background-color:white;
+    ">
+    &nbsp; <b>Legend</b> <br>
+    &nbsp; 160m &nbsp; <i class="fa fa-circle" style="color:blue"></i><br>
+    &nbsp; 80m &nbsp; <i class="fa fa-circle" style="color:green"></i><br>
+    &nbsp; 40m &nbsp; <i class="fa fa-circle" style="color:teal"></i><br>
+    &nbsp; 30m &nbsp; <i class="fa fa-circle" style="color:purple"></i><br>
+    &nbsp; 20m &nbsp; <i class="fa fa-circle" style="color:darkblue"></i><br>
+    &nbsp; 17m &nbsp; <i class="fa fa-circle" style="color:orange"></i><br>
+    &nbsp; 15m &nbsp; <i class="fa fa-circle" style="color:lime"></i><br>
+    &nbsp; 12m &nbsp; <i class="fa fa-circle" style="color:pink"></i><br>
+    &nbsp; 10m &nbsp; <i class="fa fa-circle" style="color:red"></i><br>
+    &nbsp; 6m &nbsp; <i class="fa fa-circle" style="color:magenta"></i><br>
+    </div>
+    '''
     m.get_root().html.add_child(folium.Element(legend_html))
 
     return m
@@ -125,9 +129,11 @@ def main():
             
             filtered_df = df[df['dx'] == callsign].copy()
             filtered_df['snr'] = pd.to_numeric(filtered_df['db'], errors='coerce')
-            
+
+            # Load spotter coordinates from CSV
+            spotter_coords_df = pd.read_csv('spotter_coords.csv')
             spotter_coords = {
-                # Place your spotter coordinates here as per your original data
+                row['callsign']: (row['latitude'], row['longitude']) for _, row in spotter_coords_df.iterrows()
             }
             
             grid = Grid(grid_square)
