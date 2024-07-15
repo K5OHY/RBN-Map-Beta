@@ -92,16 +92,16 @@ def create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons
     ).add_to(m)
     
     band_colors = {
-        '160m': 'blue',
-        '80m': 'green',
-        '40m': 'teal',
-        '30m': 'purple',
-        '20m': 'navy',
-        '17m': 'orange',
-        '15m': 'lime',
-        '12m': 'pink',
-        '10m': 'red',
-        '6m': 'brown'
+        '160m': '#FFFF00',  # yellow
+        '80m': '#003300',   # dark green
+        '40m': '#FFA500',   # orange
+        '30m': '#FF4500',   # red
+        '20m': '#0000FF',   # blue
+        '17m': '#800080',   # purple
+        '15m': '#696969',   # dim gray
+        '12m': '#00FFFF',   # cyan
+        '10m': '#FF00FF',   # magenta
+        '6m': '#F5DEB3',    # wheat
     }
 
     for _, row in filtered_df.iterrows():
@@ -128,16 +128,16 @@ def create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons
      background-color:white;
      ">
      &nbsp; <b>Legend</b> <br>
-     &nbsp; 160m &nbsp; <i class="fa fa-circle" style="color:blue"></i><br>
-     &nbsp; 80m &nbsp; <i class="fa fa-circle" style="color:green"></i><br>
-     &nbsp; 40m &nbsp; <i class="fa fa-circle" style="color:teal"></i><br>
-     &nbsp; 30m &nbsp; <i class="fa fa-circle" style="color:purple"></i><br>
-     &nbsp; 20m &nbsp; <i class="fa fa-circle" style="color:navy"></i><br>
-     &nbsp; 17m &nbsp; <i class="fa fa-circle" style="color:orange"></i><br>
-     &nbsp; 15m &nbsp; <i class="fa fa-circle" style="color:lime"></i><br>
-     &nbsp; 12m &nbsp; <i class="fa fa-circle" style="color:pink"></i><br>
-     &nbsp; 10m &nbsp; <i class="fa fa-circle" style="color:red"></i><br>
-     &nbsp; 6m &nbsp; <i class="fa fa-circle" style="color:brown"></i><br>
+     &nbsp; 160m &nbsp; <i class="fa fa-circle" style="color:#FFFF00"></i><br>
+     &nbsp; 80m &nbsp; <i class="fa fa-circle" style="color:#003300"></i><br>
+     &nbsp; 40m &nbsp; <i class="fa fa-circle" style="color:#FFA500"></i><br>
+     &nbsp; 30m &nbsp; <i class="fa fa-circle" style="color:#FF4500"></i><br>
+     &nbsp; 20m &nbsp; <i class="fa fa-circle" style="color:#0000FF"></i><br>
+     &nbsp; 17m &nbsp; <i class="fa fa-circle" style="color:#800080"></i><br>
+     &nbsp; 15m &nbsp; <i class="fa fa-circle" style="color:#696969"></i><br>
+     &nbsp; 12m &nbsp; <i class="fa fa-circle" style="color:#00FFFF"></i><br>
+     &nbsp; 10m &nbsp; <i class="fa fa-circle" style="color:#FF00FF"></i><br>
+     &nbsp; 6m &nbsp; <i class="fa fa-circle" style="color:#F5DEB3"></i><br>
      </div>
      '''
     m.get_root().html.add_child(folium.Element(legend_html))
