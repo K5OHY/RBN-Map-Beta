@@ -544,5 +544,5 @@ if st.button("Generate Map"):
                 file_name="RBN_signal_map_with_snr.html",
                 mime="text/html"
             )
-    except Exception as e:
-        st.error(f"Error: {
+      except Exception as e:
+        st.error(f"Error: {e}")
