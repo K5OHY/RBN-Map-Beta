@@ -57,7 +57,6 @@ def get_band(freq):
         return '6m'
     else:
         return 'unknown'
-
 def create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons):
     m = folium.Map(location=[39.8283, -98.5795], zoom_start=4)
 
@@ -144,7 +143,6 @@ def create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons
     m.get_root().html.add_child(folium.Element(legend_html))
 
     return m
-
 # Streamlit app
 st.title("RBN Signal Map Generator")
 
@@ -154,7 +152,6 @@ grid_square = st.text_input("Enter Grid Square:")
 show_all_beacons = st.checkbox("Show all reverse beacons")
 
 pasted_data = st.text_area("Paste the RBN data here:")
-
 if st.button("Generate Map"):
     try:
         if date:
@@ -175,8 +172,9 @@ if st.button("Generate Map"):
         filtered_df = df[df['dx'] == callsign].copy()
         filtered_df['snr'] = pd.to_numeric(filtered_df['snr'], errors='coerce')
 
-spotter_coords = {
-    'OZ1AAB': (55.7, 12.6),
+               # Minimal spotter coordinates
+        spotter_coords.update({
+            'OZ1AAB': (55.7, 12.6),
             'HA1VHF': (47.9, 19.2),
             'W6YX': (37.4, -122.2),
             'KV4TT': (36.0, -79.8),
@@ -526,40 +524,15 @@ spotter_coords = {
             'NU6XB': (37.9, -122.3),
             'DM5I': (49.5, 11.5),
             'IV3DXW': (46.1, 13.2)
-}
-
-data_source = st.radio("Select Data Source:", ("Download from RBN", "Paste RBN Data"))
-
-if data_source == "Download from RBN":
-    date = st.text_input("Enter the date (YYYYMMDD):")
-    if st.button("Generate Map"):
-        try:
-            csv_filename = download_and_extract_rbn_data(date)
-            df = pd.read_csv(csv_filename)
-            os.remove(csv_filename)
-        except Exception as e:
-            st.error(f"Error downloading data: {e}")
-elif data_source == "Paste RBN Data":
-    pasted_data = st.text_area("Paste the RBN data here:")
-    if st.button("Generate Map"):
-        try:
-            df = process_pasted_data(pasted_data)
-        except Exception as e:
-            st.error(f"Error processing pasted data: {e}")
-
-# Filter data and create map (shared logic)
-if st.session_state.get('button_clicked'):
-    try:
-        filtered_df = df[(df['dx'] == callsign) if data_source == "Download from RBN" else (df['spotted'] == callsign)].copy()
-        filtered_df['snr'] = pd.to_numeric(filtered_df['db'], errors='coerce') if data_source == "Download from RBN" else filtered_df['snr']
-
+        })
+        
         grid = Grid(grid_square)
         grid_square_coords = (grid.lat, grid.long)
-
+        
         m = create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons)
         m.save('map.html')
         st.write("Map generated successfully!")
-
+        
         # Display map
         st.components.v1.html(open('map.html', 'r').read(), height=700)
 
@@ -572,5 +545,4 @@ if st.session_state.get('button_clicked'):
                 mime="text/html"
             )
     except Exception as e:
-        st.error(f"An error occurred while generating the map: {e}")
-    st.session_state['button_clicked'] = True
+        st.error(f"Error: {e}")
