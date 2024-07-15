@@ -58,7 +58,7 @@ def get_band(freq):
     else:
         return 'unknown'
 
-def create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons, grid_square):
+def create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons, grid_square, use_band_column):
     m = folium.Map(location=[39.8283, -98.5795], zoom_start=4)
 
     if show_all_beacons:
@@ -108,12 +108,15 @@ def create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons
         spotter = row['spotter']
         if spotter in spotter_coords:
             coords = spotter_coords[spotter]
-            freq = row['freq']
-            band = get_band(freq)
+            if use_band_column:
+                band = row['band']
+            else:
+                freq = row['freq']
+                band = get_band(freq)
             color = band_colors.get(band, 'blue')
 
             # Debug output for checking band and color assignment
-            st.write(f"Spotter: {spotter}, Frequency: {freq}, Band: {band}, Color: {color}")
+            st.write(f"Spotter: {spotter}, Band: {band}, Color: {color}")
 
             folium.PolyLine(
                 locations=[grid_square_coords, coords],
@@ -172,7 +175,7 @@ def process_pasted_data(pasted_data):
 
 def process_downloaded_data(filename):
     df = pd.read_csv(filename)
-    df = df.rename(columns={'callsign': 'spotter', 'dx': 'dx', 'db': 'snr', 'freq': 'freq'})
+    df = df.rename(columns={'callsign': 'spotter', 'dx': 'dx', 'db': 'snr', 'freq': 'freq', 'band': 'band'})
     df['snr'] = pd.to_numeric(df['snr'], errors='coerce')
     df['freq'] = pd.to_numeric(df['freq'], errors='coerce')
     return df
@@ -196,6 +199,7 @@ def main():
     
     if st.button("Generate Map"):
         try:
+            use_band_column = False
             if data_source == 'Paste RBN data' and pasted_data.strip():
                 df = process_pasted_data(pasted_data)
                 st.write("Using pasted data.")
@@ -203,6 +207,7 @@ def main():
                 csv_filename = download_and_extract_rbn_data(date)
                 df = process_downloaded_data(csv_filename)
                 os.remove(csv_filename)
+                use_band_column = True
                 st.write("Using downloaded data.")
             else:
                 st.error("Please provide the necessary data.")
@@ -217,7 +222,7 @@ def main():
             grid = Grid(grid_square)
             grid_square_coords = (grid.lat, grid.long)
             
-            m = create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons, grid_square)
+            m = create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons, grid_square, use_band_column)
             m.save('map.html')
             st.write("Map generated successfully!")
             
