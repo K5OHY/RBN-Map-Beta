@@ -142,7 +142,7 @@ def create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons
 def process_pasted_data(pasted_data):
     """Process pasted RBN data into a DataFrame."""
     lines = pasted_data.split('\n')
-    lines = [line.strip() for line in lines if line.strip() and not line.startswith('●')]
+    lines = [line.strip() for line in lines if line.strip()]
     
     data = []
     for line in lines[1:]:  # Skip the header
@@ -178,21 +178,31 @@ def main():
     st.title("RBN Signal Map Generator")
 
     callsign = st.text_input("Enter Callsign:")
-    date = st.text_input("Enter the date (YYYYMMDD):")
     grid_square = st.text_input("Enter Grid Square:")
     show_all_beacons = st.checkbox("Show all reverse beacons")
-    pasted_data = st.text_area("Paste RBN data here:")
 
+    data_source = st.radio(
+        "Select data source",
+        ('Paste RBN data', 'Download RBN data by date')
+    )
+
+    if data_source == 'Paste RBN data':
+        pasted_data = st.text_area("Paste RBN data here:")
+    else:
+        date = st.text_input("Enter the date (YYYYMMDD):")
+    
     if st.button("Generate Map"):
         try:
-            if pasted_data.strip():
+            if data_source == 'Paste RBN data' and pasted_data.strip():
                 df = process_pasted_data(pasted_data)
                 st.write("Using pasted data.")
-            else:
+            elif data_source == 'Download RBN data by date' and date.strip():
                 csv_filename = download_and_extract_rbn_data(date)
                 df = process_downloaded_data(csv_filename)
                 os.remove(csv_filename)
                 st.write("Using downloaded data.")
+            else:
+                st.error("Please provide the necessary data.")
 
             filtered_df = df[df['dx'] == callsign].copy()
             
