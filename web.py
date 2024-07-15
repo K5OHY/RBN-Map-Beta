@@ -182,7 +182,7 @@ if data_source == 'Download Data':
             filtered_df['freq'] = pd.to_numeric(filtered_df['freq'], errors='coerce')
 
             spotter_coords = {
-                'OZ1AAB': (55.7, 12.6),
+                            'OZ1AAB': (55.7, 12.6),
             'HA1VHF': (47.9, 19.2),
             'W6YX': (37.4, -122.2),
             'KV4TT': (36.0, -79.8),
@@ -531,8 +531,7 @@ if data_source == 'Download Data':
             'W6BB': (37.9, -122.3),
             'NU6XB': (37.9, -122.3),
             'DM5I': (49.5, 11.5),
-            'IV3DXW': (46.1, 13.2
-                'W6YX': (37.4, -122.2)
+            'IV3DXW': (46.1, 13.2)
             }
             
             grid = Grid(grid_square)
@@ -562,7 +561,7 @@ elif data_source == 'Paste Data':
             filtered_df = df[df['spotted'] == callsign].copy()
 
             spotter_coords = {
-                'OZ1AAB': (55.7, 12.6),
+                             'OZ1AAB': (55.7, 12.6),
             'HA1VHF': (47.9, 19.2),
             'W6YX': (37.4, -122.2),
             'KV4TT': (36.0, -79.8),
@@ -911,7 +910,7 @@ elif data_source == 'Paste Data':
             'W6BB': (37.9, -122.3),
             'NU6XB': (37.9, -122.3),
             'DM5I': (49.5, 11.5),
-            'IV3DXW': (46.1, 13.2
+            'IV3DXW': (46.1, 13.2)
             }
             
             grid = Grid(grid_square)
