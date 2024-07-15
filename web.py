@@ -113,6 +113,26 @@ def create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons
 
     return m
 
+def parse_pasted_data(pasted_data):
+    """Parse pasted data into a DataFrame."""
+    lines = pasted_data.strip().split('\n')
+    data = []
+    for line in lines:
+        parts = line.split()
+        spotter = parts[0]
+        spotted = parts[1]
+        distance = parts[2]
+        freq = parts[3]
+        mode = parts[4]
+        type_ = parts[5]
+        snr = parts[6]
+        speed = parts[7]
+        time = parts[8]
+        date = parts[9]
+        data.append([spotter, spotted, distance, freq, mode, type_, snr, speed, time, date])
+    df = pd.DataFrame(data, columns=['spotter', 'spotted', 'distance', 'freq', 'mode', 'type', 'snr', 'speed', 'time', 'date'])
+    return df
+
 def main():
     st.title("RBN Signal Map Generator")
 
@@ -120,17 +140,22 @@ def main():
     date = st.text_input("Enter the date (YYYYMMDD):")
     grid_square = st.text_input("Enter Grid Square:")
     show_all_beacons = st.checkbox("Show all reverse beacons")
+    pasted_data = st.text_area("Paste RBN data here:")
 
     if st.button("Generate Map"):
         try:
-            csv_filename = download_and_extract_rbn_data(date)
-            df = pd.read_csv(csv_filename)
-            os.remove(csv_filename)
-            
-            filtered_df = df[df['dx'] == callsign].copy()
-            filtered_df['snr'] = pd.to_numeric(filtered_df['db'], errors='coerce')
+            if pasted_data.strip():
+                df = parse_pasted_data(pasted_data)
+                st.write("Using pasted data.")
+            else:
+                csv_filename = download_and_extract_rbn_data(date)
+                df = pd.read_csv(csv_filename)
+                os.remove(csv_filename)
+                st.write("Using downloaded data.")
 
-            # Load spotter coordinates from CSV
+            filtered_df = df[df['spotted'] == callsign].copy()
+            filtered_df['snr'] = pd.to_numeric(filtered_df['snr'].str.replace('dB', ''), errors='coerce')
+            
             spotter_coords_df = pd.read_csv('spotter_coords.csv')
             spotter_coords = {
                 row['callsign']: (row['latitude'], row['longitude']) for _, row in spotter_coords_df.iterrows()
