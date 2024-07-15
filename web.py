@@ -149,32 +149,37 @@ def process_pasted_data(pasted_data):
     lines = [line.strip() for line in lines if line.strip()]
     
     data = []
-    for line in lines[1:]:
+    for line in lines:
         parts = line.split()
         spotter = parts[0]
-        spotted = parts[1]
-        distance = parts[2] + ' ' + parts[3]
-        freq = parts[4]
-        mode = parts[5]
-        type_ = parts[6]
-        snr = parts[7] + ' ' + parts[8]
-        speed = parts[9] + ' ' + parts[10]
-        time = parts[11] + ' ' + parts[12] + ' ' + parts[13]
-        seen = ' '.join(parts[14:])
-        data.append([spotter, spotted, distance, freq, mode, type_, snr, speed, time, seen])
+        dx = parts[1]
+        freq = parts[3]
+        snr = parts[6]
+        data.append([spotter, dx, freq, snr])
     
-    df = pd.DataFrame(data, columns=['spotter', 'dx', 'distance', 'freq', 'mode', 'type', 'snr', 'speed', 'time', 'seen'])
+    df = pd.DataFrame(data, columns=['spotter', 'dx', 'freq', 'snr'])
     
-    df['snr'] = df['snr'].str.split().str[0].astype(float)
+    df['snr'] = df['snr'].str.replace(' dB', '').astype(float)
     df['freq'] = df['freq'].astype(float)
     
     return df
 
 def process_downloaded_data(filename):
     df = pd.read_csv(filename)
-    df = df.rename(columns={'callsign': 'spotter', 'dx': 'dx', 'db': 'snr', 'freq': 'freq'})
-    df['snr'] = pd.to_numeric(df['snr'], errors='coerce')
-    df['freq'] = pd.to_numeric(df['freq'], errors='coerce')
+    data = []
+    for line in df.itertuples():
+        parts = line[1].split()
+        spotter = parts[0]
+        dx = parts[1]
+        freq = parts[3]
+        snr = parts[6]
+        data.append([spotter, dx, freq, snr])
+    
+    df = pd.DataFrame(data, columns=['spotter', 'dx', 'freq', 'snr'])
+    
+    df['snr'] = df['snr'].str.replace(' dB', '').astype(float)
+    df['freq'] = df['freq'].astype(float)
+    
     return df
 
 def main():
