@@ -111,6 +111,10 @@ def create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons
             coords = spotter_coords[spotter]
             band = get_band(row['freq'])
             color = band_colors.get(band, 'blue')
+
+            # Debug output for checking band and color assignment
+            st.write(f"Spotter: {spotter}, Frequency: {row['freq']}, Band: {band}, Color: {color}")
+
             folium.PolyLine(
                 locations=[grid_square_coords, coords],
                 color=color,
