@@ -178,7 +178,18 @@ def process_downloaded_data(filename):
     return df
 
 def main():
-    st.title("RBN Signal Map Generator")
+    st.title("RBN Signal Mapper")
+
+    st.markdown("""
+    **Instructions:**
+    1. Enter your callsign and grid square.
+    2. Select the data source:
+        - Paste RBN data manually.
+        - Download RBN data by date.
+    3. Optionally, choose to show all reverse beacons.
+    4. Click 'Generate Map' to visualize the signal map.
+    5. You can download the generated map using the provided download button.
+    """)
 
     callsign = st.text_input("Enter Callsign:")
     grid_square = st.text_input("Enter Grid Square:")
