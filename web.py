@@ -57,8 +57,9 @@ def get_band(freq):
 def create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons, grid_square):
     m = folium.Map(location=[39.8283, -98.5795], zoom_start=4)
 
+    # Add small black dots at every beacon's location if show_all_beacons is True
     if show_all_beacons:
-        for coords in spotter_coords.values():
+        for spotter, coords in spotter_coords.items():
             folium.CircleMarker(
                 location=coords,
                 radius=1,  # Small black dot
@@ -67,6 +68,7 @@ def create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons
                 fill_color='black'
             ).add_to(m)
 
+    # Add the spotter locations to the map with varying marker sizes based on SNR
     for _, row in filtered_df.iterrows():
         spotter = row['spotter']
         if spotter in spotter_coords:
@@ -74,19 +76,21 @@ def create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons
             snr = row['snr']
             folium.CircleMarker(
                 location=coords,
-                radius=snr / 2,
+                radius=snr / 2,  # Scale the size based on SNR
                 popup=f'Spotter: {spotter}<br>SNR: {snr} dB',
                 color=get_color(snr),
                 fill=True,
                 fill_color=get_color(snr)
             ).add_to(m)
 
+    # Add grid square marker
     folium.Marker(
         location=grid_square_coords,
         icon=folium.Icon(icon='star', color='red'),
         popup=f'Your Location: {grid_square}'
     ).add_to(m)
     
+    # Define colors for different ham bands
     band_colors = {
         '160m': 'blue',
         '80m': 'green',
@@ -100,6 +104,7 @@ def create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons
         '6m': 'magenta'
     }
 
+    # Add lines with different colors based on ham bands
     for _, row in filtered_df.iterrows():
         spotter = row['spotter']
         if spotter in spotter_coords:
@@ -111,26 +116,27 @@ def create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons
                 color=color,
                 weight=1
             ).add_to(m)
-
+    
+    # Add a smaller legend
     legend_html = '''
-    <div style="position: fixed; 
-    bottom: 20px; left: 20px; width: 120px; height: 180px; 
-    border:1px solid grey; z-index:9999; font-size:10px;
-    background-color:white;
-    ">
-    &nbsp; <b>Legend</b> <br>
-    &nbsp; 160m &nbsp; <i class="fa fa-circle" style="color:blue"></i><br>
-    &nbsp; 80m &nbsp; <i class="fa fa-circle" style="color:green"></i><br>
-    &nbsp; 40m &nbsp; <i class="fa fa-circle" style="color:teal"></i><br>
-    &nbsp; 30m &nbsp; <i class="fa fa-circle" style="color:purple"></i><br>
-    &nbsp; 20m &nbsp; <i class="fa fa-circle" style="color:darkblue"></i><br>
-    &nbsp; 17m &nbsp; <i class="fa fa-circle" style="color:orange"></i><br>
-    &nbsp; 15m &nbsp; <i class="fa fa-circle" style="color:lime"></i><br>
-    &nbsp; 12m &nbsp; <i class="fa fa-circle" style="color:pink"></i><br>
-    &nbsp; 10m &nbsp; <i class="fa fa-circle" style="color:red"></i><br>
-    &nbsp; 6m &nbsp; <i class="fa fa-circle" style="color:magenta"></i><br>
-    </div>
-    '''
+     <div style="position: fixed; 
+     bottom: 20px; left: 20px; width: 120px; height: 180px; 
+     border:1px solid grey; z-index:9999; font-size:10px;
+     background-color:white;
+     ">
+     &nbsp; <b>Legend</b> <br>
+     &nbsp; 160m &nbsp; <i class="fa fa-circle" style="color:blue"></i><br>
+     &nbsp; 80m &nbsp; <i class="fa fa-circle" style="color:green"></i><br>
+     &nbsp; 40m &nbsp; <i class="fa fa-circle" style="color:teal"></i><br>
+     &nbsp; 30m &nbsp; <i class="fa fa-circle" style="color:purple"></i><br>
+     &nbsp; 20m &nbsp; <i class="fa fa-circle" style="color:darkblue"></i><br>
+     &nbsp; 17m &nbsp; <i class="fa fa-circle" style="color:orange"></i><br>
+     &nbsp; 15m &nbsp; <i class="fa fa-circle" style="color:lime"></i><br>
+     &nbsp; 12m &nbsp; <i class="fa fa-circle" style="color:pink"></i><br>
+     &nbsp; 10m &nbsp; <i class="fa fa-circle" style="color:red"></i><br>
+     &nbsp; 6m &nbsp; <i class="fa fa-circle" style="color:magenta"></i><br>
+     </div>
+     '''
     m.get_root().html.add_child(folium.Element(legend_html))
 
     return m
@@ -212,10 +218,12 @@ def main():
             m.save('map.html')
             st.write("Map generated successfully!")
             
+            # Display map
             st.components.v1.html(open('map.html', 'r').read(), height=700)
 
+            # Provide download link
             with open("map.html", "rb") as file:
-                st.download_button(
+                btn = st.download_button(
                     label="Download Map",
                     data=file,
                     file_name="RBN_signal_map_with_snr.html",
