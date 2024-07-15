@@ -117,21 +117,21 @@ def parse_pasted_data(pasted_data):
     """Parse pasted data into a DataFrame."""
     lines = pasted_data.strip().split('\n')
     data = []
-    for line in lines:
+    for line in lines[1:]:  # Skip header
         parts = line.split()
         spotter = parts[0]
         dx = parts[1]
-        distance = parts[2]
-        freq = parts[3]
-        mode = parts[4]
-        type_ = parts[5]
-        snr = parts[6]
-        speed = parts[7]
-        time = parts[8]
-        date = parts[9:]
-        date = " ".join(date)  # Handle date with spaces
-        data.append([spotter, dx, distance, freq, mode, type_, snr, speed, time, date])
-    df = pd.DataFrame(data, columns=['spotter', 'dx', 'distance', 'freq', 'mode', 'type', 'snr', 'speed', 'time', 'date'])
+        distance = parts[2] + " " + parts[3]  # Combine distance and unit
+        freq = parts[4]
+        mode = parts[5]
+        type_ = parts[6]
+        snr = parts[7] + " " + parts[8]  # Combine SNR value and unit
+        speed = parts[9] + " " + parts[10]  # Combine speed value and unit
+        time = parts[11]
+        date = " ".join(parts[12:15])  # Combine date with spaces
+        seen = " ".join(parts[15:])  # Remaining parts for 'seen' field
+        data.append([spotter, dx, distance, freq, mode, type_, snr, speed, time, date, seen])
+    df = pd.DataFrame(data, columns=['spotter', 'dx', 'distance', 'freq', 'mode', 'type', 'snr', 'speed', 'time', 'date', 'seen'])
     return df
 
 def main():
