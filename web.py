@@ -166,6 +166,14 @@ def process_pasted_data(pasted_data):
     
     return df
 
+def process_downloaded_data(filename):
+    """Process downloaded RBN data into a DataFrame."""
+    df = pd.read_csv(filename)
+    df = df.rename(columns={'callsign': 'spotter', 'dx': 'dx', 'db': 'snr', 'freq': 'freq'})
+    df['snr'] = pd.to_numeric(df['snr'], errors='coerce')
+    df['freq'] = pd.to_numeric(df['freq'], errors='coerce')
+    return df
+
 def main():
     st.title("RBN Signal Map Generator")
 
@@ -182,7 +190,7 @@ def main():
                 st.write("Using pasted data.")
             else:
                 csv_filename = download_and_extract_rbn_data(date)
-                df = pd.read_csv(csv_filename)
+                df = process_downloaded_data(csv_filename)
                 os.remove(csv_filename)
                 st.write("Using downloaded data.")
 
