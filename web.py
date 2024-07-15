@@ -533,7 +533,7 @@ if st.button("Generate Map"):
         m.save('map.html')
         st.write("Map generated successfully!")
         
-        # Display map
+           # Display map
         st.components.v1.html(open('map.html', 'r').read(), height=700)
 
         # Provide download link
@@ -544,5 +544,5 @@ if st.button("Generate Map"):
                 file_name="RBN_signal_map_with_snr.html",
                 mime="text/html"
             )
-      except Exception as e:
+    except Exception as e:
         st.error(f"Error: {e}")
