@@ -2,38 +2,35 @@ import pandas as pd
 import folium
 import matplotlib.colors as mcolors
 from gridtools import Grid
+import requests
+import zipfile
+import os
+from io import BytesIO, StringIO
 import streamlit as st
-from io import StringIO
+
+def download_and_extract_rbn_data(date):
+    url = f'https://data.reversebeacon.net/rbn_history/{date}.zip'
+    response = requests.get(url)
+    if response.status_code == 200:
+        with zipfile.ZipFile(BytesIO(response.content)) as z:
+            csv_filename = None
+            for file_info in z.infolist():
+                if file_info.filename.endswith('.csv'):
+                    csv_filename = file_info.filename
+                    z.extract(csv_filename)
+                    break
+            if csv_filename is None:
+                raise Exception("No CSV file found in the ZIP archive")
+            return csv_filename
+    else:
+        raise Exception(f"Error downloading RBN data: {response.status_code}")
 
 def process_pasted_data(pasted_data):
-    # Remove unnecessary lines and split the data
-    lines = pasted_data.split('\n')
-    lines = [line.strip() for line in lines if line.strip() and not line.startswith('●')]
-    
-    # Extract columns and data
-    data = []
-    for line in lines[1:]:  # Skip the header
-        parts = line.split()
-        spotter = parts[0]
-        spotted = parts[1]
-        distance = parts[2] + ' ' + parts[3]
-        freq = parts[4]
-        mode = parts[5]
-        type_ = parts[6]
-        snr = parts[7] + ' ' + parts[8]
-        speed = parts[9] + ' ' + parts[10]
-        time = parts[11] + ' ' + parts[12] + ' ' + parts[13]
-        seen = ' '.join(parts[14:])
-        data.append([spotter, spotted, distance, freq, mode, type_, snr, speed, time, seen])
-    
-    # Create a DataFrame
-    df = pd.DataFrame(data, columns=['spotter', 'spotted', 'distance', 'freq', 'mode', 'type', 'snr', 'speed', 'time', 'seen'])
+    # Read the data into a DataFrame
+    df = pd.read_csv(StringIO(pasted_data), delimiter='\t')
     
     # Convert SNR to numeric
-    df['snr'] = df['snr'].str.split().str[0].astype(float)
-    
-    # Extract frequency as float
-    df['freq'] = df['freq'].astype(float)
+    df['snr'] = df['db']
     
     return df
 
@@ -156,17 +153,53 @@ def create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons
 st.title("RBN Signal Map Generator")
 
 callsign = st.text_input("Enter Callsign:")
+date = st.text_input("Enter the date (YYYYMMDD):")
 grid_square = st.text_input("Enter Grid Square:")
 show_all_beacons = st.checkbox("Show all reverse beacons")
+option = st.radio("Choose data input method:", ('Download from RBN', 'Paste data'))
 
-pasted_data = st.text_area("Paste the RBN data here:")
-if st.button("Generate Map"):
-    try:
-        df = process_pasted_data(pasted_data)
-        filtered_df = df[df['spotted'] == callsign].copy()
+if option == 'Download from RBN':
+    if st.button("Generate Map"):
+        try:
+            csv_filename = download_and_extract_rbn_data(date)
+            df = pd.read_csv(csv_filename)
+            os.remove(csv_filename)
+            
+            filtered_df = df[df['dx'] == callsign].copy()
+            filtered_df['snr'] = pd.to_numeric(filtered_df['db'], errors='coerce')
+            
+            spotter_coords = {}  # Placeholder, you can add your spotter coordinates here
+            
+            grid = Grid(grid_square)
+            grid_square_coords = (grid.lat, grid.long)
+            
+            m = create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons)
+            m.save('map.html')
+            st.write("Map generated successfully!")
+            
+            # Display map
+            st.components.v1.html(open('map.html', 'r').read(), height=700)
 
-        spotter_coords = {
-                     'OZ1AAB': (55.7, 12.6),
+            # Provide download link
+            with open("map.html", "rb") as file:
+                btn = st.download_button(
+                    label="Download Map",
+                    data=file,
+                    file_name="RBN_signal_map_with_snr.html",
+                    mime="text/html"
+                )
+        except Exception as e:
+            st.error(f"Error: {e}")
+
+if option == 'Paste data':
+    pasted_data = st.text_area("Paste the RBN data here:")
+    if st.button("Generate Map"):
+        try:
+            df = process_pasted_data(pasted_data)
+            filtered_df = df[df['spotted'] == callsign].copy()
+
+            spotter_coords = {
+                  'OZ1AAB': (55.7, 12.6),
             'HA1VHF': (47.9, 19.2),
             'W6YX': (37.4, -122.2),
             'KV4TT': (36.0, -79.8),
@@ -516,25 +549,26 @@ if st.button("Generate Map"):
             'NU6XB': (37.9, -122.3),
             'DM5I': (49.5, 11.5),
             'IV3DXW': (46.1, 13.2)
-        }
-        
-        grid = Grid(grid_square)
-        grid_square_coords = (grid.lat, grid.long)
-        
-        m = create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons)
-        m.save('map.html')
-        st.write("Map generated successfully!")
-        
-        # Display map
-        st.components.v1.html(open('map.html', 'r').read(), height=700)
+            }  # Placeholder, you can add your spotter coordinates here
+            
+            grid = Grid(grid_square)
+            grid_square_coords = (grid.lat, grid.long)
+            
+            m = create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons)
+            m.save('map.html')
+            st.write("Map generated successfully!")
+            
+            # Display map
+            st.components.v1.html(open('map.html', 'r').read(), height=700)
 
-        # Provide download link
-        with open("map.html", "rb") as file:
-            btn = st.download_button(
-                label="Download Map",
-                data=file,
-                file_name="RBN_signal_map_with_snr.html",
-                mime="text/html"
-            )
-    except Exception as e:
-        st.error(f"Error: {e}")
+            # Provide download link
+            with open("map.html", "rb") as file:
+                btn = st.download_button(
+                    label="Download Map",
+                    data=file,
+                    file_name="RBN_signal_map_with_snr.html",
+                    mime="
+                    mime="text/html"
+                )
+        except Exception as e:
+            st.error(f"Error: {e}")
