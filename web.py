@@ -182,10 +182,10 @@ def main():
 
     st.markdown("""
     **Instructions:**
-    1. Enter a callsign and grid square.
+    1. Enter your callsign and grid square.
     2. Select the data source:
         - Paste RBN data manually.
-        - Download raw RBN data by date.
+        - Download RBN data by date.
     3. Optionally, choose to show all reverse beacons.
     4. Click 'Generate Map' to visualize the signal map.
     5. You can download the generated map using the provided download button.
@@ -208,6 +208,7 @@ def main():
     if st.button("Generate Map"):
         try:
             use_band_column = False
+            file_date = ""
             if data_source == 'Paste RBN data' and pasted_data.strip():
                 df = process_pasted_data(pasted_data)
                 st.write("Using pasted data.")
@@ -216,6 +217,7 @@ def main():
                 df = process_downloaded_data(csv_filename)
                 os.remove(csv_filename)
                 use_band_column = True
+                file_date = date
                 st.write("Using downloaded data.")
             else:
                 st.error("Please provide the necessary data.")
@@ -231,16 +233,17 @@ def main():
             grid_square_coords = (grid.lat, grid.long)
             
             m = create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons, grid_square, use_band_column)
-            m.save('map.html')
+            map_filename = f"RBN_signal_map_{file_date}.html" if file_date else "RBN_signal_map.html"
+            m.save(map_filename)
             st.write("Map generated successfully!")
             
-            st.components.v1.html(open('map.html', 'r').read(), height=700)
+            st.components.v1.html(open(map_filename, 'r').read(), height=700)
 
-            with open("map.html", "rb") as file:
+            with open(map_filename, "rb") as file:
                 st.download_button(
                     label="Download Map",
                     data=file,
-                    file_name="RBN_signal_map_with_snr.html",
+                    file_name=map_filename,
                     mime="text/html"
                 )
         except Exception as e:
