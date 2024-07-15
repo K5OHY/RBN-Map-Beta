@@ -27,6 +27,32 @@ def get_color(snr):
     color_map = mcolors.LinearSegmentedColormap.from_list('custom', ['green', 'yellow', 'red'])
     return mcolors.to_hex(color_map(snr / 30))
 
+def get_band(freq):
+    """Determine the ham band based on the frequency."""
+    freq = float(freq)
+    if 1.8 <= freq <= 2.0:
+        return '160m'
+    elif 3.5 <= freq <= 4.0:
+        return '80m'
+    elif 7.0 <= freq <= 7.3:
+        return '40m'
+    elif 10.1 <= freq <= 10.15:
+        return '30m'
+    elif 14.0 <= freq <= 14.35:
+        return '20m'
+    elif 18.068 <= freq <= 18.168:
+        return '17m'
+    elif 21.0 <= freq <= 21.45:
+        return '15m'
+    elif 24.89 <= freq <= 24.99:
+        return '12m'
+    elif 28.0 <= freq <= 29.7:
+        return '10m'
+    elif 50.0 <= freq <= 54.0:
+        return '6m'
+    else:
+        return 'unknown'
+
 def create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons, grid_square):
     """Create a folium map with the given parameters."""
     m = folium.Map(location=[39.8283, -98.5795], zoom_start=4)
@@ -80,7 +106,7 @@ def create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons
         spotter = row['spotter']
         if spotter in spotter_coords:
             coords = spotter_coords[spotter]
-            band = row['band']
+            band = get_band(row['freq'])
             color = band_colors.get(band, 'blue')
             folium.PolyLine(
                 locations=[grid_square_coords, coords],
@@ -113,25 +139,31 @@ def create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons
 
     return m
 
-def parse_pasted_data(pasted_data):
-    """Parse pasted data into a DataFrame."""
-    lines = pasted_data.strip().split('\n')
+def process_pasted_data(pasted_data):
+    """Process pasted RBN data into a DataFrame."""
+    lines = pasted_data.split('\n')
+    lines = [line.strip() for line in lines if line.strip() and not line.startswith('●')]
+    
     data = []
-    for line in lines[1:]:  # Skip header
+    for line in lines[1:]:  # Skip the header
         parts = line.split()
         spotter = parts[0]
-        dx = parts[1]
-        distance = parts[2] + " " + parts[3]  # Combine distance and unit
+        spotted = parts[1]
+        distance = parts[2] + ' ' + parts[3]
         freq = parts[4]
         mode = parts[5]
         type_ = parts[6]
-        snr = parts[7] + " " + parts[8]  # Combine SNR value and unit
-        speed = parts[9] + " " + parts[10]  # Combine speed value and unit
-        time = parts[11]
-        date = " ".join(parts[12:15])  # Combine date with spaces
-        seen = " ".join(parts[15:])  # Remaining parts for 'seen' field
-        data.append([spotter, dx, distance, freq, mode, type_, snr, speed, time, date, seen])
-    df = pd.DataFrame(data, columns=['spotter', 'dx', 'distance', 'freq', 'mode', 'type', 'snr', 'speed', 'time', 'date', 'seen'])
+        snr = parts[7] + ' ' + parts[8]
+        speed = parts[9] + ' ' + parts[10]
+        time = parts[11] + ' ' + parts[12] + ' ' + parts[13]
+        seen = ' '.join(parts[14:])
+        data.append([spotter, spotted, distance, freq, mode, type_, snr, speed, time, seen])
+    
+    df = pd.DataFrame(data, columns=['spotter', 'dx', 'distance', 'freq', 'mode', 'type', 'snr', 'speed', 'time', 'seen'])
+    
+    df['snr'] = df['snr'].str.split().str[0].astype(float)
+    df['freq'] = df['freq'].astype(float)
+    
     return df
 
 def main():
@@ -146,7 +178,7 @@ def main():
     if st.button("Generate Map"):
         try:
             if pasted_data.strip():
-                df = parse_pasted_data(pasted_data)
+                df = process_pasted_data(pasted_data)
                 st.write("Using pasted data.")
             else:
                 csv_filename = download_and_extract_rbn_data(date)
@@ -155,7 +187,6 @@ def main():
                 st.write("Using downloaded data.")
 
             filtered_df = df[df['dx'] == callsign].copy()
-            filtered_df['snr'] = pd.to_numeric(filtered_df['snr'].str.replace('dB', ''), errors='coerce')
             
             spotter_coords_df = pd.read_csv('spotter_coords.csv')
             spotter_coords = {
