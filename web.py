@@ -34,27 +34,26 @@ def get_band(freq):
         freq = float(freq)
     except ValueError:
         return 'unknown'
-    
-    if 1.8 <= freq <= 2.0:
-        return '160m'
-    elif 3.5 <= freq <= 4.0:
-        return '80m'
-    elif 7.0 <= freq <= 7.3:
-        return '40m'
-    elif 10.1 <= freq <= 10.15:
-        return '30m'
-    elif 14.0 <= freq <= 14.35:
-        return '20m'
-    elif 18.068 <= freq <= 18.168:
-        return '17m'
-    elif 21.0 <= freq <= 21.45:
-        return '15m'
-    elif 24.89 <= freq <= 24.99:
-        return '12m'
-    elif 28.0 <= freq <= 29.7:
-        return '10m'
-    elif 50.0 <= freq <= 54.0:
-        return '6m'
+    if 1800 <= freq <= 2000:
+    return '160m'
+elif 3500 <= freq <= 4000:
+    return '80m'
+elif 7000 <= freq <= 7300:
+    return '40m'
+elif 10100 <= freq <= 10150:
+    return '30m'
+elif 14000 <= freq <= 14350:
+    return '20m'
+elif 18068 <= freq <= 18168:
+    return '17m'
+elif 21000 <= freq <= 21450:
+    return '15m'
+elif 24890 <= freq <= 24990:
+    return '12m'
+elif 28000 <= freq <= 29700:
+    return '10m'
+elif 50000 <= freq <= 54000:
+    return '6m'
     else:
         return 'unknown'
 
@@ -111,12 +110,12 @@ def create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons
             if use_band_column:
                 band = row['band']
             else:
-                freq = row['freq'] / 1000.0  # Convert kHz to MHz for pasted data
+                freq = row['freq']
                 band = get_band(freq)
             color = band_colors.get(band, 'blue')
 
             # Debug output for checking band and color assignment
-            st.write(f"Spotter: {spotter}, Frequency: {freq}, Band: {band}, Color: {color}")
+            st.write(f"Spotter: {spotter}, Band: {band}, Color: {color}")
 
             folium.PolyLine(
                 locations=[grid_square_coords, coords],
@@ -169,7 +168,7 @@ def process_pasted_data(pasted_data):
     df = pd.DataFrame(data, columns=['spotter', 'dx', 'distance', 'freq', 'mode', 'type', 'snr', 'speed', 'time', 'seen'])
     
     df['snr'] = df['snr'].str.split().str[0].astype(float)
-    df['freq'] = df['freq'].astype(float) / 1000.0  # Convert kHz to MHz
+    df['freq'] = df['freq'].astype(float)
     
     return df
 
