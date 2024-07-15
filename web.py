@@ -34,7 +34,7 @@ def get_band(freq):
         freq = float(freq)
     except ValueError:
         return 'unknown'
-    
+
     if 1.8 <= freq <= 2.0:
         return '160m'
     elif 3.5 <= freq <= 4.0:
@@ -116,7 +116,7 @@ def create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons
             color = band_colors.get(band, 'blue')
 
             # Debug output for checking band and color assignment
-            st.write(f"Spotter: {spotter}, Band: {band}, Color: {color}")
+            st.write(f"Spotter: {spotter}, Frequency: {freq}, Band: {band}, Color: {color}")
 
             folium.PolyLine(
                 locations=[grid_square_coords, coords],
