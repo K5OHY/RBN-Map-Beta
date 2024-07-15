@@ -182,7 +182,7 @@ if data_source == 'Download Data':
             filtered_df['freq'] = pd.to_numeric(filtered_df['freq'], errors='coerce')
 
             spotter_coords = {
-                            'OZ1AAB': (55.7, 12.6),
+                             'OZ1AAB': (55.7, 12.6),
             'HA1VHF': (47.9, 19.2),
             'W6YX': (37.4, -122.2),
             'KV4TT': (36.0, -79.8),
