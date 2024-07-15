@@ -30,7 +30,11 @@ def get_color(snr):
     return mcolors.to_hex(color_map(snr / 30))
 
 def get_band(freq):
-    freq = float(freq)
+    try:
+        freq = float(freq)
+    except ValueError:
+        return 'unknown'
+    
     if 1.8 <= freq <= 2.0:
         return '160m'
     elif 3.5 <= freq <= 4.0:
@@ -57,18 +61,16 @@ def get_band(freq):
 def create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons, grid_square):
     m = folium.Map(location=[39.8283, -98.5795], zoom_start=4)
 
-    # Add small black dots at every beacon's location if show_all_beacons is True
     if show_all_beacons:
         for spotter, coords in spotter_coords.items():
             folium.CircleMarker(
                 location=coords,
-                radius=1,  # Small black dot
+                radius=1,
                 color='black',
                 fill=True,
                 fill_color='black'
             ).add_to(m)
 
-    # Add the spotter locations to the map with varying marker sizes based on SNR
     for _, row in filtered_df.iterrows():
         spotter = row['spotter']
         if spotter in spotter_coords:
@@ -76,21 +78,19 @@ def create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons
             snr = row['snr']
             folium.CircleMarker(
                 location=coords,
-                radius=snr / 2,  # Scale the size based on SNR
+                radius=snr / 2,
                 popup=f'Spotter: {spotter}<br>SNR: {snr} dB',
                 color=get_color(snr),
                 fill=True,
                 fill_color=get_color(snr)
             ).add_to(m)
 
-    # Add grid square marker
     folium.Marker(
         location=grid_square_coords,
         icon=folium.Icon(icon='star', color='red'),
         popup=f'Your Location: {grid_square}'
     ).add_to(m)
     
-    # Define colors for different ham bands
     band_colors = {
         '160m': 'blue',
         '80m': 'green',
@@ -104,7 +104,6 @@ def create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons
         '6m': 'magenta'
     }
 
-    # Add lines with different colors based on ham bands
     for _, row in filtered_df.iterrows():
         spotter = row['spotter']
         if spotter in spotter_coords:
@@ -122,7 +121,6 @@ def create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons
                 weight=1
             ).add_to(m)
     
-    # Add a smaller legend
     legend_html = '''
      <div style="position: fixed; 
      bottom: 20px; left: 20px; width: 120px; height: 180px; 
@@ -151,7 +149,7 @@ def process_pasted_data(pasted_data):
     lines = [line.strip() for line in lines if line.strip()]
     
     data = []
-    for line in lines[1:]:  # Skip the header
+    for line in lines[1:]:
         parts = line.split()
         spotter = parts[0]
         spotted = parts[1]
@@ -228,7 +226,7 @@ def main():
 
             # Provide download link
             with open("map.html", "rb") as file:
-                btn = st.download_button(
+                st.download_button(
                     label="Download Map",
                     data=file,
                     file_name="RBN_signal_map_with_snr.html",
