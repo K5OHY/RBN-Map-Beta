@@ -210,7 +210,7 @@ def process_pasted_data(pasted_data):
         if all([spotter, dx, distance, freq, mode, type_, snr, speed, time]):
             data.append([spotter, dx, distance, freq, mode, type_, snr, speed, time, seen])
             if date is None:
-                date = parts[11]  # Extract date from the first valid line
+                date = parts[13] + " " + parts[12]  # Extract date from the first valid line
     
     df = pd.DataFrame(data, columns=['spotter', 'dx', 'distance', 'freq', 'mode', 'type', 'snr', 'speed', 'time', 'seen'])
     
@@ -303,7 +303,8 @@ def main():
             if data_source == 'Paste RBN data' and pasted_data.strip():
                 df, raw_date = process_pasted_data(pasted_data)
                 if raw_date:
-                    file_date = raw_date.split()[0].replace('-', '')  # Extract and format the date
+                    date_obj = datetime.strptime(raw_date, "%d %b")
+                    file_date = date_obj.strftime("%Y%m%d")
                 st.write("Using pasted data.")
             elif data_source == 'Download RBN data by date':
                 if not date.strip():
