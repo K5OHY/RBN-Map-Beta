@@ -61,7 +61,7 @@ def get_band(freq):
     else:
         return 'unknown'
 
-def create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons, grid_square, use_band_column):
+def create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons, grid_square, use_band_column, callsign, stats):
     m = folium.Map(location=[39.8283, -98.5795], zoom_start=4)
 
     if show_all_beacons:
@@ -124,6 +124,21 @@ def create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons
                 weight=1
             ).add_to(m)
     
+    stats_html = f'''
+     <div style="position: fixed; 
+     bottom: 220px; left: 20px; width: 200px; height: 100px; 
+     border:1px solid grey; z-index:9999; font-size:10px;
+     background-color:white;
+     ">
+     <b>Callsign: {callsign}</b><br>
+     Spots: {stats['spots']}<br>
+     Avg SNR: {stats['avg_snr']:.2f} dB<br>
+     Min Freq: {stats['min_freq']} Hz<br>
+     Max Freq: {stats['max_freq']} Hz<br>
+     </div>
+     '''
+    m.get_root().html.add_child(folium.Element(stats_html))
+
     legend_html = '''
      <div style="position: fixed; 
      bottom: 20px; left: 20px; width: 120px; height: 180px; 
@@ -187,6 +202,18 @@ def process_downloaded_data(filename):
     df['snr'] = pd.to_numeric(df['snr'], errors='coerce')
     df['freq'] = pd.to_numeric(df['freq'], errors='coerce')
     return df
+
+def calculate_statistics(filtered_df):
+    spots = len(filtered_df)
+    avg_snr = filtered_df['snr'].mean()
+    min_freq = filtered_df['freq'].min()
+    max_freq = filtered_df['freq'].max()
+    return {
+        'spots': spots,
+        'avg_snr': avg_snr,
+        'min_freq': min_freq,
+        'max_freq': max_freq
+    }
 
 def main():
     st.title("RBN Signal Mapper")
@@ -267,7 +294,9 @@ def main():
             grid = Grid(grid_square)
             grid_square_coords = (grid.lat, grid.long)
             
-            m = create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons, grid_square, use_band_column)
+            stats = calculate_statistics(filtered_df)
+            
+            m = create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons, grid_square, use_band_column, callsign, stats)
             map_filename = f"RBN_signal_map_{file_date}.html" if file_date else "RBN_signal_map.html"
             m.save(map_filename)
             st.write("Map generated successfully!")
