@@ -2,7 +2,6 @@ import requests
 import pandas as pd
 import folium
 import matplotlib.colors as mcolors
-from maidenhead import to_location
 import zipfile
 import os
 from io import BytesIO
@@ -237,6 +236,29 @@ def calculate_statistics(filtered_df, grid_square_coords, spotter_coords):
         'max_snr': max_snr,
         'bands': bands
     }
+
+def to_location(grid_square):
+    """
+    Convert a Maidenhead grid square to latitude and longitude.
+    """
+    if len(grid_square) < 4:
+        raise ValueError("Grid square must be at least 4 characters long")
+    
+    lats = "ABCDEFGHIJKLMNOPQR"
+    lons = "ABCDEFGHIJKLMNOPQR"
+    lat_offset = 90
+    lon_offset = -180
+
+    lat = lat_offset - 10 * lats.index(grid_square[1]) - 1 * int(grid_square[3])
+    lon = lon_offset + 20 * lons.index(grid_square[0]) + 2 * int(grid_square[2])
+
+    if len(grid_square) > 4:
+        latsub = "abcdefghijklmnopqrstuvwx"
+        lonsub = "abcdefghijklmnopqrstuvwx"
+        lat += -2.5 / 24 * latsub.index(grid_square[5])
+        lon += 5 / 24 * lonsub.index(grid_square[4])
+
+    return (lat, lon)
 
 def main():
     st.title("RBN Signal Mapper")
