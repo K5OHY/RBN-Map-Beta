@@ -7,7 +7,7 @@ import zipfile
 import os
 from io import BytesIO
 import streamlit as st
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 DEFAULT_GRID_SQUARE = "DM81wx"  # Default grid square location
 
@@ -220,16 +220,26 @@ def main():
         try:
             use_band_column = False
             file_date = ""
+            
+            # Convert callsign to uppercase
+            if callsign:
+                callsign = callsign.upper()
+                
+            # Convert grid square to proper format
+            if grid_square:
+                grid_square = grid_square[:2].upper() + grid_square[2:]
+            
             if not grid_square:
                 st.warning(f"No grid square provided, using default: {DEFAULT_GRID_SQUARE}")
                 grid_square = DEFAULT_GRID_SQUARE
+            
             if data_source == 'Paste RBN data' and pasted_data.strip():
                 df = process_pasted_data(pasted_data)
                 st.write("Using pasted data.")
-            elif data_source == 'Download RBN data by date':
+            elif data_source == 'Download RBN data by date' or not pasted_data.strip():
                 if not date.strip():
                     # Calculate yesterday's date
-                    yesterday = datetime.now() - timedelta(1)
+                    yesterday = datetime.now(timezone.utc) - timedelta(1)
                     date = yesterday.strftime('%Y%m%d')
                     st.write(f"Using latest available date: {date}")
                 csv_filename = download_and_extract_rbn_data(date)
