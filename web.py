@@ -124,17 +124,22 @@ def create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons
                 weight=1
             ).add_to(m)
     
+    band_stats = "<br>".join([f"{band}: {count}" for band, count in stats['bands'].items()])
+    
     stats_html = f'''
      <div style="position: fixed; 
-     bottom: 220px; left: 20px; width: 200px; height: 100px; 
+     bottom: 250px; left: 20px; width: 200px; height: 120px; 
      border:1px solid grey; z-index:9999; font-size:10px;
      background-color:white;
+     padding: 10px;
      ">
      <b>Callsign: {callsign}</b><br>
      Spots: {stats['spots']}<br>
+     Max Distance: {stats['max_distance']} mi<br>
+     Max SNR: {stats['max_snr']} dB<br>
      Avg SNR: {stats['avg_snr']:.2f} dB<br>
-     Min Freq: {stats['min_freq']} Hz<br>
-     Max Freq: {stats['max_freq']} Hz<br>
+     Bands:<br>
+     {band_stats}
      </div>
      '''
     m.get_root().html.add_child(folium.Element(stats_html))
@@ -206,13 +211,16 @@ def process_downloaded_data(filename):
 def calculate_statistics(filtered_df):
     spots = len(filtered_df)
     avg_snr = filtered_df['snr'].mean()
-    min_freq = filtered_df['freq'].min()
-    max_freq = filtered_df['freq'].max()
+    max_distance_row = filtered_df.iloc[filtered_df['distance'].str.split(' ').str[0].astype(float).idxmax()]
+    max_distance = max_distance_row['distance']
+    max_snr = filtered_df['snr'].max()
+    bands = filtered_df['band'].value_counts().to_dict()
     return {
         'spots': spots,
         'avg_snr': avg_snr,
-        'min_freq': min_freq,
-        'max_freq': max_freq
+        'max_distance': max_distance,
+        'max_snr': max_snr,
+        'bands': bands
     }
 
 def main():
