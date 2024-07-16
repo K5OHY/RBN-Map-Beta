@@ -14,12 +14,12 @@ def get_grid_square(callsign):
     response = requests.get(url)
     if response.status_code == 200:
         soup = BeautifulSoup(response.content, 'html.parser')
-        grid_square_tag = soup.find('span', id='locator')
+        grid_square_tag = soup.find('span', {'id': 'locator'})
         if grid_square_tag:
             grid_square = grid_square_tag.text.strip()
             return grid_square
         else:
-            raise Exception("Grid square not found on the page")
+            raise Exception("Grid square not found on the page. Please check the callsign and try again.")
     else:
         raise Exception("Error fetching callsign information")
 
