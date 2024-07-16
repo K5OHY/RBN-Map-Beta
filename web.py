@@ -8,17 +8,7 @@ import os
 from io import BytesIO
 import streamlit as st
 
-def get_grid_square(callsign):
-    url = f'https://api.hamdb.org/v1/{callsign}/json'
-    response = requests.get(url)
-    if response.status_code == 200:
-        data = response.json()
-        if 'error' in data['hamdb']:
-            raise Exception(data['hamdb']['error'])
-        grid_square = data['hamdb']['locator']
-        return grid_square
-    else:
-        raise Exception("Error fetching callsign information")
+DEFAULT_GRID_SQUARE = "FN31pr"  # Default grid square location
 
 def download_and_extract_rbn_data(date):
     url = f'https://data.reversebeacon.net/rbn_history/{date}.zip'
@@ -221,9 +211,9 @@ def main():
         try:
             use_band_column = False
             file_date = ""
-            if not grid_square and callsign:
-                grid_square = get_grid_square(callsign)
-                st.write(f"Retrieved Grid Square: {grid_square}")
+            if not grid_square:
+                st.warning(f"No grid square provided, using default: {DEFAULT_GRID_SQUARE}")
+                grid_square = DEFAULT_GRID_SQUARE
             if data_source == 'Paste RBN data' and pasted_data.strip():
                 df = process_pasted_data(pasted_data)
                 st.write("Using pasted data.")
