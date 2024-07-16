@@ -6,7 +6,7 @@ import zipfile
 import os
 from io import BytesIO
 import streamlit as st
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from geopy.distance import geodesic
 
 DEFAULT_GRID_SQUARE = "DM81wx"  # Default grid square location
@@ -281,6 +281,7 @@ def main():
     if st.button("Generate Map"):
         try:
             use_band_column = False
+            file_date = ""
             
             if callsign:
                 callsign = callsign.upper()
@@ -299,6 +300,7 @@ def main():
             if data_source == 'Paste RBN data' and pasted_data.strip():
                 df = process_pasted_data(pasted_data)
                 st.write("Using pasted data.")
+                file_date = datetime.now(timezone.utc).strftime("%Y%m%d")
             elif data_source == 'Download RBN data by date':
                 if not date.strip():
                     yesterday = datetime.now(timezone.utc) - timedelta(1)
@@ -308,6 +310,7 @@ def main():
                 df = process_downloaded_data(csv_filename)
                 os.remove(csv_filename)
                 use_band_column = True
+                file_date = date
                 st.write("Using downloaded data.")
             else:
                 st.error("Please provide the necessary data.")
@@ -327,10 +330,7 @@ def main():
 
             stats = calculate_statistics(filtered_df, grid_square_coords, spotter_coords)
             
-            # Get the current UTC date
-            current_utc_date = datetime.now(timezone.utc).strftime("%Y%m%d")
-            map_filename = f"RBN_signal_map_{current_utc_date}.html"
-            
+            map_filename = f"RBN_signal_map_{file_date}.html"
             m = create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons, grid_square, use_band_column, callsign, stats)
             m.save(map_filename)
             st.write("Map generated successfully!")
