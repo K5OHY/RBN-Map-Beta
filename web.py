@@ -189,6 +189,7 @@ def process_pasted_data(pasted_data):
     lines = [line.strip() for line in lines if line.strip()]
     
     data = []
+    date = None
     for line in lines:
         parts = line.split()
         if len(parts) < 14:
@@ -208,6 +209,8 @@ def process_pasted_data(pasted_data):
         
         if all([spotter, dx, distance, freq, mode, type_, snr, speed, time]):
             data.append([spotter, dx, distance, freq, mode, type_, snr, speed, time, seen])
+            if date is None:
+                date = parts[11]  # Extract date from the first valid line
     
     df = pd.DataFrame(data, columns=['spotter', 'dx', 'distance', 'freq', 'mode', 'type', 'snr', 'speed', 'time', 'seen'])
     
@@ -217,7 +220,7 @@ def process_pasted_data(pasted_data):
     if 'band' not in df.columns:
         df['band'] = df['freq'].apply(get_band)
     
-    return df, data[0][11]  # Extract the date from the first line
+    return df, date
 
 def process_downloaded_data(filename):
     df = pd.read_csv(filename)
@@ -299,7 +302,8 @@ def main():
             
             if data_source == 'Paste RBN data' and pasted_data.strip():
                 df, raw_date = process_pasted_data(pasted_data)
-                file_date = raw_date.split()[0].replace('-', '')  # Extract and format the date
+                if raw_date:
+                    file_date = raw_date.split()[0].replace('-', '')  # Extract and format the date
                 st.write("Using pasted data.")
             elif data_source == 'Download RBN data by date':
                 if not date.strip():
@@ -330,8 +334,8 @@ def main():
 
             stats = calculate_statistics(filtered_df, grid_square_coords, spotter_coords)
             
-            m = create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons, grid_square, use_band_column, callsign, stats)
             map_filename = f"RBN_signal_map_{file_date}.html" if file_date else "RBN_signal_map.html"
+            m = create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons, grid_square, use_band_column, callsign, stats)
             m.save(map_filename)
             st.write("Map generated successfully!")
             
