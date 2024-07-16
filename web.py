@@ -200,6 +200,10 @@ def process_pasted_data(pasted_data):
     df['snr'] = df['snr'].str.split().str[0].astype(float)
     df['freq'] = df['freq'].astype(float)
     
+    # Derive band column if not present
+    if 'band' not in df.columns:
+        df['band'] = df['freq'].apply(get_band)
+    
     return df
 
 def process_downloaded_data(filename):
