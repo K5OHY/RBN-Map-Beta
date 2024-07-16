@@ -9,9 +9,6 @@ import streamlit as st
 from datetime import datetime, timedelta, timezone
 from geopy.distance import geodesic
 
-# Ensure you have installed the hamtools library before using this script
-from hamtools import locator
-
 DEFAULT_GRID_SQUARE = "DM81wx"  # Default grid square location
 
 def download_and_extract_rbn_data(date):
@@ -171,8 +168,36 @@ def create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons
 
     return m
 
-def grid_square_to_latlon(grid_square):
-    return locator(grid_square).latitude, locator(grid_square).longitude
+def geodetic_to_grid(lat, lon):
+    # Convert latitude to positive value for calculation
+    if lat < 0:
+        lat += 90
+    else:
+        lat += 90
+
+    if lon < 0:
+        lon += 180
+    else:
+        lon += 180
+
+    # Calculate field
+    field_lat = int(lat / 10)
+    field_lon = int(lon / 20)
+
+    # Calculate square
+    square_lat = int((lat - field_lat * 10) / 1)
+    square_lon = int((lon - field_lon * 20) / 2)
+
+    # Calculate subsquare
+    subsquare_lat = int(((lat - (field_lat * 10 + square_lat)) * 60) / 2.5)
+    subsquare_lon = int(((lon - (field_lon * 20 + square_lon * 2)) * 60) / 5)
+
+    # Convert to characters
+    field = chr(field_lon + ord('A')) + chr(field_lat + ord('A'))
+    square = str(square_lon) + str(square_lat)
+    subsquare = chr(subsquare_lon + ord('a')) + chr(subsquare_lat + ord('a'))
+
+    return field + square + subsquare
 
 def process_pasted_data(pasted_data):
     lines = pasted_data.split('\n')
@@ -311,8 +336,11 @@ def main():
                 row['callsign']: (row['latitude'], row['longitude']) for _, row in spotter_coords_df.iterrows()
             }
             
-            grid_square_coords = grid_square_to_latlon(grid_square)
-            
+            if grid_square:
+                grid_square_coords = locator(grid_square).latitude, locator(grid_square).longitude
+            else:
+                grid_square_coords = DEFAULT_GRID_SQUARE
+
             stats = calculate_statistics(filtered_df, grid_square_coords, spotter_coords)
             
             m = create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons, grid_square, use_band_column, callsign, stats)
