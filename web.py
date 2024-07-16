@@ -217,7 +217,7 @@ def process_pasted_data(pasted_data):
     if 'band' not in df.columns:
         df['band'] = df['freq'].apply(get_band)
     
-    return df
+    return df, data[0][12]  # Extract the date from the first line
 
 def process_downloaded_data(filename):
     df = pd.read_csv(filename)
@@ -298,7 +298,8 @@ def main():
                 date = ""
             
             if data_source == 'Paste RBN data' and pasted_data.strip():
-                df = process_pasted_data(pasted_data)
+                df, file_date = process_pasted_data(pasted_data)
+                file_date = file_date.split()[0].replace('-', '')  # Extract and format the date
                 st.write("Using pasted data.")
             elif data_source == 'Download RBN data by date':
                 if not date.strip():
