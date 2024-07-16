@@ -337,7 +337,9 @@ def main():
             }
             
             if grid_square:
-                grid_square_coords = locator(grid_square).latitude, locator(grid_square).longitude
+                # Convert grid square to latitude and longitude using geodetic_to_grid method
+                lat, lon = grid_square_to_latlon(grid_square)
+                grid_square_coords = (lat, lon)
             else:
                 grid_square_coords = DEFAULT_GRID_SQUARE
 
