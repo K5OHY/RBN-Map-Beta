@@ -9,6 +9,7 @@ from io import BytesIO
 import streamlit as st
 from datetime import datetime, timedelta, timezone
 from geopy.distance import geodesic
+import math
 
 DEFAULT_GRID_SQUARE = "DM81wx"  # Default grid square location
 
@@ -61,6 +62,14 @@ def get_band(freq):
         return '6m'
     else:
         return 'unknown'
+
+def create_bezier_curve(start, end):
+    control = [(start[0] + end[0]) / 2, (start[1] + end[1]) / 2 + 10]  # control point is halfway plus some offset
+    return [
+        start,
+        control,
+        end
+    ]
 
 def create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons, grid_square, use_band_column, callsign, stats):
     m = folium.Map(location=[39.8283, -98.5795], zoom_start=4)
@@ -119,8 +128,10 @@ def create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons
                 band = get_band(freq)
             color = band_colors.get(band, 'blue')
 
+            curve = create_bezier_curve(grid_square_coords, coords)
+
             folium.PolyLine(
-                locations=[grid_square_coords, coords],
+                locations=curve,
                 color=color,
                 weight=1
             ).add_to(m)
