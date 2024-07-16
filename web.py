@@ -129,17 +129,17 @@ def create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons
     
     stats_html = f'''
      <div style="position: fixed; 
-     bottom: 250px; left: 20px; width: 200px; height: 150px; 
+     top: 20px; right: 20px; width: 200px; height: 150px; 
      border:1px solid grey; z-index:9999; font-size:10px;
      background-color:white;
      padding: 10px;
      ">
      <b>Callsign: {callsign}</b><br>
-     Spots: {stats['spots']}<br>
+     Total Spots: {stats['spots']}<br>
      Max Distance: {stats['max_distance']:.2f} mi<br>
      Max SNR: {stats['max_snr']} dB<br>
-     Avg SNR: {stats['avg_snr']:.2f} dB<br>
-     Bands:<br>
+     Average SNR: {stats['avg_snr']:.2f} dB<br>
+     <b>Bands:</b><br>
      {band_stats}
      </div>
      '''
