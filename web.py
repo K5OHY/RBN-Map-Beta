@@ -15,7 +15,7 @@ DEFAULT_GRID_SQUARE = "DM81wx"  # Default grid square location
 def download_and_extract_rbn_data(date):
     url = f'https://data.reversebeacon.net/rbn_history/{date}.zip'
     response = requests.get(url)
-    if (response.status_code == 200):
+    if response.status_code == 200:
         with zipfile.ZipFile(BytesIO(response.content)) as z:
             csv_filename = None
             for file_info in z.infolist():
