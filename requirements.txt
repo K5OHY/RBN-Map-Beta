@@ -5,3 +5,4 @@ requests
 streamlit
 requests
 beautifulsoup4
+geopy
