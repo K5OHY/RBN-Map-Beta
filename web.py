@@ -15,7 +15,7 @@ DEFAULT_GRID_SQUARE = "DM81wx"  # Default grid square location
 def download_and_extract_rbn_data(date):
     url = f'https://data.reversebeacon.net/rbn_history/{date}.zip'
     response = requests.get(url)
-    if response.status_code == 200:
+    if (response.status_code == 200):
         with zipfile.ZipFile(BytesIO(response.content)) as z:
             csv_filename = None
             for file_info in z.infolist():
@@ -129,7 +129,7 @@ def create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons
     
     stats_html = f'''
      <div style="position: fixed; 
-     top: 20px; right: 20px; width: 200px; height: 150px; 
+     top: 20px; right: 20px; width: 150px; height: 150px; 
      border:1px solid grey; z-index:9999; font-size:10px;
      background-color:white;
      padding: 10px;
