@@ -169,22 +169,21 @@ def create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons
     return m
 
 def grid_square_to_latlon(grid_square):
-    if len(grid_square) < 4 or len(grid_square) > 6:
+    if len(grid_square) not in [4, 6]:
         raise ValueError("Grid square must be 4 or 6 characters long")
 
     upper_alpha = "ABCDEFGHIJKLMNOPQR"
     digits = "0123456789"
     lower_alpha = "abcdefghijklmnopqrstuvwx"
 
-    # Ensure grid square is in uppercase
     grid_square = grid_square.upper()
 
     lat = -90 + (upper_alpha.index(grid_square[1]) * 10) + (digits.index(grid_square[3]) * 1)
     lon = -180 + (upper_alpha.index(grid_square[0]) * 20) + (digits.index(grid_square[2]) * 2)
 
     if len(grid_square) == 6:
-        lat += (lower_alpha.index(grid_square[5]) + 0.5) / 60
-        lon += (lower_alpha.index(grid_square[4]) + 0.5) / 60
+        lat += (lower_alpha.index(grid_square[5].lower()) + 0.5) / 60
+        lon += (lower_alpha.index(grid_square[4].lower()) + 0.5) / 60
 
     return (lat, lon)
 
@@ -195,10 +194,9 @@ def process_pasted_data(pasted_data):
     data = []
     for line in lines:
         parts = line.split()
-        # Ensure there are enough parts in the line
         if len(parts) < 14:
             print(f"Skipping incomplete row: {line}")
-            continue  # Skip incomplete rows
+            continue
         
         spotter = parts[0]
         dx = parts[1]
@@ -211,7 +209,6 @@ def process_pasted_data(pasted_data):
         time = parts[11] + ' ' + parts[12] + ' ' + parts[13]
         seen = ' '.join(parts[14:]) if len(parts) > 14 else ''
         
-        # Only add rows with all required fields
         if all([spotter, dx, distance, freq, mode, type_, snr, speed, time]):
             data.append([spotter, dx, distance, freq, mode, type_, snr, speed, time, seen])
     
@@ -220,7 +217,6 @@ def process_pasted_data(pasted_data):
     df['snr'] = df['snr'].str.split().str[0].astype(float)
     df['freq'] = df['freq'].astype(float)
     
-    # Derive band column if not present
     if 'band' not in df.columns:
         df['band'] = df['freq'].apply(get_band)
     
@@ -290,11 +286,9 @@ def main():
             use_band_column = False
             file_date = ""
             
-            # Convert callsign to uppercase
             if callsign:
                 callsign = callsign.upper()
                 
-            # Convert grid square to proper format
             if grid_square:
                 grid_square = grid_square[:2].upper() + grid_square[2:]
             
@@ -302,18 +296,15 @@ def main():
                 st.warning(f"No grid square provided, using default: {DEFAULT_GRID_SQUARE}")
                 grid_square = DEFAULT_GRID_SQUARE
             
-            # Check if pasted data is provided or not
             if data_source == 'Paste RBN data' and not pasted_data.strip():
-                # If no pasted data, use the download logic
                 data_source = 'Download RBN data by date'
-                date = ""  # Ensure date is initialized
+                date = ""
             
             if data_source == 'Paste RBN data' and pasted_data.strip():
                 df = process_pasted_data(pasted_data)
                 st.write("Using pasted data.")
             elif data_source == 'Download RBN data by date':
                 if not date.strip():
-                    # Calculate yesterday's date
                     yesterday = datetime.now(timezone.utc) - timedelta(1)
                     date = yesterday.strftime('%Y%m%d')
                     st.write(f"Using latest available date: {date}")
