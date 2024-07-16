@@ -8,6 +8,7 @@ import os
 from io import BytesIO
 import streamlit as st
 from datetime import datetime, timedelta, timezone
+from geopy.distance import geodesic
 
 DEFAULT_GRID_SQUARE = "DM81wx"  # Default grid square location
 
@@ -128,14 +129,14 @@ def create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons
     
     stats_html = f'''
      <div style="position: fixed; 
-     bottom: 250px; left: 20px; width: 200px; height: 120px; 
+     bottom: 250px; left: 20px; width: 200px; height: 150px; 
      border:1px solid grey; z-index:9999; font-size:10px;
      background-color:white;
      padding: 10px;
      ">
      <b>Callsign: {callsign}</b><br>
      Spots: {stats['spots']}<br>
-     Max Distance: {stats['max_distance']} mi<br>
+     Max Distance: {stats['max_distance']:.2f} mi<br>
      Max SNR: {stats['max_snr']} dB<br>
      Avg SNR: {stats['avg_snr']:.2f} dB<br>
      Bands:<br>
@@ -208,13 +209,22 @@ def process_downloaded_data(filename):
     df['freq'] = pd.to_numeric(df['freq'], errors='coerce')
     return df
 
-def calculate_statistics(filtered_df):
+def calculate_statistics(filtered_df, grid_square_coords, spotter_coords):
     spots = len(filtered_df)
     avg_snr = filtered_df['snr'].mean()
-    max_distance_row = filtered_df.iloc[filtered_df['distance'].str.split(' ').str[0].astype(float).idxmax()]
-    max_distance = max_distance_row['distance']
     max_snr = filtered_df['snr'].max()
     bands = filtered_df['band'].value_counts().to_dict()
+    
+    max_distance = 0
+    if not filtered_df.empty:
+        for _, row in filtered_df.iterrows():
+            spotter = row['spotter']
+            if spotter in spotter_coords:
+                coords = spotter_coords[spotter]
+                distance = geodesic(grid_square_coords, coords).miles
+                if distance > max_distance:
+                    max_distance = distance
+    
     return {
         'spots': spots,
         'avg_snr': avg_snr,
@@ -302,7 +312,7 @@ def main():
             grid = Grid(grid_square)
             grid_square_coords = (grid.lat, grid.long)
             
-            stats = calculate_statistics(filtered_df)
+            stats = calculate_statistics(filtered_df, grid_square_coords, spotter_coords)
             
             m = create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons, grid_square, use_band_column, callsign, stats)
             map_filename = f"RBN_signal_map_{file_date}.html" if file_date else "RBN_signal_map.html"
