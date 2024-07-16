@@ -8,8 +8,6 @@ import os
 from io import BytesIO
 import streamlit as st
 from datetime import datetime, timedelta, timezone
-from geopy.distance import geodesic
-import math
 
 DEFAULT_GRID_SQUARE = "DM81wx"  # Default grid square location
 
@@ -63,15 +61,7 @@ def get_band(freq):
     else:
         return 'unknown'
 
-def create_bezier_curve(start, end):
-    control = [(start[0] + end[0]) / 2, (start[1] + end[1]) / 2 + 10]  # control point is halfway plus some offset
-    return [
-        start,
-        control,
-        end
-    ]
-
-def create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons, grid_square, use_band_column, callsign, stats):
+def create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons, grid_square, use_band_column):
     m = folium.Map(location=[39.8283, -98.5795], zoom_start=4)
 
     if show_all_beacons:
@@ -128,34 +118,12 @@ def create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons
                 band = get_band(freq)
             color = band_colors.get(band, 'blue')
 
-            curve = create_bezier_curve(grid_square_coords, coords)
-
             folium.PolyLine(
-                locations=curve,
+                locations=[grid_square_coords, coords],
                 color=color,
                 weight=1
             ).add_to(m)
     
-    band_stats = "<br>".join([f"{band}: {count}" for band, count in stats['bands'].items()])
-    
-    stats_html = f'''
-     <div style="position: fixed; 
-     top: 20px; right: 20px; width: 150px; height: 150px; 
-     border:1px solid grey; z-index:9999; font-size:10px;
-     background-color:white;
-     padding: 10px;
-     ">
-     <b>Callsign: {callsign}</b><br>
-     Total Spots: {stats['spots']}<br>
-     Max Distance: {stats['max_distance']:.2f} mi<br>
-     Max SNR: {stats['max_snr']} dB<br>
-     Average SNR: {stats['avg_snr']:.2f} dB<br>
-     <b>Bands:</b><br>
-     {band_stats}
-     </div>
-     '''
-    m.get_root().html.add_child(folium.Element(stats_html))
-
     legend_html = '''
      <div style="position: fixed; 
      bottom: 20px; left: 20px; width: 120px; height: 180px; 
@@ -211,10 +179,6 @@ def process_pasted_data(pasted_data):
     df['snr'] = df['snr'].str.split().str[0].astype(float)
     df['freq'] = df['freq'].astype(float)
     
-    # Derive band column if not present
-    if 'band' not in df.columns:
-        df['band'] = df['freq'].apply(get_band)
-    
     return df
 
 def process_downloaded_data(filename):
@@ -223,30 +187,6 @@ def process_downloaded_data(filename):
     df['snr'] = pd.to_numeric(df['snr'], errors='coerce')
     df['freq'] = pd.to_numeric(df['freq'], errors='coerce')
     return df
-
-def calculate_statistics(filtered_df, grid_square_coords, spotter_coords):
-    spots = len(filtered_df)
-    avg_snr = filtered_df['snr'].mean()
-    max_snr = filtered_df['snr'].max()
-    bands = filtered_df['band'].value_counts().to_dict()
-    
-    max_distance = 0
-    if not filtered_df.empty:
-        for _, row in filtered_df.iterrows():
-            spotter = row['spotter']
-            if spotter in spotter_coords:
-                coords = spotter_coords[spotter]
-                distance = geodesic(grid_square_coords, coords).miles
-                if distance > max_distance:
-                    max_distance = distance
-    
-    return {
-        'spots': spots,
-        'avg_snr': avg_snr,
-        'max_distance': max_distance,
-        'max_snr': max_snr,
-        'bands': bands
-    }
 
 def main():
     st.title("RBN Signal Mapper")
@@ -327,9 +267,30 @@ def main():
             grid = Grid(grid_square)
             grid_square_coords = (grid.lat, grid.long)
             
-            stats = calculate_statistics(filtered_df, grid_square_coords, spotter_coords)
-            
-            m = create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons, grid_square, use_band_column, callsign, stats)
+            # Calculate statistics
+            total_spots = len(filtered_df)
+            max_distance = filtered_df['distance'].max()
+            max_snr = filtered_df['snr'].max()
+            avg_snr = filtered_df['snr'].mean()
+            band_counts = filtered_df['band'].value_counts().to_dict()
+
+            stats_html = f'''
+            <div style="position: fixed; 
+            top: 20px; right: 20px; width: 120px; height: 150px; 
+            border:1px solid grey; z-index:9999; font-size:10px;
+            background-color:white;
+            padding: 5px;
+            ">
+            <b>Callsign: {callsign}</b><br>
+            Total Spots: {total_spots}<br>
+            Max Distance: {max_distance:.2f} mi<br>
+            Max SNR: {max_snr} dB<br>
+            Average SNR: {avg_snr:.2f} dB<br>
+            <b>Bands:</b><br>
+            ''' + ''.join([f'{band}: {count}<br>' for band, count in band_counts.items()]) + '</div>'
+
+            m = create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons, grid_square, use_band_column)
+            m.get_root().html.add_child(folium.Element(stats_html))
             map_filename = f"RBN_signal_map_{file_date}.html" if file_date else "RBN_signal_map.html"
             m.save(map_filename)
             st.write("Map generated successfully!")
