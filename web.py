@@ -2,14 +2,13 @@ import requests
 import pandas as pd
 import folium
 import matplotlib.colors as mcolors
-from gridtools import Grid
+from maidenhead import to_location
 import zipfile
 import os
 from io import BytesIO
 import streamlit as st
 from datetime import datetime, timedelta, timezone
 from geopy.distance import geodesic
-from geopy.point import Point
 
 DEFAULT_GRID_SQUARE = "DM81wx"  # Default grid square location
 
@@ -62,16 +61,6 @@ def get_band(freq):
         return '6m'
     else:
         return 'unknown'
-
-def interpolate_points(p1, p2, num_points=50):
-    """Generate intermediate points along a great circle path."""
-    points = [p1]
-    for i in range(1, num_points):
-        fraction = i / num_points
-        interpolated_point = p1.interpolate(p2, fraction)
-        points.append(interpolated_point)
-    points.append(p2)
-    return [(p.latitude, p.longitude) for p in points]
 
 def create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons, grid_square, use_band_column, callsign, stats):
     m = folium.Map(location=[39.8283, -98.5795], zoom_start=4)
@@ -130,13 +119,8 @@ def create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons
                 band = get_band(freq)
             color = band_colors.get(band, 'blue')
 
-            # Generate intermediate points for a curved line
-            p1 = Point(grid_square_coords[0], grid_square_coords[1])
-            p2 = Point(coords[0], coords[1])
-            points = interpolate_points(p1, p2)
-
             folium.PolyLine(
-                locations=points,
+                locations=[grid_square_coords, coords],
                 color=color,
                 weight=1
             ).add_to(m)
@@ -163,22 +147,22 @@ def create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons
 
     legend_html = '''
      <div style="position: fixed; 
-     bottom: 20px; left: 20px; width: 100px; height: 180px; 
+     bottom: 20px; left: 20px; width: 80px; height: auto; 
      border:1px solid grey; z-index:9999; font-size:10px;
      background-color:white;
      padding: 5px;
      ">
-     &nbsp; <b>Legend</b> <br>
-     &nbsp; 160m &nbsp; <i class="fa fa-circle" style="color:#FFFF00"></i><br>
-     &nbsp; 80m &nbsp; <i class="fa fa-circle" style="color:#003300"></i><br>
-     &nbsp; 40m &nbsp; <i class="fa fa-circle" style="color:#FFA500"></i><br>
-     &nbsp; 30m &nbsp; <i class="fa fa-circle" style="color:#FF4500"></i><br>
-     &nbsp; 20m &nbsp; <i class="fa fa-circle" style="color:#0000FF"></i><br>
-     &nbsp; 17m &nbsp; <i class="fa fa-circle" style="color:#800080"></i><br>
-     &nbsp; 15m &nbsp; <i class="fa fa-circle" style="color:#696969"></i><br>
-     &nbsp; 12m &nbsp; <i class="fa fa-circle" style="color:#00FFFF"></i><br>
-     &nbsp; 10m &nbsp; <i class="fa fa-circle" style="color:#FF00FF"></i><br>
-     &nbsp; 6m &nbsp; <i class="fa fa-circle" style="color:#F5DEB3"></i><br>
+     <b>Legend</b><br>
+     160m <i class="fa fa-circle" style="color:#FFFF00"></i><br>
+     80m <i class="fa fa-circle" style="color:#003300"></i><br>
+     40m <i class="fa fa-circle" style="color:#FFA500"></i><br>
+     30m <i class="fa fa-circle" style="color:#FF4500"></i><br>
+     20m <i class="fa fa-circle" style="color:#0000FF"></i><br>
+     17m <i class="fa fa-circle" style="color:#800080"></i><br>
+     15m <i class="fa fa-circle" style="color:#696969"></i><br>
+     12m <i class="fa fa-circle" style="color:#00FFFF"></i><br>
+     10m <i class="fa fa-circle" style="color:#FF00FF"></i><br>
+     6m <i class="fa fa-circle" style="color:#F5DEB3"></i>
      </div>
      '''
     m.get_root().html.add_child(folium.Element(legend_html))
@@ -330,8 +314,7 @@ def main():
                 row['callsign']: (row['latitude'], row['longitude']) for _, row in spotter_coords_df.iterrows()
             }
             
-            grid = Grid(grid_square)
-            grid_square_coords = (grid.lat, grid.long)
+            grid_square_coords = to_location(grid_square)
             
             stats = calculate_statistics(filtered_df, grid_square_coords, spotter_coords)
             
