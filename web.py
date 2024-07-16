@@ -8,7 +8,7 @@ import os
 from io import BytesIO
 import streamlit as st
 
-DEFAULT_GRID_SQUARE = "FN31pr"  # Default grid square location
+DEFAULT_GRID_SQUARE = "DM81wx"  # Default grid square location
 
 def download_and_extract_rbn_data(date):
     url = f'https://data.reversebeacon.net/rbn_history/{date}.zip'
