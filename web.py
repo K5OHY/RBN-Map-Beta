@@ -213,9 +213,6 @@ def main():
 
     if data_source == 'Paste RBN data':
         pasted_data = st.text_area("Paste RBN data here:")
-        if not pasted_data.strip():
-            data_source = 'Download RBN data by date'
-            date = ""
     else:
         date = st.text_input("Enter the date (YYYYMMDD):")
     
@@ -236,31 +233,29 @@ def main():
                 st.warning(f"No grid square provided, using default: {DEFAULT_GRID_SQUARE}")
                 grid_square = DEFAULT_GRID_SQUARE
             
-            # Debugging information
-            st.write(f"callsign: {callsign}")
-            st.write(f"grid_square: {grid_square}")
-            st.write(f"data_source: {data_source}")
-            st.write(f"pasted_data: {pasted_data.strip() if data_source == 'Paste RBN data' else 'N/A'}")
-            st.write(f"date: {date if data_source == 'Download RBN data by date' else 'N/A'}")
+            # Check if pasted data is provided or not
+            if data_source == 'Paste RBN data' and not pasted_data.strip():
+                # If no pasted data, use the download logic
+                data_source = 'Download RBN data by date'
+                date = ""  # Ensure date is initialized
             
             if data_source == 'Paste RBN data' and pasted_data.strip():
                 df = process_pasted_data(pasted_data)
                 st.write("Using pasted data.")
+            elif data_source == 'Download RBN data by date':
+                if not date.strip():
+                    # Calculate yesterday's date
+                    yesterday = datetime.now(timezone.utc) - timedelta(1)
+                    date = yesterday.strftime('%Y%m%d')
+                    st.write(f"Using latest available date: {date}")
+                csv_filename = download_and_extract_rbn_data(date)
+                df = process_downloaded_data(csv_filename)
+                os.remove(csv_filename)
+                use_band_column = True
+                file_date = date
+                st.write("Using downloaded data.")
             else:
-                if data_source == 'Download RBN data by date' or not pasted_data.strip():
-                    if not date or not date.strip():
-                        # Calculate yesterday's date
-                        yesterday = datetime.now(timezone.utc) - timedelta(1)
-                        date = yesterday.strftime('%Y%m%d')
-                        st.write(f"Using latest available date: {date}")
-                    csv_filename = download_and_extract_rbn_data(date)
-                    df = process_downloaded_data(csv_filename)
-                    os.remove(csv_filename)
-                    use_band_column = True
-                    file_date = date
-                    st.write("Using downloaded data.")
-                else:
-                    st.error("Please provide the necessary data.")
+                st.error("Please provide the necessary data.")
 
             filtered_df = df[df['dx'] == callsign].copy()
             
