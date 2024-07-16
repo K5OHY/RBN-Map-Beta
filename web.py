@@ -168,36 +168,21 @@ def create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons
 
     return m
 
-def geodetic_to_grid(lat, lon):
-    # Convert latitude to positive value for calculation
-    if lat < 0:
-        lat += 90
-    else:
-        lat += 90
+def grid_square_to_latlon(grid_square):
+    upper_alpha = "ABCDEFGHIJKLMNOPQR"
+    digits = "0123456789"
+    lower_alpha = "abcdefghijklmnopqrstuvwx"
 
-    if lon < 0:
-        lon += 180
-    else:
-        lon += 180
+    grid_square = grid_square.upper()
 
-    # Calculate field
-    field_lat = int(lat / 10)
-    field_lon = int(lon / 20)
+    lon = -180 + (upper_alpha.index(grid_square[0]) * 20) + (digits.index(grid_square[2]) * 2)
+    lat = -90 + (upper_alpha.index(grid_square[1]) * 10) + (digits.index(grid_square[3]) * 1)
 
-    # Calculate square
-    square_lat = int((lat - field_lat * 10) / 1)
-    square_lon = int((lon - field_lon * 20) / 2)
+    if len(grid_square) == 6:
+        lon += (lower_alpha.index(grid_square[4].lower()) + 0.5) / 12
+        lat += (lower_alpha.index(grid_square[5].lower()) + 0.5) / 24
 
-    # Calculate subsquare
-    subsquare_lat = int(((lat - (field_lat * 10 + square_lat)) * 60) / 2.5)
-    subsquare_lon = int(((lon - (field_lon * 20 + square_lon * 2)) * 60) / 5)
-
-    # Convert to characters
-    field = chr(field_lon + ord('A')) + chr(field_lat + ord('A'))
-    square = str(square_lon) + str(square_lat)
-    subsquare = chr(subsquare_lon + ord('a')) + chr(subsquare_lat + ord('a'))
-
-    return field + square + subsquare
+    return lat, lon
 
 def process_pasted_data(pasted_data):
     lines = pasted_data.split('\n')
@@ -337,11 +322,10 @@ def main():
             }
             
             if grid_square:
-                # Convert grid square to latitude and longitude using geodetic_to_grid method
-                lat, lon = grid_square_to_latlon(grid_square)
-                grid_square_coords = (lat, lon)
+                # Convert grid square to latitude and longitude using grid_square_to_latlon method
+                grid_square_coords = grid_square_to_latlon(grid_square)
             else:
-                grid_square_coords = DEFAULT_GRID_SQUARE
+                grid_square_coords = grid_square_to_latlon(DEFAULT_GRID_SQUARE)
 
             stats = calculate_statistics(filtered_df, grid_square_coords, spotter_coords)
             
