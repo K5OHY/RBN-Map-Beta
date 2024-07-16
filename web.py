@@ -8,8 +8,10 @@ import os
 from io import BytesIO
 import streamlit as st
 
-DEFAULT_GRID_SQUARE = "DM81wx"  # Default grid square location
+# Default grid square location
+DEFAULT_GRID_SQUARE = "DM81wx"
 
+# Function to download and extract RBN data for a given date
 def download_and_extract_rbn_data(date):
     url = f'https://data.reversebeacon.net/rbn_history/{date}.zip'
     response = requests.get(url)
@@ -27,10 +29,12 @@ def download_and_extract_rbn_data(date):
     else:
         raise Exception(f"Error downloading RBN data: {response.status_code}")
 
+# Function to get color based on SNR
 def get_color(snr):
     color_map = mcolors.LinearSegmentedColormap.from_list('custom', ['green', 'yellow', 'red'])
     return mcolors.to_hex(color_map(snr / 30))
 
+# Function to get band based on frequency
 def get_band(freq):
     try:
         freq = float(freq)
@@ -60,9 +64,11 @@ def get_band(freq):
     else:
         return 'unknown'
 
+# Function to create the map with filtered RBN data
 def create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons, grid_square, use_band_column):
     m = folium.Map(location=[39.8283, -98.5795], zoom_start=4)
 
+    # Show all beacons if selected
     if show_all_beacons:
         for spotter, coords in spotter_coords.items():
             folium.CircleMarker(
@@ -73,6 +79,7 @@ def create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons
                 fill_color='black'
             ).add_to(m)
 
+    # Add spots to the map
     for _, row in filtered_df.iterrows():
         spotter = row['spotter']
         if spotter in spotter_coords:
@@ -87,12 +94,14 @@ def create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons
                 fill_color=get_color(snr)
             ).add_to(m)
 
+    # Add user location marker
     folium.Marker(
         location=grid_square_coords,
         icon=folium.Icon(icon='star', color='red'),
         popup=f'Your Location: {grid_square}'
     ).add_to(m)
     
+    # Define band colors
     band_colors = {
         '160m': '#FFFF00',  # yellow
         '80m': '#003300',   # dark green
@@ -106,6 +115,7 @@ def create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons
         '6m': '#F5DEB3',    # wheat
     }
 
+    # Draw lines to show paths of spots
     for _, row in filtered_df.iterrows():
         spotter = row['spotter']
         if spotter in spotter_coords:
@@ -123,6 +133,7 @@ def create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons
                 weight=1
             ).add_to(m)
     
+    # Add legend
     legend_html = '''
      <div style="position: fixed; 
      bottom: 20px; left: 20px; width: 120px; height: 180px; 
@@ -146,6 +157,7 @@ def create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons
 
     return m
 
+# Function to process pasted data
 def process_pasted_data(pasted_data):
     lines = pasted_data.split('\n')
     lines = [line.strip() for line in lines if line.strip()]
@@ -172,6 +184,7 @@ def process_pasted_data(pasted_data):
     
     return df
 
+# Function to process downloaded data
 def process_downloaded_data(filename):
     df = pd.read_csv(filename)
     df = df.rename(columns={'callsign': 'spotter', 'dx': 'dx', 'db': 'snr', 'freq': 'freq', 'band': 'band'})
@@ -179,6 +192,7 @@ def process_downloaded_data(filename):
     df['freq'] = pd.to_numeric(df['freq'], errors='coerce')
     return df
 
+# Main function to run the Streamlit app
 def main():
     st.title("RBN Signal Mapper")
 
