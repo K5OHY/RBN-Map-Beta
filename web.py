@@ -237,7 +237,7 @@ def main():
                 df = process_pasted_data(pasted_data)
                 st.write("Using pasted data.")
             elif data_source == 'Download RBN data by date' or not pasted_data.strip():
-                if not date.strip():
+                if not date or not date.strip():
                     # Calculate yesterday's date
                     yesterday = datetime.now(timezone.utc) - timedelta(1)
                     date = yesterday.strftime('%Y%m%d')
