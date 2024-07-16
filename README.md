@@ -1,102 +1,73 @@
 
 # RBN Signal Mapper
 
-This application visualizes Reverse Beacon Network (RBN) signal data on an interactive map. It allows users to either paste RBN data or download it by a specified date, and then generates a map displaying signal spots with various features.
+RBN Signal Mapper is a web application that visualizes Reverse Beacon Network (RBN) data on a map. The application allows users to input a callsign and grid square, and either paste RBN data manually or download it by date. The generated map can be downloaded as an HTML file.
 
 ## Features
-- Download and extract RBN data by date.
-- Process pasted or downloaded RBN data.
-- Visualize RBN spots on an interactive map using Folium.
-- Display signal-to-noise ratio (SNR) and band information with color coding.
-- Option to show all reverse beacons on the map.
+
+- Visualize RBN data on a map
+- Option to show all reverse beacons
+- Download the generated map
+- Automatic download of the latest available RBN data if date input is left blank
 
 ## Installation
 
-### Prerequisites
-- Python 3.7+
-- pip (Python package installer)
-
-### Required Python Packages
-- pandas
-- folium
-- matplotlib
-- requests
-- zipfile
-- streamlit
-- gridtools
-
-You can install the required packages using the following command:
-```bash
-pip install pandas folium matplotlib requests streamlit
-```
-
-### Setting up the Environment
 1. Clone the repository:
    ```bash
    git clone https://github.com/yourusername/rbn-signal-mapper.git
+   ```
+
+2. Change to the project directory:
+   ```bash
    cd rbn-signal-mapper
    ```
 
-2. Create a virtual environment (optional but recommended):
+3. Create and activate a virtual environment:
    ```bash
    python -m venv venv
    source venv/bin/activate  # On Windows, use `venv\Scripts\activate`
    ```
 
-3. Install dependencies:
+4. Install the required packages:
    ```bash
    pip install -r requirements.txt
    ```
 
 ## Usage
 
-### Running the Application
-To start the Streamlit application, run the following command:
-```bash
-streamlit run app.py
-```
+1. Run the application:
+   ```bash
+   streamlit run app.py
+   ```
 
-### Application Instructions
-1. Enter your callsign and grid square.
-2. Select the data source:
-   - Paste RBN data manually.
-   - Download RBN data by date.
-3. Optionally, choose to show all reverse beacons.
-4. Click 'Generate Map' to visualize the signal map.
-5. You can download the generated map using the provided download button.
+2. Open your web browser and navigate to `http://localhost:8501`.
 
-## Code Overview
+3. Follow the instructions on the web page:
+   - Enter a callsign and grid square (optional).
+   - Select the data source (paste RBN data manually or download by date).
+   - Optionally, choose to show all reverse beacons.
+   - Click "Generate Map" to visualize the signal map.
+   - Download the generated map using the provided download button.
 
-### Main Functions
+## Requirements
 
-#### `download_and_extract_rbn_data(date)`
-Downloads and extracts RBN data for the specified date.
-
-#### `get_color(snr)`
-Returns a color hex code based on the SNR value.
-
-#### `get_band(freq)`
-Determines the band based on the frequency.
-
-#### `create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons, grid_square, use_band_column)`
-Generates an interactive map with the filtered RBN data.
-
-#### `process_pasted_data(pasted_data)`
-Processes the manually pasted RBN data.
-
-#### `process_downloaded_data(filename)`
-Processes the downloaded RBN data file.
-
-### Streamlit Application
-The Streamlit application is defined in the `main()` function. It provides the user interface for entering the callsign, grid square, selecting the data source, and generating the map.
+- Python 3.7 or higher
+- Streamlit
+- Pandas
+- Folium
+- Matplotlib
+- Requests
+- BeautifulSoup4 (for fetching the latest RBN date)
 
 ## License
+
 This project is licensed under the MIT License.
 
 ## Acknowledgements
-- [Reverse Beacon Network](https://reversebeacon.net/)
-- [Folium](https://python-visualization.github.io/folium/)
-- [Streamlit](https://streamlit.io/)
 
-## Contributing
-Contributions are welcome! Please open an issue or submit a pull request for any changes.
+- [Reverse Beacon Network](https://www.reversebeacon.net/)
+- [Streamlit](https://www.streamlit.io/)
+- [Folium](https://python-visualization.github.io/folium/)
+- [Pandas](https://pandas.pydata.org/)
+- [Matplotlib](https://matplotlib.org/)
+- [BeautifulSoup](https://www.crummy.com/software/BeautifulSoup/)
