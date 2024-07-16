@@ -6,7 +6,7 @@ import zipfile
 import os
 from io import BytesIO
 import streamlit as st
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from geopy.distance import geodesic
 
 DEFAULT_GRID_SQUARE = "DM81wx"  # Default grid square location
@@ -189,7 +189,6 @@ def process_pasted_data(pasted_data):
     lines = [line.strip() for line in lines if line.strip()]
     
     data = []
-    date = None
     for line in lines:
         parts = line.split()
         if len(parts) < 14:
@@ -209,8 +208,6 @@ def process_pasted_data(pasted_data):
         
         if all([spotter, dx, distance, freq, mode, type_, snr, speed, time]):
             data.append([spotter, dx, distance, freq, mode, type_, snr, speed, time, seen])
-            if date is None:
-                date = parts[13] + " " + parts[12]  # Extract date from the first valid line
     
     df = pd.DataFrame(data, columns=['spotter', 'dx', 'distance', 'freq', 'mode', 'type', 'snr', 'speed', 'time', 'seen'])
     
@@ -220,7 +217,7 @@ def process_pasted_data(pasted_data):
     if 'band' not in df.columns:
         df['band'] = df['freq'].apply(get_band)
     
-    return df, date
+    return df
 
 def process_downloaded_data(filename):
     df = pd.read_csv(filename)
@@ -284,7 +281,6 @@ def main():
     if st.button("Generate Map"):
         try:
             use_band_column = False
-            file_date = ""
             
             if callsign:
                 callsign = callsign.upper()
@@ -301,12 +297,7 @@ def main():
                 date = ""
             
             if data_source == 'Paste RBN data' and pasted_data.strip():
-                df, raw_date = process_pasted_data(pasted_data)
-                if raw_date:
-                    date_obj = datetime.strptime(raw_date, "%d %b")
-                    current_year = datetime.now().year
-                    date_obj = date_obj.replace(year=current_year)
-                    file_date = date_obj.strftime("%Y%m%d")
+                df = process_pasted_data(pasted_data)
                 st.write("Using pasted data.")
             elif data_source == 'Download RBN data by date':
                 if not date.strip():
@@ -317,7 +308,6 @@ def main():
                 df = process_downloaded_data(csv_filename)
                 os.remove(csv_filename)
                 use_band_column = True
-                file_date = date
                 st.write("Using downloaded data.")
             else:
                 st.error("Please provide the necessary data.")
@@ -337,7 +327,10 @@ def main():
 
             stats = calculate_statistics(filtered_df, grid_square_coords, spotter_coords)
             
-            map_filename = f"RBN_signal_map_{file_date}.html" if file_date else "RBN_signal_map.html"
+            # Get the current UTC date
+            current_utc_date = datetime.now(timezone.utc).strftime("%Y%m%d")
+            map_filename = f"RBN_signal_map_{current_utc_date}.html"
+            
             m = create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons, grid_square, use_band_column, callsign, stats)
             m.save(map_filename)
             st.write("Map generated successfully!")
