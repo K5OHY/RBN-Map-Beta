@@ -182,7 +182,7 @@ def main():
 
     st.markdown("""
     **Instructions:**
-    1. Enter your callsign and grid square.
+    1. Enter a callsign and grid square.
     2. Select the data source:
         - Paste RBN data manually.
         - Download RBN data by date.
