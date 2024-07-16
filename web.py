@@ -9,6 +9,9 @@ import streamlit as st
 from datetime import datetime, timedelta, timezone
 from geopy.distance import geodesic
 
+# Ensure you have installed the hamtools library before using this script
+from hamtools import locator
+
 DEFAULT_GRID_SQUARE = "DM81wx"  # Default grid square location
 
 def download_and_extract_rbn_data(date):
@@ -169,23 +172,7 @@ def create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons
     return m
 
 def grid_square_to_latlon(grid_square):
-    if len(grid_square) not in [4, 6]:
-        raise ValueError("Grid square must be 4 or 6 characters long")
-
-    upper_alpha = "ABCDEFGHIJKLMNOPQR"
-    digits = "0123456789"
-    lower_alpha = "abcdefghijklmnopqrstuvwx"
-
-    grid_square = grid_square.upper()
-
-    lat = -90 + (upper_alpha.index(grid_square[1]) * 10) + (digits.index(grid_square[3]) * 1)
-    lon = -180 + (upper_alpha.index(grid_square[0]) * 20) + (digits.index(grid_square[2]) * 2)
-
-    if len(grid_square) == 6:
-        lat += (lower_alpha.index(grid_square[5].lower()) + 0.5) / 60
-        lon += (lower_alpha.index(grid_square[4].lower()) + 0.5) / 60
-
-    return (lat, lon)
+    return locator(grid_square).latitude, locator(grid_square).longitude
 
 def process_pasted_data(pasted_data):
     lines = pasted_data.split('\n')
