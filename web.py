@@ -168,6 +168,26 @@ def create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons
 
     return m
 
+def grid_square_to_latlon(grid_square):
+    if len(grid_square) < 4 or len(grid_square) > 6:
+        raise ValueError("Grid square must be 4 or 6 characters long")
+
+    upper_alpha = "ABCDEFGHIJKLMNOPQR"
+    digits = "0123456789"
+    lower_alpha = "abcdefghijklmnopqrstuvwx"
+
+    # Ensure grid square is in uppercase
+    grid_square = grid_square.upper()
+
+    lat = -90 + (upper_alpha.index(grid_square[1]) * 10) + (digits.index(grid_square[3]) * 1)
+    lon = -180 + (upper_alpha.index(grid_square[0]) * 20) + (digits.index(grid_square[2]) * 2)
+
+    if len(grid_square) == 6:
+        lat += (lower_alpha.index(grid_square[5]) + 0.5) / 60
+        lon += (lower_alpha.index(grid_square[4]) + 0.5) / 60
+
+    return (lat, lon)
+
 def process_pasted_data(pasted_data):
     lines = pasted_data.split('\n')
     lines = [line.strip() for line in lines if line.strip()]
@@ -236,25 +256,6 @@ def calculate_statistics(filtered_df, grid_square_coords, spotter_coords):
         'max_snr': max_snr,
         'bands': bands
     }
-
-def maidenhead_to_latlong(grid):
-    grid = grid.strip().upper()
-    if len(grid) < 4:
-        raise ValueError("Grid square must be at least 4 characters long")
-
-    # Calculate the latitude and longitude from the Maidenhead grid square
-    lon = (ord(grid[0]) - ord('A')) * 20 - 180 + int(grid[2]) * 2 + 1
-    lat = (ord(grid[1]) - ord('A')) * 10 - 90 + int(grid[3]) + 0.5
-
-    if len(grid) >= 6:
-        lon += (ord(grid[4]) - ord('A')) * 5 / 60
-        lat += (ord(grid[5]) - ord('A')) * 2.5 / 60
-
-    if len(grid) == 8:
-        lon += (ord(grid[6]) - ord('0')) * 5 / 600
-        lat += (ord(grid[7]) - ord('0')) * 2.5 / 600
-
-    return lat, lon
 
 def main():
     st.title("RBN Signal Mapper")
@@ -332,7 +333,7 @@ def main():
                 row['callsign']: (row['latitude'], row['longitude']) for _, row in spotter_coords_df.iterrows()
             }
             
-            grid_square_coords = maidenhead_to_latlong(grid_square)
+            grid_square_coords = grid_square_to_latlon(grid_square)
             
             stats = calculate_statistics(filtered_df, grid_square_coords, spotter_coords)
             
