@@ -245,7 +245,12 @@ def main():
                 st.write("Using pasted data.")
             else:
                 if data_source == 'Download RBN data by date' or not pasted_data.strip():
-                    if not date or not date.strip():
+                    if data_source == 'Download RBN data by date' and (not date or not date.strip()):
+                        # Calculate yesterday's date
+                        yesterday = datetime.now(timezone.utc) - timedelta(1)
+                        date = yesterday.strftime('%Y%m%d')
+                        st.write(f"Using latest available date: {date}")
+                    elif not date or not date.strip():
                         # Calculate yesterday's date
                         yesterday = datetime.now(timezone.utc) - timedelta(1)
                         date = yesterday.strftime('%Y%m%d')
