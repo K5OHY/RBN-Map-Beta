@@ -7,8 +7,23 @@ import zipfile
 import os
 from io import BytesIO
 import streamlit as st
+from datetime import datetime
+from bs4 import BeautifulSoup
 
 DEFAULT_GRID_SQUARE = "DM81wx"  # Default grid square location
+
+# Function to fetch the latest available date from RBN
+def get_latest_rbn_date():
+    url = 'https://data.reversebeacon.net/rbn_history/'
+    response = requests.get(url)
+    if response.status_code == 200:
+        soup = BeautifulSoup(response.content, 'html.parser')
+        dates = [link.get('href').replace('/', '') for link in soup.find_all('a') if link.get('href').endswith('/')]
+        dates = [d for d in dates if d.isdigit()]
+        latest_date = max(dates)
+        return latest_date
+    else:
+        raise Exception("Error fetching the latest RBN date")
 
 def download_and_extract_rbn_data(date):
     url = f'https://data.reversebeacon.net/rbn_history/{date}.zip'
@@ -225,7 +240,10 @@ def main():
             if data_source == 'Paste RBN data' and pasted_data.strip():
                 df = process_pasted_data(pasted_data)
                 st.write("Using pasted data.")
-            elif data_source == 'Download RBN data by date' and date.strip():
+            elif data_source == 'Download RBN data by date':
+                if not date.strip():
+                    date = get_latest_rbn_date()
+                    st.write(f"Using latest available date: {date}")
                 csv_filename = download_and_extract_rbn_data(date)
                 df = process_downloaded_data(csv_filename)
                 os.remove(csv_filename)
