@@ -18,12 +18,21 @@ def get_latest_rbn_date():
     response = requests.get(url)
     if response.status_code == 200:
         soup = BeautifulSoup(response.content, 'html.parser')
-        dates = [link.get('href').replace('/', '') for link in soup.find_all('a') if link.get('href').endswith('/')]
-        dates = [d for d in dates if d.isdigit()]
+        dates = []
+        for link in soup.find_all('a'):
+            href = link.get('href')
+            if href and href.endswith('/'):
+                date_str = href.strip('/')
+                if date_str.isdigit():
+                    dates.append(date_str)
+        
+        if not dates:
+            raise Exception("No valid dates found on the RBN history page.")
+        
         latest_date = max(dates)
         return latest_date
     else:
-        raise Exception("Error fetching the latest RBN date")
+        raise Exception(f"Error fetching the latest RBN date: {response.status_code}")
 
 def download_and_extract_rbn_data(date):
     url = f'https://data.reversebeacon.net/rbn_history/{date}.zip'
