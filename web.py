@@ -1,5 +1,4 @@
 import requests
-from bs4 import BeautifulSoup
 import pandas as pd
 import folium
 import matplotlib.colors as mcolors
@@ -10,16 +9,14 @@ from io import BytesIO
 import streamlit as st
 
 def get_grid_square(callsign):
-    url = f'https://www.hamqth.com/{callsign}'
+    url = f'https://api.hamdb.org/v1/{callsign}/json'
     response = requests.get(url)
     if response.status_code == 200:
-        soup = BeautifulSoup(response.content, 'html.parser')
-        grid_square_tag = soup.find('span', {'id': 'locator'})
-        if grid_square_tag:
-            grid_square = grid_square_tag.text.strip()
-            return grid_square
-        else:
-            raise Exception("Grid square not found on the page. Please check the callsign and try again.")
+        data = response.json()
+        if 'error' in data['hamdb']:
+            raise Exception(data['hamdb']['error'])
+        grid_square = data['hamdb']['locator']
+        return grid_square
     else:
         raise Exception("Error fetching callsign information")
 
