@@ -233,6 +233,13 @@ def main():
                 st.warning(f"No grid square provided, using default: {DEFAULT_GRID_SQUARE}")
                 grid_square = DEFAULT_GRID_SQUARE
             
+            # Debugging information
+            st.write(f"callsign: {callsign}")
+            st.write(f"grid_square: {grid_square}")
+            st.write(f"data_source: {data_source}")
+            st.write(f"pasted_data: {pasted_data.strip() if data_source == 'Paste RBN data' else 'N/A'}")
+            st.write(f"date: {date if data_source == 'Download RBN data by date' else 'N/A'}")
+            
             if data_source == 'Paste RBN data' and pasted_data.strip():
                 df = process_pasted_data(pasted_data)
                 st.write("Using pasted data.")
