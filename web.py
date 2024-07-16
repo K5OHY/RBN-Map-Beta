@@ -304,6 +304,8 @@ def main():
                 df, raw_date = process_pasted_data(pasted_data)
                 if raw_date:
                     date_obj = datetime.strptime(raw_date, "%d %b")
+                    current_year = datetime.now().year
+                    date_obj = date_obj.replace(year=current_year)
                     file_date = date_obj.strftime("%Y%m%d")
                 st.write("Using pasted data.")
             elif data_source == 'Download RBN data by date':
