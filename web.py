@@ -237,28 +237,24 @@ def calculate_statistics(filtered_df, grid_square_coords, spotter_coords):
         'bands': bands
     }
 
-def to_location(grid_square):
-    """
-    Convert a Maidenhead grid square to latitude and longitude.
-    """
-    if len(grid_square) < 4:
+def maidenhead_to_latlong(grid):
+    grid = grid.strip().upper()
+    if len(grid) < 4:
         raise ValueError("Grid square must be at least 4 characters long")
-    
-    lats = "ABCDEFGHIJKLMNOPQR"
-    lons = "ABCDEFGHIJKLMNOPQR"
-    lat_offset = 90
-    lon_offset = -180
 
-    lat = lat_offset - 10 * lats.index(grid_square[1]) - 1 * int(grid_square[3])
-    lon = lon_offset + 20 * lons.index(grid_square[0]) + 2 * int(grid_square[2])
+    # Calculate the latitude and longitude from the Maidenhead grid square
+    lon = (ord(grid[0]) - ord('A')) * 20 - 180 + int(grid[2]) * 2 + 1
+    lat = (ord(grid[1]) - ord('A')) * 10 - 90 + int(grid[3]) + 0.5
 
-    if len(grid_square) > 4:
-        latsub = "abcdefghijklmnopqrstuvwx"
-        lonsub = "abcdefghijklmnopqrstuvwx"
-        lat += -2.5 / 24 * latsub.index(grid_square[5])
-        lon += 5 / 24 * lonsub.index(grid_square[4])
+    if len(grid) >= 6:
+        lon += (ord(grid[4]) - ord('A')) * 5 / 60
+        lat += (ord(grid[5]) - ord('A')) * 2.5 / 60
 
-    return (lat, lon)
+    if len(grid) == 8:
+        lon += (ord(grid[6]) - ord('0')) * 5 / 600
+        lat += (ord(grid[7]) - ord('0')) * 2.5 / 600
+
+    return lat, lon
 
 def main():
     st.title("RBN Signal Mapper")
@@ -336,7 +332,7 @@ def main():
                 row['callsign']: (row['latitude'], row['longitude']) for _, row in spotter_coords_df.iterrows()
             }
             
-            grid_square_coords = to_location(grid_square)
+            grid_square_coords = maidenhead_to_latlong(grid_square)
             
             stats = calculate_statistics(filtered_df, grid_square_coords, spotter_coords)
             
