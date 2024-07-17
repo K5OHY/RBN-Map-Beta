@@ -4,10 +4,34 @@ import folium
 import matplotlib.colors as mcolors
 import zipfile
 import os
+import re
 from io import BytesIO
 import streamlit as st
 from datetime import datetime, timedelta, timezone
 from geopy.distance import geodesic
+
+# Add these imports at the beginning of your script
+import plotly.express as px
+
+# Add these widgets in the sidebar
+min_snr = st.sidebar.slider('Minimum SNR', min_value=-30, max_value=30, value=-10)
+max_snr = st.sidebar.slider('Maximum SNR', min_value=-30, max_value=30, value=30)
+band_options = ['All'] + list(band_colors.keys())
+selected_band = st.sidebar.selectbox('Select Band', band_options)
+
+# Update the data filtering logic
+filtered_df = df[df['dx'] == callsign].copy()
+filtered_df = filtered_df[(filtered_df['snr'] >= min_snr) & (filtered_df['snr'] <= max_snr)]
+if selected_band != 'All':
+    filtered_df = filtered_df[filtered_df['band'] == selected_band]
+
+# Add an interactive chart
+if not filtered_df.empty:
+    fig = px.scatter(filtered_df, x='freq', y='snr', color='band', hover_data=['spotter', 'time'])
+    st.plotly_chart(fig)
+else:
+    st.write("No data available for the selected filters.")
+
 
 DEFAULT_GRID_SQUARE = "DM81wx"  # Default grid square location
 
@@ -250,26 +274,6 @@ def calculate_statistics(filtered_df, grid_square_coords, spotter_coords):
         'bands': bands
     }
 
-@st.cache_data(ttl=60)
-def load_data(date, data_source, pasted_data):
-    df = None
-    file_date = None
-
-    if data_source == 'Paste RBN data' and pasted_data.strip():
-        df = process_pasted_data(pasted_data)
-        st.write("Using pasted data.")
-        file_date = datetime.now(timezone.utc).strftime("%Y%m%d")
-    elif data_source == 'Download RBN data by date' and date.strip():
-        csv_filename = download_and_extract_rbn_data(date)
-        df = process_downloaded_data(csv_filename)
-        os.remove(csv_filename)
-        file_date = date
-        st.write("Using downloaded data.")
-    else:
-        st.error("Please provide the necessary data.")
-
-    return df, file_date
-
 def main():
     st.set_page_config(layout="wide", page_title="RBN Signal Mapper", page_icon=":radio:")
 
@@ -288,9 +292,6 @@ def main():
             "Select data source",
             ('Paste RBN data', 'Download RBN data by date')
         )
-
-        pasted_data = ""
-        date = ""
 
         if data_source == 'Paste RBN data':
             pasted_data = st.text_area("Paste RBN data here:")
@@ -314,6 +315,9 @@ def main():
     if generate_map:
         try:
             with st.spinner("Generating map..."):
+                use_band_column = False
+                file_date = ""
+
                 if callsign:
                     callsign = callsign.upper()
 
@@ -324,28 +328,47 @@ def main():
                     st.warning(f"No grid square provided, using default: {DEFAULT_GRID_SQUARE}")
                     grid_square = DEFAULT_GRID_SQUARE
 
-                df, file_date = load_data(date, data_source, pasted_data)
+                if data_source == 'Paste RBN data' and not pasted_data.strip():
+                    data_source = 'Download RBN data by date'
+                    date = ""
 
-                if df is not None:
-                    filtered_df = df[df['dx'] == callsign].copy()
+                if data_source == 'Paste RBN data' and pasted_data.strip():
+                    df = process_pasted_data(pasted_data)
+                    st.write("Using pasted data.")
+                    file_date = datetime.now(timezone.utc).strftime("%Y%m%d")
+                elif data_source == 'Download RBN data by date':
+                    if not date.strip():
+                        yesterday = datetime.now(timezone.utc) - timedelta(1)
+                        date = yesterday.strftime('%Y%m%d')
+                        st.write(f"Using latest available date: {date}")
+                    csv_filename = download_and_extract_rbn_data(date)
+                    df = process_downloaded_data(csv_filename)
+                    os.remove(csv_filename)
+                    use_band_column = True
+                    file_date = date
+                    st.write("Using downloaded data.")
+                else:
+                    st.error("Please provide the necessary data.")
 
-                    spotter_coords_df = pd.read_csv('spotter_coords.csv')
-                    spotter_coords = {
-                        row['callsign']: (row['latitude'], row['longitude']) for _, row in spotter_coords_df.iterrows()
-                    }
+                filtered_df = df[df['dx'] == callsign].copy()
 
-                    if grid_square:
-                        grid_square_coords = grid_square_to_latlon(grid_square)
-                    else:
-                        grid_square_coords = grid_square_to_latlon(DEFAULT_GRID_SQUARE)
+                spotter_coords_df = pd.read_csv('spotter_coords.csv')
+                spotter_coords = {
+                    row['callsign']: (row['latitude'], row['longitude']) for _, row in spotter_coords_df.iterrows()
+                }
 
-                    stats = calculate_statistics(filtered_df, grid_square_coords, spotter_coords)
+                if grid_square:
+                    grid_square_coords = grid_square_to_latlon(grid_square)
+                else:
+                    grid_square_coords = grid_square_to_latlon(DEFAULT_GRID_SQUARE)
 
-                    m = create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons, grid_square, use_band_column=True, callsign=callsign, stats=stats)
-                    map_html = m._repr_html_()
-                    st.session_state.map_html = map_html
-                    st.session_state.file_date = file_date
-                    st.write("Map generated successfully!")
+                stats = calculate_statistics(filtered_df, grid_square_coords, spotter_coords)
+
+                m = create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons, grid_square, use_band_column, callsign, stats)
+                map_html = m._repr_html_()
+                st.session_state.map_html = map_html
+                st.session_state.file_date = file_date
+                st.write("Map generated successfully!")
         except Exception as e:
             st.error(f"Error: {e}")
 
