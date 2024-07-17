@@ -1,7 +1,6 @@
 import requests
 import pandas as pd
 import folium
-import matplotlib.colors as mcolors
 import zipfile
 import os
 import re
@@ -29,14 +28,6 @@ def download_and_extract_rbn_data(date):
             return csv_filename
     else:
         raise Exception(f"Error downloading RBN data: {response.status_code}")
-
-def get_color(snr):
-    if snr < 10:
-        return 'green'
-    elif 10 <= snr < 20:
-        return 'yellow'
-    else:
-        return 'red'
 
 def get_band(freq):
     try:
@@ -92,9 +83,9 @@ def create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons
                 location=coords,
                 radius=snr / 2,
                 popup=popup_text,
-                color=get_color(snr),
+                color='blue',
                 fill=True,
-                fill_color=get_color(snr)
+                fill_color='blue'
             ).add_to(marker_cluster)
 
     folium.Marker(
