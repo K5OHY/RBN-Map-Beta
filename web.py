@@ -78,7 +78,8 @@ def create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons
 
     marker_cluster = MarkerCluster().add_to(m)
 
-    spotters = {}
+    spotter_max_snr = {}
+
     for _, row in filtered_df.iterrows():
         spotter = row['spotter']
         if spotter in spotter_coords:
@@ -94,11 +95,10 @@ def create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons
                 fill_color=get_color(snr)
             ).add_to(marker_cluster)
             
-            # Track the strongest SNR for each spotter
-            if spotter not in spotters or spotters[spotter]['snr'] < snr:
-                spotters[spotter] = {'coords': coords, 'snr': snr}
+            if spotter not in spotter_max_snr or spotter_max_snr[spotter]['snr'] < snr:
+                spotter_max_snr[spotter] = {'coords': coords, 'snr': snr}
 
-    for spotter, info in spotters.items():
+    for spotter, info in spotter_max_snr.items():
         coords = info['coords']
         snr = info['snr']
         folium.Marker(
