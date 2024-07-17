@@ -262,7 +262,21 @@ def create_heatmap(filtered_df, map_object, spotter_coords):
         if spotter in spotter_coords:
             coords = spotter_coords[spotter]
             heat_data.append([coords[0], coords[1], row['snr']])
-    HeatMap(heat_data, min_opacity=0.3, max_val=30, radius=15, blur=10, gradient={0.2: 'green', 0.5: 'yellow', 0.9: 'red'}).add_to(map_object)
+    
+    # Normalize SNR values to 0-1 range for better heatmap scaling
+    snr_values = filtered_df['snr']
+    min_snr = snr_values.min()
+    max_snr = snr_values.max()
+    normalized_heat_data = [[lat, lon, (snr - min_snr) / (max_snr - min_snr)] for lat, lon, snr in heat_data]
+    
+    HeatMap(
+        data=normalized_heat_data,
+        min_opacity=0.3,
+        max_val=1,  # max_val is now 1 due to normalization
+        radius=15,
+        blur=10,
+        gradient={0.0: 'green', 0.5: 'yellow', 1.0: 'red'}  # Adjusted gradient for better contrast
+    ).add_to(map_object)
 
 def main():
     st.set_page_config(layout="wide", page_title="RBN Signal Mapper", page_icon=":radio:")
