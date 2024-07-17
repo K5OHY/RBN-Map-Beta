@@ -4,7 +4,6 @@ import folium
 import matplotlib.colors as mcolors
 import zipfile
 import os
-import re
 from io import BytesIO
 import streamlit as st
 from datetime import datetime, timedelta, timezone
@@ -253,15 +252,14 @@ def calculate_statistics(filtered_df, grid_square_coords, spotter_coords):
 
 @st.cache_data(ttl=60)
 def load_data(date, data_source, pasted_data):
+    df = None
+    file_date = None
+
     if data_source == 'Paste RBN data' and pasted_data.strip():
         df = process_pasted_data(pasted_data)
         st.write("Using pasted data.")
         file_date = datetime.now(timezone.utc).strftime("%Y%m%d")
-    elif data_source == 'Download RBN data by date':
-        if not date.strip():
-            yesterday = datetime.now(timezone.utc) - timedelta(1)
-            date = yesterday.strftime('%Y%m%d')
-            st.write(f"Using latest available date: {date}")
+    elif data_source == 'Download RBN data by date' and date.strip():
         csv_filename = download_and_extract_rbn_data(date)
         df = process_downloaded_data(csv_filename)
         os.remove(csv_filename)
@@ -269,7 +267,7 @@ def load_data(date, data_source, pasted_data):
         st.write("Using downloaded data.")
     else:
         st.error("Please provide the necessary data.")
-        return None, None
+
     return df, file_date
 
 def main():
@@ -290,6 +288,9 @@ def main():
             "Select data source",
             ('Paste RBN data', 'Download RBN data by date')
         )
+
+        pasted_data = ""
+        date = ""
 
         if data_source == 'Paste RBN data':
             pasted_data = st.text_area("Paste RBN data here:")
