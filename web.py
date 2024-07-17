@@ -9,29 +9,7 @@ from io import BytesIO
 import streamlit as st
 from datetime import datetime, timedelta, timezone
 from geopy.distance import geodesic
-
-# Add these imports at the beginning of your script
-import plotly.express as px
-
-# Add these widgets in the sidebar
-min_snr = st.sidebar.slider('Minimum SNR', min_value=-30, max_value=30, value=-10)
-max_snr = st.sidebar.slider('Maximum SNR', min_value=-30, max_value=30, value=30)
-band_options = ['All'] + list(band_colors.keys())
-selected_band = st.sidebar.selectbox('Select Band', band_options)
-
-# Update the data filtering logic
-filtered_df = df[df['dx'] == callsign].copy()
-filtered_df = filtered_df[(filtered_df['snr'] >= min_snr) & (filtered_df['snr'] <= max_snr)]
-if selected_band != 'All':
-    filtered_df = filtered_df[filtered_df['band'] == selected_band]
-
-# Add an interactive chart
-if not filtered_df.empty:
-    fig = px.scatter(filtered_df, x='freq', y='snr', color='band', hover_data=['spotter', 'time'])
-    st.plotly_chart(fig)
-else:
-    st.write("No data available for the selected filters.")
-
+import plotly.express as px  # Make sure this is installed
 
 DEFAULT_GRID_SQUARE = "DM81wx"  # Default grid square location
 
@@ -300,6 +278,12 @@ def main():
 
         generate_map = st.button("Generate Map")
 
+        # Add these widgets in the sidebar
+        min_snr = st.sidebar.slider('Minimum SNR', min_value=-30, max_value=30, value=-10)
+        max_snr = st.sidebar.slider('Maximum SNR', min_value=-30, max_value=30, value=30)
+        band_options = ['All'] + list(band_colors.keys())
+        selected_band = st.sidebar.selectbox('Select Band', band_options)
+
         with st.expander("Instructions", expanded=False):
             st.markdown("""
             **Instructions:**
@@ -351,6 +335,9 @@ def main():
                     st.error("Please provide the necessary data.")
 
                 filtered_df = df[df['dx'] == callsign].copy()
+                filtered_df = filtered_df[(filtered_df['snr'] >= min_snr) & (filtered_df['snr'] <= max_snr)]
+                if selected_band != 'All':
+                    filtered_df = filtered_df[filtered_df['band'] == selected_band]
 
                 spotter_coords_df = pd.read_csv('spotter_coords.csv')
                 spotter_coords = {
@@ -369,6 +356,13 @@ def main():
                 st.session_state.map_html = map_html
                 st.session_state.file_date = file_date
                 st.write("Map generated successfully!")
+                
+                # Add an interactive chart
+                if not filtered_df.empty:
+                    fig = px.scatter(filtered_df, x='freq', y='snr', color='band', hover_data=['spotter', 'time'])
+                    st.plotly_chart(fig)
+                else:
+                    st.write("No data available for the selected filters.")
         except Exception as e:
             st.error(f"Error: {e}")
 
