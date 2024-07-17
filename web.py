@@ -265,8 +265,8 @@ def create_heatmap(filtered_df, map_object, spotter_coords):
         spotter = row['spotter']
         if spotter in spotter_coords:
             coords = spotter_coords[spotter]
-            heat_data.append([coords[0], coords[1]])
-    HeatMap(heat_data).add_to(map_object)
+            heat_data.append([coords[0], coords[1], row['snr']])
+    HeatMap(heat_data, min_opacity=0.3, max_val=30, radius=15, blur=10, gradient={0.2: 'green', 0.5: 'yellow', 0.9: 'red'}).add_to(map_object)
 
 def main():
     st.set_page_config(layout="wide", page_title="RBN Signal Mapper", page_icon=":radio:")
