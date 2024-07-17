@@ -261,8 +261,8 @@ def main():
 
     with st.sidebar:
         st.header("Input Data")
-        callsign = st.text_input("Enter Callsign:", aria_label="Enter Callsign")
-        grid_square = st.text_input("Enter Grid Square (optional):", aria_label="Enter Grid Square")
+        callsign = st.text_input("Enter Callsign:")
+        grid_square = st.text_input("Enter Grid Square (optional):")
         show_all_beacons = st.checkbox("Show all reverse beacons")
         data_source = st.radio(
             "Select data source",
