@@ -62,7 +62,7 @@ def get_band(freq):
         return 'unknown'
 
 def create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons, grid_square, use_band_column, callsign, stats):
-    m = folium.Map(location=[39.8283, -98.5795], zoom_start=4)
+    m = folium.Map(location=[39.8283, -98.5795], zoom_start=4, width='100%')
 
     if show_all_beacons:
         for spotter, coords in spotter_coords.items():
@@ -262,6 +262,13 @@ def main():
     3. Optionally, choose to show all reverse beacons.
     4. Click 'Generate Map' to visualize the signal map.
     5. You can download the generated map using the provided download button.
+
+    **Pasting RBN Data:**
+    - Go to the RBN website and copy the data in the format provided.
+    - Paste the data directly into the text area.
+    
+    **Downloading RBN Data:**
+    - If the date is left blank, the latest available data will be downloaded and used.
     """)
 
     callsign = st.text_input("Enter Callsign:")
