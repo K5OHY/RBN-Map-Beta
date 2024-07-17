@@ -16,7 +16,7 @@ DEFAULT_GRID_SQUARE = "DM81wx"  # Default grid square location
 def download_and_extract_rbn_data(date):
     url = f'https://data.reversebeacon.net/rbn_history/{date}.zip'
     response = requests.get(url)
-    if (response.status_code == 200):
+    if response.status_code == 200:
         with zipfile.ZipFile(BytesIO(response.content)) as z:
             csv_filename = None
             for file_info in z.infolist():
@@ -24,7 +24,7 @@ def download_and_extract_rbn_data(date):
                     csv_filename = file_info.filename
                     z.extract(csv_filename)
                     break
-            if (csv_filename is None):
+            if csv_filename is None:
                 raise Exception("No CSV file found in the ZIP archive")
             return csv_filename
     else:
@@ -40,25 +40,25 @@ def get_band(freq):
     except ValueError:
         return 'unknown'
     
-    if (1800 <= freq <= 2000):
+    if 1800 <= freq <= 2000:
         return '160m'
-    elif (3500 <= freq <= 4000):
+    elif 3500 <= freq <= 4000:
         return '80m'
-    elif (7000 <= freq <= 7300):
+    elif 7000 <= freq <= 7300:
         return '40m'
-    elif (10100 <= freq <= 10150):
+    elif 10100 <= freq <= 10150:
         return '30m'
-    elif (14000 <= freq <= 14350):
+    elif 14000 <= freq <= 14350:
         return '20m'
-    elif (18068 <= freq <= 18168):
+    elif 18068 <= freq <= 18168:
         return '17m'
-    elif (21000 <= freq <= 21450):
+    elif 21000 <= freq <= 21450:
         return '15m'
-    elif (24890 <= freq <= 24990):
+    elif 24890 <= freq <= 24990:
         return '12m'
-    elif (28000 <= freq <= 29700):
+    elif 28000 <= freq <= 29700:
         return '10m'
-    elif (50000 <= freq <= 54000):
+    elif 50000 <= freq <= 54000:
         return '6m'
     else:
         return 'unknown'
@@ -66,7 +66,7 @@ def get_band(freq):
 def create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons, grid_square, use_band_column, callsign, stats):
     m = folium.Map(location=[39.8283, -98.5795], zoom_start=4)
 
-    if (show_all_beacons):
+    if show_all_beacons:
         for spotter, coords in spotter_coords.items():
             folium.CircleMarker(
                 location=coords,
@@ -78,10 +78,13 @@ def create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons
 
     marker_cluster = MarkerCluster().add_to(m)
 
+    cluster_data = {}
+
     for spotter, spot_df in filtered_df.groupby('spotter'):
-        if (spotter in spotter_coords):
+        if spotter in spotter_coords:
             coords = spotter_coords[spotter]
             max_snr = spot_df['snr'].max()
+            cluster_data[spotter] = (coords, max_snr)
             for _, row in spot_df.iterrows():
                 popup_text = f'Spotter: {spotter}<br>SNR: {row["snr"]} dB'
                 folium.CircleMarker(
@@ -92,14 +95,16 @@ def create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons
                     fill=True,
                     fill_color=get_color(row["snr"])
                 ).add_to(marker_cluster)
-            folium.CircleMarker(
-                location=coords,
-                radius=max_snr / 2,
-                popup=f'Max SNR: {max_snr} dB',
-                color=get_color(max_snr),
-                fill=True,
-                fill_color=get_color(max_snr)
-            ).add_to(marker_cluster)
+
+    for coords, max_snr in cluster_data.values():
+        folium.CircleMarker(
+            location=coords,
+            radius=max_snr / 2,
+            color=get_color(max_snr),
+            fill=True,
+            fill_color=get_color(max_snr),
+            fill_opacity=0.7
+        ).add_to(m)
 
     folium.Marker(
         location=grid_square_coords,
@@ -122,9 +127,9 @@ def create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons
 
     for _, row in filtered_df.iterrows():
         spotter = row['spotter']
-        if (spotter in spotter_coords):
+        if spotter in spotter_coords:
             coords = spotter_coords[spotter]
-            if (use_band_column):
+            if use_band_column:
                 band = row['band']
             else:
                 freq = row['freq']
@@ -191,7 +196,7 @@ def grid_square_to_latlon(grid_square):
     lon = -180 + (upper_alpha.index(grid_square[0]) * 20) + (digits.index(grid_square[2]) * 2)
     lat = -90 + (upper_alpha.index(grid_square[1]) * 10) + (digits.index(grid_square[3]) * 1)
 
-    if (len(grid_square) == 6):
+    if len(grid_square == 6):
         lon += (lower_alpha.index(grid_square[4].lower()) + 0.5) / 12
         lat += (lower_alpha.index(grid_square[5].lower()) + 0.5) / 24
 
@@ -204,7 +209,7 @@ def process_pasted_data(pasted_data):
     data = []
     for line in lines:
         parts = line.split()
-        if (len(parts) < 14):
+        if len(parts) < 14:
             print(f"Skipping incomplete row: {line}")
             continue
         
@@ -217,9 +222,9 @@ def process_pasted_data(pasted_data):
         snr = parts[7] + ' ' + parts[8]
         speed = parts[9] + ' ' + parts[10]
         time = parts[11] + ' ' + parts[12] + ' ' + parts[13]
-        seen = ' '.join(parts[14:]) if (len(parts) > 14) else ''
+        seen = ' '.join(parts[14:]) if len(parts) > 14 else ''
         
-        if (all([spotter, dx, distance, freq, mode, type_, snr, speed, time])):
+        if all([spotter, dx, distance, freq, mode, type_, snr, speed, time]):
             data.append([spotter, dx, distance, freq, mode, type_, snr, speed, time, seen])
     
     df = pd.DataFrame(data, columns=['spotter', 'dx', 'distance', 'freq', 'mode', 'type', 'snr', 'speed', 'time', 'seen'])
@@ -227,7 +232,7 @@ def process_pasted_data(pasted_data):
     df['snr'] = df['snr'].str.split().str[0].astype(float)
     df['freq'] = df['freq'].astype(float)
     
-    if ('band' not in df.columns):
+    if 'band' not in df.columns:
         df['band'] = df['freq'].apply(get_band)
     
     return df
@@ -246,13 +251,13 @@ def calculate_statistics(filtered_df, grid_square_coords, spotter_coords):
     bands = filtered_df['band'].value_counts().to_dict()
     
     max_distance = 0
-    if (not filtered_df.empty):
+    if not filtered_df.empty:
         for _, row in filtered_df.iterrows():
             spotter = row['spotter']
-            if (spotter in spotter_coords):
+            if spotter in spotter_coords:
                 coords = spotter_coords[spotter]
                 distance = geodesic(grid_square_coords, coords).miles
-                if (distance > max_distance):
+                if distance > max_distance:
                     max_distance = distance
     
     return {
@@ -267,7 +272,7 @@ def create_heatmap(filtered_df, map_object, spotter_coords):
     heat_data = []
     for _, row in filtered_df.iterrows():
         spotter = row['spotter']
-        if (spotter in spotter_coords):
+        if spotter in spotter_coords:
             coords = spotter_coords[spotter]
             heat_data.append([coords[0], coords[1], row['snr']])
     
@@ -305,7 +310,7 @@ def main():
             ('Paste RBN data', 'Download RBN data by date')
         )
 
-        if (data_source == 'Paste RBN data'):
+        if data_source == 'Paste RBN data':
             pasted_data = st.text_area("Paste RBN data here:")
         else:
             date = st.text_input("Enter the date (YYYYMMDD):")
@@ -339,32 +344,32 @@ def main():
             5. You can download the generated map using the provided download button.
             """)
 
-    if (generate_map):
+    if generate_map:
         try:
             with st.spinner("Generating map..."):
                 use_band_column = False
                 file_date = ""
 
-                if (callsign):
+                if callsign:
                     callsign = callsign.upper()
 
-                if (grid_square):
+                if grid_square:
                     grid_square = grid_square[:2].upper() + grid_square[2:]
 
-                if (not grid_square):
+                if not grid_square:
                     st.warning(f"No grid square provided, using default: {DEFAULT_GRID_SQUARE}")
                     grid_square = DEFAULT_GRID_SQUARE
 
-                if (data_source == 'Paste RBN data' and not pasted_data.strip()):
+                if data_source == 'Paste RBN data' and not pasted_data.strip():
                     data_source = 'Download RBN data by date'
                     date = ""
 
-                if (data_source == 'Paste RBN data' and pasted_data.strip()):
+                if data_source == 'Paste RBN data' and pasted_data.strip():
                     df = process_pasted_data(pasted_data)
                     st.write("Using pasted data.")
                     file_date = datetime.now(timezone.utc).strftime("%Y%m%d")
-                elif (data_source == 'Download RBN data by date'):
-                    if (not date.strip()):
+                elif data_source == 'Download RBN data by date':
+                    if not date.strip():
                         yesterday = datetime.now(timezone.utc) - timedelta(1)
                         date = yesterday.strftime('%Y%m%d')
                         st.write(f"Using latest available date: {date}")
@@ -378,7 +383,7 @@ def main():
                     st.error("Please provide the necessary data.")
 
                 filtered_df = df[df['dx'] == callsign].copy()
-                if (selected_band != 'All'):
+                if selected_band != 'All':
                     filtered_df = filtered_df[filtered_df['band'] == selected_band]
 
                 spotter_coords_df = pd.read_csv('spotter_coords.csv')
@@ -386,7 +391,7 @@ def main():
                     row['callsign']: (row['latitude'], row['longitude']) for _, row in spotter_coords_df.iterrows()
                 }
 
-                if (grid_square):
+                if grid_square:
                     grid_square_coords = grid_square_to_latlon(grid_square)
                 else:
                     grid_square_coords = grid_square_to_latlon(DEFAULT_GRID_SQUARE)
@@ -396,7 +401,7 @@ def main():
                 m = create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons, grid_square, use_band_column, callsign, stats)
 
                 # Add heatmap
-                if (not filtered_df.empty):
+                if not filtered_df.empty:
                     create_heatmap(filtered_df, m, spotter_coords)
 
                 map_html = m._repr_html_()
@@ -406,7 +411,7 @@ def main():
         except Exception as e:
             st.error(f"Error: {e}")
 
-    if (st.session_state.map_html):
+    if st.session_state.map_html:
         st.components.v1.html(st.session_state.map_html, height=700)
 
         map_filename = f"RBN_signal_map_{st.session_state.file_date}.html"
