@@ -9,7 +9,7 @@ from io import BytesIO
 import streamlit as st
 from datetime import datetime, timedelta, timezone
 from geopy.distance import geodesic
-import plotly.express as px  # Make sure this is installed
+from folium.plugins import MarkerCluster, HeatMap
 
 DEFAULT_GRID_SQUARE = "DM81wx"  # Default grid square location
 
@@ -76,19 +76,22 @@ def create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons
                 fill_color='black'
             ).add_to(m)
 
+    marker_cluster = MarkerCluster().add_to(m)
+
     for _, row in filtered_df.iterrows():
         spotter = row['spotter']
         if spotter in spotter_coords:
             coords = spotter_coords[spotter]
             snr = row['snr']
+            popup_text = f'Spotter: {spotter}<br>SNR: {snr} dB'
             folium.CircleMarker(
                 location=coords,
                 radius=snr / 2,
-                popup=f'Spotter: {spotter}<br>SNR: {snr} dB',
+                popup=popup_text,
                 color=get_color(snr),
                 fill=True,
                 fill_color=get_color(snr)
-            ).add_to(m)
+            ).add_to(marker_cluster)
 
     folium.Marker(
         location=grid_square_coords,
@@ -252,6 +255,10 @@ def calculate_statistics(filtered_df, grid_square_coords, spotter_coords):
         'bands': bands
     }
 
+def create_heatmap(data, map_object):
+    heat_data = [[row['latitude'], row['longitude']] for index, row in data.iterrows()]
+    HeatMap(heat_data).add_to(map_object)
+
 def main():
     st.set_page_config(layout="wide", page_title="RBN Signal Mapper", page_icon=":radio:")
 
@@ -278,11 +285,8 @@ def main():
 
         generate_map = st.button("Generate Map")
 
-        # Add these widgets in the sidebar
-        min_snr = st.sidebar.slider('Minimum SNR', min_value=-30, max_value=30, value=-10)
-        max_snr = st.sidebar.slider('Maximum SNR', min_value=-30, max_value=30, value=30)
-        band_options = ['All'] + list(band_colors.keys())
-        selected_band = st.sidebar.selectbox('Select Band', band_options)
+        band_options = ['All'] + ['160m', '80m', '40m', '30m', '20m', '17m', '15m', '12m', '10m', '6m']
+        selected_band = st.selectbox('Select Band', band_options)
 
         with st.expander("Instructions", expanded=False):
             st.markdown("""
@@ -335,7 +339,6 @@ def main():
                     st.error("Please provide the necessary data.")
 
                 filtered_df = df[df['dx'] == callsign].copy()
-                filtered_df = filtered_df[(filtered_df['snr'] >= min_snr) & (filtered_df['snr'] <= max_snr)]
                 if selected_band != 'All':
                     filtered_df = filtered_df[filtered_df['band'] == selected_band]
 
@@ -352,17 +355,15 @@ def main():
                 stats = calculate_statistics(filtered_df, grid_square_coords, spotter_coords)
 
                 m = create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons, grid_square, use_band_column, callsign, stats)
+
+                # Add heatmap
+                if not filtered_df.empty:
+                    create_heatmap(filtered_df, m)
+
                 map_html = m._repr_html_()
                 st.session_state.map_html = map_html
                 st.session_state.file_date = file_date
                 st.write("Map generated successfully!")
-                
-                # Add an interactive chart
-                if not filtered_df.empty:
-                    fig = px.scatter(filtered_df, x='freq', y='snr', color='band', hover_data=['spotter', 'time'])
-                    st.plotly_chart(fig)
-                else:
-                    st.write("No data available for the selected filters.")
         except Exception as e:
             st.error(f"Error: {e}")
 
