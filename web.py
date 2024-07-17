@@ -32,7 +32,8 @@ def download_and_extract_rbn_data(date):
 
 def get_color(snr):
     color_map = mcolors.LinearSegmentedColormap.from_list('custom', ['green', 'yellow', 'red'])
-    return mcolors.to_hex(color_map(snr / 30))
+    normalized_snr = min(max(snr / 30, 0), 1)  # Ensuring the value is between 0 and 1
+    return mcolors.to_hex(color_map(normalized_snr))
 
 def get_band(freq):
     try:
