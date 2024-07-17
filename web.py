@@ -62,7 +62,7 @@ def get_band(freq):
         return 'unknown'
 
 def create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons, grid_square, use_band_column, callsign, stats):
-    m = folium.Map(location=[39.8283, -98.5795], zoom_start=4, width='100%')
+    m = folium.Map(location=[39.8283, -98.5795], zoom_start=4, width='100%', height='800px')
 
     if show_all_beacons:
         for spotter, coords in spotter_coords.items():
@@ -342,7 +342,7 @@ def main():
             m.save(map_filename)
             st.write("Map generated successfully!")
             
-            st.components.v1.html(open(map_filename, 'r').read(), height=700)
+            st.components.v1.html(open(map_filename, 'r').read(), height=800, width=1200)
 
             with open(map_filename, "rb") as file:
                 st.download_button(
