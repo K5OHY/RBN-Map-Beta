@@ -31,9 +31,12 @@ def download_and_extract_rbn_data(date):
         raise Exception(f"Error downloading RBN data: {response.status_code}")
 
 def get_color(snr):
-    color_map = mcolors.LinearSegmentedColormap.from_list('custom', ['green', 'yellow', 'red'])
-    normalized_snr = min(max(snr / 30, 0), 1)  # Ensuring the value is between 0 and 1
-    return mcolors.to_hex(color_map(normalized_snr))
+    if snr < 10:
+        return 'green'
+    elif 10 <= snr < 20:
+        return 'yellow'
+    else:
+        return 'red'
 
 def get_band(freq):
     try:
