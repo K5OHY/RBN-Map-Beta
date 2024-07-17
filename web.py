@@ -78,19 +78,18 @@ def create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons
 
     marker_cluster = MarkerCluster().add_to(m)
 
-    for _, row in filtered_df.iterrows():
-        spotter = row['spotter']
+    for spotter, spot_df in filtered_df.groupby('spotter'):
         if spotter in spotter_coords:
             coords = spotter_coords[spotter]
-            snr = row['snr']
-            popup_text = f'Spotter: {spotter}<br>SNR: {snr} dB'
+            max_snr = spot_df['snr'].max()
+            popup_text = f'Spotter: {spotter}<br>Max SNR: {max_snr} dB'
             folium.CircleMarker(
                 location=coords,
-                radius=snr / 2,
+                radius=max_snr / 2,
                 popup=popup_text,
-                color=get_color(snr),
+                color=get_color(max_snr),
                 fill=True,
-                fill_color=get_color(snr)
+                fill_color=get_color(max_snr)
             ).add_to(marker_cluster)
 
     folium.Marker(
