@@ -62,7 +62,7 @@ def get_band(freq):
         return 'unknown'
 
 def create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons, grid_square, use_band_column, callsign, stats):
-    m = folium.Map(location=[39.8283, -98.5795], zoom_start=4, width='100%', height='800px')
+    m = folium.Map(location=[39.8283, -98.5795], zoom_start=4)
 
     if show_all_beacons:
         for spotter, coords in spotter_coords.items():
@@ -211,8 +211,8 @@ def process_pasted_data(pasted_data):
     
     df = pd.DataFrame(data, columns=['spotter', 'dx', 'distance', 'freq', 'mode', 'type', 'snr', 'speed', 'time', 'seen'])
     
-    df['snr'] = pd.to_numeric(df['snr'].str.split().str[0], errors='coerce')
-    df['freq'] = pd.to_numeric(df['freq'], errors='coerce')
+    df['snr'] = df['snr'].str.split().str[0].astype(float)
+    df['freq'] = df['freq'].astype(float)
     
     if 'band' not in df.columns:
         df['band'] = df['freq'].apply(get_band)
@@ -252,32 +252,14 @@ def calculate_statistics(filtered_df, grid_square_coords, spotter_coords):
 
 def main():
     st.set_page_config(layout="wide")
-    
+
     st.title("RBN Signal Mapper")
 
     with st.sidebar:
-        st.markdown("""
-        **Instructions:**
-        1. Enter a callsign and grid square.
-        2. Select the data source:
-            - Paste RBN data manually.
-            - Download RBN data by date.
-        3. Optionally, choose to show all reverse beacons.
-        4. Click 'Generate Map' to visualize the signal map.
-        5. You can download the generated map using the provided download button.
-
-        **Pasting RBN Data:**
-        - Go to the RBN website and copy the data in the format provided.
-        - Paste the data directly into the text area.
-
-        **Downloading RBN Data:**
-        - If the date is left blank, the latest available data will be downloaded and used.
-        """)
-
+        st.header("Input Data")
         callsign = st.text_input("Enter Callsign:")
         grid_square = st.text_input("Enter Grid Square (optional):")
         show_all_beacons = st.checkbox("Show all reverse beacons")
-
         data_source = st.radio(
             "Select data source",
             ('Paste RBN data', 'Download RBN data by date')
@@ -287,78 +269,74 @@ def main():
             pasted_data = st.text_area("Paste RBN data here:")
         else:
             date = st.text_input("Enter the date (YYYYMMDD):")
-        
-        generate_map = st.button("Generate Map")
 
-    if generate_map:
-        try:
-            use_band_column = False
-            file_date = ""
-            
-            if callsign:
-                callsign = callsign.upper()
+        if st.button("Generate Map"):
+            try:
+                use_band_column = False
+                file_date = ""
                 
-            if grid_square:
-                grid_square = grid_square[:2].upper() + grid_square[2:]
-            
-            if not grid_square:
-                st.warning(f"No grid square provided, using default: {DEFAULT_GRID_SQUARE}")
-                grid_square = DEFAULT_GRID_SQUARE
-            
-            if data_source == 'Paste RBN data' and not pasted_data.strip():
-                data_source = 'Download RBN data by date'
-                date = ""
-            
-            if data_source == 'Paste RBN data' and pasted_data.strip():
-                df = process_pasted_data(pasted_data)
-                st.write("Using pasted data.")
-                file_date = datetime.now(timezone.utc).strftime("%Y%m%d")
-            elif data_source == 'Download RBN data by date':
-                if not date.strip():
-                    yesterday = datetime.now(timezone.utc) - timedelta(1)
-                    date = yesterday.strftime('%Y%m%d')
-                    st.write(f"Using latest available date: {date}")
-                csv_filename = download_and_extract_rbn_data(date)
-                df = process_downloaded_data(csv_filename)
-                os.remove(csv_filename)
-                use_band_column = True
-                file_date = date
-                st.write("Using downloaded data.")
-            else:
-                st.error("Please provide the necessary data.")
+                if callsign:
+                    callsign = callsign.upper()
+                    
+                if grid_square:
+                    grid_square = grid_square[:2].upper() + grid_square[2:]
+                
+                if not grid_square:
+                    st.warning(f"No grid square provided, using default: {DEFAULT_GRID_SQUARE}")
+                    grid_square = DEFAULT_GRID_SQUARE
+                
+                if data_source == 'Paste RBN data' and not pasted_data.strip():
+                    data_source = 'Download RBN data by date'
+                    date = ""
+                
+                if data_source == 'Paste RBN data' and pasted_data.strip():
+                    df = process_pasted_data(pasted_data)
+                    st.write("Using pasted data.")
+                    file_date = datetime.now(timezone.utc).strftime("%Y%m%d")
+                elif data_source == 'Download RBN data by date':
+                    if not date.strip():
+                        yesterday = datetime.now(timezone.utc) - timedelta(1)
+                        date = yesterday.strftime('%Y%m%d')
+                        st.write(f"Using latest available date: {date}")
+                    csv_filename = download_and_extract_rbn_data(date)
+                    df = process_downloaded_data(csv_filename)
+                    os.remove(csv_filename)
+                    use_band_column = True
+                    file_date = date
+                    st.write("Using downloaded data.")
+                else:
+                    st.error("Please provide the necessary data.")
 
-            filtered_df = df[df['dx'] == callsign].copy()
-            
-            spotter_coords_df = pd.read_csv('spotter_coords.csv')
-            spotter_coords = {
-                row['callsign']: (row['latitude'], row['longitude']) for _, row in spotter_coords_df.iterrows()
-            }
-            
-            if grid_square:
-                # Convert grid square to latitude and longitude using grid_square_to_latlon method
-                grid_square_coords = grid_square_to_latlon(grid_square)
-            else:
-                grid_square_coords = grid_square_to_latlon(DEFAULT_GRID_SQUARE)
+                filtered_df = df[df['dx'] == callsign].copy()
+                
+                spotter_coords_df = pd.read_csv('spotter_coords.csv')
+                spotter_coords = {
+                    row['callsign']: (row['latitude'], row['longitude']) for _, row in spotter_coords_df.iterrows()
+                }
+                
+                if grid_square:
+                    grid_square_coords = grid_square_to_latlon(grid_square)
+                else:
+                    grid_square_coords = grid_square_to_latlon(DEFAULT_GRID_SQUARE)
 
-            stats = calculate_statistics(filtered_df, grid_square_coords, spotter_coords)
-            
-            map_filename = f"RBN_signal_map_{file_date}.html"
-            m = create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons, grid_square, use_band_column, callsign, stats)
-            m.save(map_filename)
-            st.write("Map generated successfully!")
-            
-            with st.container():
-                st.components.v1.html(open(map_filename, 'r').read(), height=800, width='100%')
+                stats = calculate_statistics(filtered_df, grid_square_coords, spotter_coords)
+                
+                map_filename = f"RBN_signal_map_{file_date}.html"
+                m = create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons, grid_square, use_band_column, callsign, stats)
+                m.save(map_filename)
+                st.write("Map generated successfully!")
+                
+                st.components.v1.html(open(map_filename, 'r').read(), height=700)
 
-            with open(map_filename, "rb") as file:
-                st.download_button(
-                    label="Download Map",
-                    data=file,
-                    file_name=map_filename,
-                    mime="text/html"
-                )
-        except Exception as e:
-            st.error(f"Error: {e}")
+                with open(map_filename, "rb") as file:
+                    st.download_button(
+                        label="Download Map",
+                        data=file,
+                        file_name=map_filename,
+                        mime="text/html"
+                    )
+            except Exception as e:
+                st.error(f"Error: {e}")
 
 if __name__ == "__main__":
     main()
