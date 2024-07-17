@@ -285,7 +285,19 @@ def main():
 
         generate_map = st.button("Generate Map")
 
-        band_options = ['All'] + ['160m', '80m', '40m', '30m', '20m', '17m', '15m', '12m', '10m', '6m']
+        band_colors = {
+            '160m': '#FFFF00',  # yellow
+            '80m': '#003300',   # dark green
+            '40m': '#FFA500',   # orange
+            '30m': '#FF4500',   # red
+            '20m': '#0000FF',   # blue
+            '17m': '#800080',   # purple
+            '15m': '#696969',   # dim gray
+            '12m': '#00FFFF',   # cyan
+            '10m': '#FF00FF',   # magenta
+            '6m': '#F5DEB3',    # wheat
+        }
+        band_options = ['All'] + list(band_colors.keys())
         selected_band = st.selectbox('Select Band', band_options)
 
         with st.expander("Instructions", expanded=False):
