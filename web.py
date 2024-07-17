@@ -196,7 +196,7 @@ def grid_square_to_latlon(grid_square):
     lon = -180 + (upper_alpha.index(grid_square[0]) * 20) + (digits.index(grid_square[2]) * 2)
     lat = -90 + (upper_alpha.index(grid_square[1]) * 10) + (digits.index(grid_square[3]) * 1)
 
-    if len(grid_square == 6):
+    if len(grid_square) == 6:
         lon += (lower_alpha.index(grid_square[4].lower()) + 0.5) / 12
         lat += (lower_alpha.index(grid_square[5].lower()) + 0.5) / 24
 
