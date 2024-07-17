@@ -76,19 +76,22 @@ def create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons
                 fill_color='black'
             ).add_to(m)
 
+    marker_cluster = MarkerCluster().add_to(m)
+
     for _, row in filtered_df.iterrows():
         spotter = row['spotter']
         if spotter in spotter_coords:
             coords = spotter_coords[spotter]
             snr = row['snr']
+            popup_text = f'Spotter: {spotter}<br>SNR: {snr} dB'
             folium.CircleMarker(
                 location=coords,
                 radius=snr / 2,
-                popup=f'Spotter: {spotter}<br>SNR: {snr} dB',
+                popup=popup_text,
                 color=get_color(snr),
                 fill=True,
                 fill_color=get_color(snr)
-            ).add_to(m)
+            ).add_to(marker_cluster)
 
     folium.Marker(
         location=grid_square_coords,
@@ -258,8 +261,8 @@ def create_heatmap(filtered_df, map_object, spotter_coords):
         spotter = row['spotter']
         if spotter in spotter_coords:
             coords = spotter_coords[spotter]
-            heat_data.append([coords[0], coords[1], row['snr']])
-    HeatMap(heat_data, min_opacity=0.3, max_val=30, radius=15, blur=10, gradient={0.2: 'green', 0.5: 'yellow', 0.9: 'red'}).add_to(map_object)
+            heat_data.append([coords[0], coords[1]])
+    HeatMap(heat_data).add_to(map_object)
 
 def main():
     st.set_page_config(layout="wide", page_title="RBN Signal Mapper", page_icon=":radio:")
