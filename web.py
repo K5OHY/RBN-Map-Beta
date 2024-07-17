@@ -255,8 +255,8 @@ def main():
 
     st.title("RBN Signal Mapper")
 
-    if 'map_filename' not in st.session_state:
-        st.session_state.map_filename = None
+    if 'map_html' not in st.session_state:
+        st.session_state.map_html = None
 
     with st.sidebar:
         st.header("Input Data")
@@ -337,23 +337,26 @@ def main():
 
             stats = calculate_statistics(filtered_df, grid_square_coords, spotter_coords)
             
-            map_filename = f"RBN_signal_map_{file_date}.html"
             m = create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons, grid_square, use_band_column, callsign, stats)
-            m.save(map_filename)
-            st.session_state.map_filename = map_filename
+            map_html = m._repr_html_()
+            st.session_state.map_html = map_html
+            st.session_state.file_date = file_date
             st.write("Map generated successfully!")
-            
-            st.components.v1.html(open(map_filename, 'r').read(), height=700)
-
         except Exception as e:
             st.error(f"Error: {e}")
 
-    if st.session_state.map_filename:
-        with open(st.session_state.map_filename, "rb") as file:
+    if st.session_state.map_html:
+        st.components.v1.html(st.session_state.map_html, height=700)
+
+        map_filename = f"RBN_signal_map_{st.session_state.file_date}.html"
+        with open(map_filename, "w") as file:
+            file.write(st.session_state.map_html)
+
+        with open(map_filename, "rb") as file:
             st.download_button(
                 label="Download Map",
                 data=file,
-                file_name=st.session_state.map_filename,
+                file_name=map_filename,
                 mime="text/html"
             )
 
