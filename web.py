@@ -1,6 +1,7 @@
 import requests
 import pandas as pd
 import folium
+import matplotlib.colors as mcolors
 import zipfile
 import os
 import re
@@ -28,6 +29,10 @@ def download_and_extract_rbn_data(date):
             return csv_filename
     else:
         raise Exception(f"Error downloading RBN data: {response.status_code}")
+
+def get_color(snr):
+    color_map = mcolors.LinearSegmentedColormap.from_list('custom', ['green', 'yellow', 'red'])
+    return mcolors.to_hex(color_map(snr / 30))
 
 def get_band(freq):
     try:
@@ -71,22 +76,19 @@ def create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons
                 fill_color='black'
             ).add_to(m)
 
-    marker_cluster = MarkerCluster().add_to(m)
-
     for _, row in filtered_df.iterrows():
         spotter = row['spotter']
         if spotter in spotter_coords:
             coords = spotter_coords[spotter]
             snr = row['snr']
-            popup_text = f'Spotter: {spotter}<br>SNR: {snr} dB'
             folium.CircleMarker(
                 location=coords,
                 radius=snr / 2,
-                popup=popup_text,
-                color='blue',
+                popup=f'Spotter: {spotter}<br>SNR: {snr} dB',
+                color=get_color(snr),
                 fill=True,
-                fill_color='blue'
-            ).add_to(marker_cluster)
+                fill_color=get_color(snr)
+            ).add_to(m)
 
     folium.Marker(
         location=grid_square_coords,
