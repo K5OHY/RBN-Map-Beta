@@ -3,8 +3,4 @@ folium
 matplotlib
 requests
 streamlit
-requests
-beautifulsoup4
 geopy
-maidenhead
-hamtools
