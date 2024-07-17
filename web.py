@@ -251,41 +251,46 @@ def calculate_statistics(filtered_df, grid_square_coords, spotter_coords):
     }
 
 def main():
+    st.set_page_config(layout="wide")
+    
     st.title("RBN Signal Mapper")
 
-    st.markdown("""
-    **Instructions:**
-    1. Enter a callsign and grid square.
-    2. Select the data source:
-        - Paste RBN data manually.
-        - Download RBN data by date.
-    3. Optionally, choose to show all reverse beacons.
-    4. Click 'Generate Map' to visualize the signal map.
-    5. You can download the generated map using the provided download button.
+    with st.sidebar:
+        st.markdown("""
+        **Instructions:**
+        1. Enter a callsign and grid square.
+        2. Select the data source:
+            - Paste RBN data manually.
+            - Download RBN data by date.
+        3. Optionally, choose to show all reverse beacons.
+        4. Click 'Generate Map' to visualize the signal map.
+        5. You can download the generated map using the provided download button.
 
-    **Pasting RBN Data:**
-    - Go to the RBN website and copy the data in the format provided.
-    - Paste the data directly into the text area.
-    
-    **Downloading RBN Data:**
-    - If the date is left blank, the latest available data will be downloaded and used.
-    """)
+        **Pasting RBN Data:**
+        - Go to the RBN website and copy the data in the format provided.
+        - Paste the data directly into the text area.
 
-    callsign = st.text_input("Enter Callsign:")
-    grid_square = st.text_input("Enter Grid Square (optional):")
-    show_all_beacons = st.checkbox("Show all reverse beacons")
+        **Downloading RBN Data:**
+        - If the date is left blank, the latest available data will be downloaded and used.
+        """)
 
-    data_source = st.radio(
-        "Select data source",
-        ('Paste RBN data', 'Download RBN data by date')
-    )
+        callsign = st.text_input("Enter Callsign:")
+        grid_square = st.text_input("Enter Grid Square (optional):")
+        show_all_beacons = st.checkbox("Show all reverse beacons")
 
-    if data_source == 'Paste RBN data':
-        pasted_data = st.text_area("Paste RBN data here:")
-    else:
-        date = st.text_input("Enter the date (YYYYMMDD):")
-    
-    if st.button("Generate Map"):
+        data_source = st.radio(
+            "Select data source",
+            ('Paste RBN data', 'Download RBN data by date')
+        )
+
+        if data_source == 'Paste RBN data':
+            pasted_data = st.text_area("Paste RBN data here:")
+        else:
+            date = st.text_input("Enter the date (YYYYMMDD):")
+        
+        generate_map = st.button("Generate Map")
+
+    if generate_map:
         try:
             use_band_column = False
             file_date = ""
@@ -342,7 +347,8 @@ def main():
             m.save(map_filename)
             st.write("Map generated successfully!")
             
-            st.components.v1.html(open(map_filename, 'r').read(), height=800, width=1000)
+            with st.container():
+                st.components.v1.html(open(map_filename, 'r').read(), height=800, width='100%')
 
             with open(map_filename, "rb") as file:
                 st.download_button(
