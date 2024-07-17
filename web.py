@@ -9,25 +9,17 @@ from io import BytesIO
 import streamlit as st
 from datetime import datetime, timedelta, timezone
 from geopy.distance import geodesic
+from streamlit_websocket import WebSocketServer, WebSocketClient
 
 DEFAULT_GRID_SQUARE = "DM81wx"  # Default grid square location
 
-def download_and_extract_rbn_data(date):
-    url = f'https://data.reversebeacon.net/rbn_history/{date}.zip'
-    response = requests.get(url)
-    if response.status_code == 200:
-        with zipfile.ZipFile(BytesIO(response.content)) as z:
-            csv_filename = None
-            for file_info in z.infolist():
-                if file_info.filename.endswith('.csv'):
-                    csv_filename = file_info.filename
-                    z.extract(csv_filename)
-                    break
-            if csv_filename is None:
-                raise Exception("No CSV file found in the ZIP archive")
-            return csv_filename
-    else:
-        raise Exception(f"Error downloading RBN data: {response.status_code}")
+# Function to handle WebSocket messages
+def handle_message(message):
+    # Here, you'd process incoming WebSocket messages
+    # For simplicity, let's assume we're receiving real-time RBN data
+    data = message
+    # Process and update the data as needed
+    return data
 
 def get_color(snr):
     color_map = mcolors.LinearSegmentedColormap.from_list('custom', ['green', 'yellow', 'red'])
