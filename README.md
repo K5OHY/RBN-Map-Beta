@@ -1,7 +1,7 @@
 
 # RBN Signal Mapper
 
-RBN Signal Mapper is a web application that visualizes Reverse Beacon Network (RBN) data on a map. The application allows users to input a callsign and grid square, and either paste RBN data manually or download it by date. The generated map can be downloaded as an HTML file.
+RBN Signal Mapper is a web application designed to visualize Reverse Beacon Network (RBN) data on a map. Users can input a callsign and grid square, and either paste RBN data manually or download it by date. The application generates a map that can be downloaded as an HTML file.
 
 ## Features
 
@@ -14,12 +14,12 @@ RBN Signal Mapper is a web application that visualizes Reverse Beacon Network (R
 
 1. Clone the repository:
    ```bash
-   git clone https://github.com/yourusername/rbn-signal-mapper.git
+   git clone https://github.com/K5OHY/RBN_Map.git
    ```
 
 2. Change to the project directory:
    ```bash
-   cd rbn-signal-mapper
+   cd RBN_Map
    ```
 
 3. Create and activate a virtual environment:
@@ -57,7 +57,7 @@ RBN Signal Mapper is a web application that visualizes Reverse Beacon Network (R
 - Folium
 - Matplotlib
 - Requests
-- BeautifulSoup4 (for fetching the latest RBN date)
+- Geopy
 
 ## License
 
@@ -70,4 +70,8 @@ This project is licensed under the MIT License.
 - [Folium](https://python-visualization.github.io/folium/)
 - [Pandas](https://pandas.pydata.org/)
 - [Matplotlib](https://matplotlib.org/)
-- [BeautifulSoup](https://www.crummy.com/software/BeautifulSoup/)
+- [Geopy](https://geopy.readthedocs.io/)
+
+## Contributing
+
+Contributions are welcome! Please open an issue or submit a pull request with your improvements.
