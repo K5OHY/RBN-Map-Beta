@@ -4,4 +4,3 @@ matplotlib
 requests
 streamlit
 geopy
-streamlit-websocket
