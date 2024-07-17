@@ -10,6 +10,10 @@ RBN Signal Mapper is a web application designed to visualize Reverse Beacon Netw
 - Download the generated map
 - Automatic download of the latest available RBN data if date input is left blank
 
+## Screenshot
+
+![RBN Signal Mapper Screenshot](images/screenshot.png)
+
 ## Installation
 
 1. Clone the repository:
