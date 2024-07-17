@@ -289,7 +289,7 @@ def main():
             5. You can download the generated map using the provided download button.
             """)
 
-    if generate_map and callsign:
+    if generate_map:
         if not re.match(r"^[A-Z0-9]+$", callsign):
             st.error("Invalid callsign format.")
         else:
