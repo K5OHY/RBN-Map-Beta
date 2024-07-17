@@ -255,8 +255,13 @@ def calculate_statistics(filtered_df, grid_square_coords, spotter_coords):
         'bands': bands
     }
 
-def create_heatmap(data, map_object):
-    heat_data = [[row['latitude'], row['longitude']] for index, row in data.iterrows()]
+def create_heatmap(filtered_df, map_object, spotter_coords):
+    heat_data = []
+    for _, row in filtered_df.iterrows():
+        spotter = row['spotter']
+        if spotter in spotter_coords:
+            coords = spotter_coords[spotter]
+            heat_data.append([coords[0], coords[1]])
     HeatMap(heat_data).add_to(map_object)
 
 def main():
@@ -370,7 +375,7 @@ def main():
 
                 # Add heatmap
                 if not filtered_df.empty:
-                    create_heatmap(filtered_df, m)
+                    create_heatmap(filtered_df, m, spotter_coords)
 
                 map_html = m._repr_html_()
                 st.session_state.map_html = map_html
