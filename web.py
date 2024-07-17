@@ -355,4 +355,17 @@ def main():
     if st.session_state.map_html:
         st.components.v1.html(st.session_state.map_html, height=700)
 
-        map_filename = f"RBN_signal_map_{st.session_state.file_date}.html
+        map_filename = f"RBN_signal_map_{st.session_state.file_date}.html"
+        with open(map_filename, "w") as file:
+            file.write(st.session_state.map_html)
+
+        with open(map_filename, "rb") as file:
+            st.download_button(
+                label="Download Map",
+                data=file,
+                file_name=map_filename,
+                mime="text/html"
+            )
+
+if __name__ == "__main__":
+    main()
