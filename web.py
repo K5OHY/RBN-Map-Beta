@@ -211,8 +211,8 @@ def process_pasted_data(pasted_data):
     
     df = pd.DataFrame(data, columns=['spotter', 'dx', 'distance', 'freq', 'mode', 'type', 'snr', 'speed', 'time', 'seen'])
     
-    df['snr'] = df['snr'].str.split().str[0].astype(float)
-    df['freq'] = df['freq'].astype(float)
+    df['snr'] = pd.to_numeric(df['snr'].str.split().str[0], errors='coerce')
+    df['freq'] = pd.to_numeric(df['freq'], errors='coerce')
     
     if 'band' not in df.columns:
         df['band'] = df['freq'].apply(get_band)
