@@ -252,7 +252,7 @@ def calculate_statistics(filtered_df, grid_square_coords, spotter_coords):
     }
 
 def main():
-    st.set_page_config(layout="wide", page_title="RBN Signal Mapper", page_icon=":satellite:")
+    st.set_page_config(layout="wide", page_title="RBN Signal Mapper", page_icon=":radio:")
 
     # Center the title
     st.markdown("<h1 style='text-align: center;'>RBN Signal Mapper</h1>", unsafe_allow_html=True)
