@@ -342,7 +342,7 @@ def main():
             m.save(map_filename)
             st.write("Map generated successfully!")
             
-            st.components.v1.html(open(map_filename, 'r').read(), height=800, width=1200)
+            st.components.v1.html(open(map_filename, 'r').read(), height=800, width=800)
 
             with open(map_filename, "rb") as file:
                 st.download_button(
