@@ -75,36 +75,19 @@ def create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons
                 fill_color='black'
             ).add_to(m)
 
-    aggregated_data = filtered_df.groupby('spotter').agg(
-        max_snr=('snr', 'max'),
-        count=('spotter', 'size')
-    ).reset_index()
-
-    for _, row in aggregated_data.iterrows():
+    for _, row in filtered_df.iterrows():
         spotter = row['spotter']
         if spotter in spotter_coords:
             coords = spotter_coords[spotter]
-            max_snr = row['max_snr']
-            count = row['count']
+            snr = row['snr']
             folium.CircleMarker(
                 location=coords,
-                radius=max_snr / 2,
-                popup=f'Spotter: {spotter}<br>Spots: {count}<br>Max SNR: {max_snr} dB',
-                color=get_color(max_snr),
+                radius=snr / 2,
+                popup=f'Spotter: {spotter}<br>SNR: {snr} dB',
+                color=get_color(snr),
                 fill=True,
-                fill_color=get_color(max_snr)
+                fill_color=get_color(snr)
             ).add_to(m)
-
-            for _, spot_row in filtered_df[filtered_df['spotter'] == spotter].iterrows():
-                snr = spot_row['snr']
-                folium.CircleMarker(
-                    location=coords,
-                    radius=snr / 2,
-                    popup=f'Spotter: {spotter}<br>SNR: {snr} dB',
-                    color=get_color(snr),
-                    fill=True,
-                    fill_color=get_color(snr)
-                ).add_to(m)
 
     folium.Marker(
         location=grid_square_coords,
@@ -196,7 +179,7 @@ def grid_square_to_latlon(grid_square):
     lon = -180 + (upper_alpha.index(grid_square[0]) * 20) + (digits.index(grid_square[2]) * 2)
     lat = -90 + (upper_alpha.index(grid_square[1]) * 10) + (digits.index(grid_square[3]) * 1)
 
-    if len(grid_square) == 6:
+    if len(grid_square is == 6:
         lon += (lower_alpha.index(grid_square[4].lower()) + 0.5) / 12
         lat += (lower_alpha.index(grid_square[5].lower()) + 0.5) / 24
 
