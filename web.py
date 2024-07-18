@@ -9,7 +9,6 @@ from io import BytesIO
 import streamlit as st
 from datetime import datetime, timedelta, timezone
 from geopy.distance import geodesic
-from folium.plugins import MarkerCluster
 
 DEFAULT_GRID_SQUARE = "DM81wx"  # Default grid square location
 
@@ -63,7 +62,7 @@ def get_band(freq):
     else:
         return 'unknown'
 
-def create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons, grid_square, use_band_column, callsign, stats, selected_bands):
+def create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons, grid_square, use_band_column, callsign, stats):
     m = folium.Map(location=[39.8283, -98.5795], zoom_start=4)
 
     if show_all_beacons:
@@ -76,25 +75,19 @@ def create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons
                 fill_color='black'
             ).add_to(m)
 
-    marker_cluster = MarkerCluster().add_to(m)
-    
-    spotter_data = filtered_df.groupby('spotter').agg({'snr': 'max', 'freq': 'first', 'spotter': 'first', 'band': 'first'}).reset_index()
-
-    for _, row in spotter_data.iterrows():
+    for _, row in filtered_df.iterrows():
         spotter = row['spotter']
         if spotter in spotter_coords:
             coords = spotter_coords[spotter]
             snr = row['snr']
-            band = row['band']
-            if band in selected_bands:
-                folium.CircleMarker(
-                    location=coords,
-                    radius=snr / 2,
-                    popup=f'Spotter: {spotter}<br>SNR: {snr} dB<br>Band: {band}',
-                    color=get_color(snr),
-                    fill=True,
-                    fill_color=get_color(snr)
-                ).add_to(marker_cluster)
+            folium.CircleMarker(
+                location=coords,
+                radius=snr / 2,
+                popup=f'Spotter: {spotter}<br>SNR: {snr} dB',
+                color=get_color(snr),
+                fill=True,
+                fill_color=get_color(snr)
+            ).add_to(m)
 
     folium.Marker(
         location=grid_square_coords,
@@ -124,13 +117,13 @@ def create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons
             else:
                 freq = row['freq']
                 band = get_band(freq)
-            if band in selected_bands:
-                color = band_colors.get(band, 'blue')
-                folium.PolyLine(
-                    locations=[grid_square_coords, coords],
-                    color=color,
-                    weight=1
-                ).add_to(m)
+            color = band_colors.get(band, 'blue')
+
+            folium.PolyLine(
+                locations=[grid_square_coords, coords],
+                color=color,
+                weight=1
+            ).add_to(m)
     
     band_stats = "<br>".join([f"{band}: {count}" for band, count in stats['bands'].items()])
     
@@ -259,7 +252,7 @@ def calculate_statistics(filtered_df, grid_square_coords, spotter_coords):
     }
 
 def main():
-    st.set_page_config(layout="wide", page_title="RBN Signal Mapper", page_icon=":radio:")
+    st.set_page_config(layout="wide", page_title="RBN Signal Mapper", page_icon=":satellite:")
 
     # Center the title
     st.markdown("<h1 style='text-align: center;'>RBN Signal Mapper</h1>", unsafe_allow_html=True)
@@ -275,11 +268,6 @@ def main():
         data_source = st.radio(
             "Select data source",
             ('Paste RBN data', 'Download RBN data by date')
-        )
-        selected_bands = st.multiselect(
-            'Select Bands to Display:',
-            ['160m', '80m', '40m', '30m', '20m', '17m', '15m', '12m', '10m', '6m'],
-            default=['160m', '80m', '40m', '30m', '20m', '17m', '15m', '12m', '10m', '6m']
         )
 
         if data_source == 'Paste RBN data':
@@ -353,7 +341,7 @@ def main():
 
                 stats = calculate_statistics(filtered_df, grid_square_coords, spotter_coords)
 
-                m = create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons, grid_square, use_band_column, callsign, stats, selected_bands)
+                m = create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons, grid_square, use_band_column, callsign, stats)
                 map_html = m._repr_html_()
                 st.session_state.map_html = map_html
                 st.session_state.file_date = file_date
