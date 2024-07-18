@@ -76,7 +76,6 @@ def create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons
                 fill_color='black'
             ).add_to(m)
 
-    # Create clusters with custom icons
     marker_cluster = MarkerCluster().add_to(m)
 
     for _, row in filtered_df.iterrows():
@@ -84,10 +83,11 @@ def create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons
         if spotter in spotter_coords:
             coords = spotter_coords[spotter]
             snr = row['snr']
+            popup_text = f'Spotter: {spotter}<br>SNR: {snr} dB'
             folium.CircleMarker(
                 location=coords,
                 radius=snr / 2,
-                popup=f'Spotter: {spotter}<br>SNR: {snr} dB',
+                popup=popup_text,
                 color=get_color(snr),
                 fill=True,
                 fill_color=get_color(snr)
