@@ -9,7 +9,6 @@ from io import BytesIO
 import streamlit as st
 from datetime import datetime, timedelta, timezone
 from geopy.distance import geodesic
-from folium.plugins import MarkerCluster
 
 DEFAULT_GRID_SQUARE = "DM81wx"  # Default grid square location
 
@@ -76,40 +75,21 @@ def create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons
                 fill_color='black'
             ).add_to(m)
 
-    aggregated_data = filtered_df.groupby('spotter').agg(
-        max_snr=('snr', 'max'),
-        count=('spotter', 'size')
-    ).reset_index()
-
-    marker_cluster = MarkerCluster().add_to(m)
-
-    for _, row in aggregated_data.iterrows():
+    for _, row in filtered_df.iterrows():
         spotter = row['spotter']
         if spotter in spotter_coords:
             coords = spotter_coords[spotter]
-            max_snr = row['max_snr']
-            count = row['count']
+            snr = row['snr']
+            time = row['time']
+            time_only = time.split()[1][:5]
             folium.CircleMarker(
                 location=coords,
-                radius=max_snr / 2,
-                popup=f'Spotter: {spotter}<br>Spots: {count}<br>Max SNR: {max_snr} dB',
-                color=get_color(max_snr),
+                radius=snr / 2,
+                popup=f'Spotter: {spotter}<br>SNR: {snr} dB<br>Time: {time_only}',
+                color=get_color(snr),
                 fill=True,
-                fill_color=get_color(max_snr)
-            ).add_to(marker_cluster)
-
-            for _, spot_row in filtered_df[filtered_df['spotter'] == spotter].iterrows():
-                snr = spot_row['snr']
-                time = spot_row['time']  # Added time
-                time_only = time.split()[1][:5]  # Extract only the HH:MM part
-                folium.CircleMarker(
-                    location=coords,
-                    radius=snr / 2,
-                    popup=f'Spotter: {spotter}<br>SNR: {snr} dB<br>Time: {time_only}',  # Included time in the popup
-                    color=get_color(snr),
-                    fill=True,
-                    fill_color=get_color(snr)
-                ).add_to(marker_cluster)
+                fill_color=get_color(snr)
+            ).add_to(m)
 
     folium.Marker(
         location=grid_square_coords,
