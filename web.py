@@ -65,6 +65,7 @@ def get_band(freq):
 
 def create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons, grid_square, use_band_column, callsign, stats):
     m = folium.Map(location=[39.8283, -98.5795], zoom_start=4)
+    marker_cluster = MarkerCluster().add_to(m)
 
     if show_all_beacons:
         for spotter, coords in spotter_coords.items():
@@ -76,23 +77,24 @@ def create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons
                 fill_color='black'
             ).add_to(m)
 
-    marker_cluster = MarkerCluster().add_to(m)
+    aggregated_data = filtered_df.groupby('spotter').agg(
+        max_snr=('snr', 'max'),
+        count=('spotter', 'size')
+    ).reset_index()
 
-    for _, row in filtered_df.iterrows():
+    for _, row in aggregated_data.iterrows():
         spotter = row['spotter']
         if spotter in spotter_coords:
             coords = spotter_coords[spotter]
-            snr = row['snr']
-            popup_text = f'Spotter: {spotter}<br>SNR: {snr} dB'
-            if 'time' in row:
-                popup_text += f'<br>Time: {row["time"]}'
+            max_snr = row['max_snr']
+            count = row['count']
             folium.CircleMarker(
                 location=coords,
-                radius=snr / 2,
-                popup=popup_text,
-                color=get_color(snr),
+                radius=max_snr / 2,
+                popup=f'Spotter: {spotter}<br>Spots: {count}<br>Max SNR: {max_snr} dB',
+                color=get_color(max_snr),
                 fill=True,
-                fill_color=get_color(snr)
+                fill_color=get_color(max_snr)
             ).add_to(marker_cluster)
 
     folium.Marker(
@@ -211,11 +213,12 @@ def process_pasted_data(pasted_data):
         snr = parts[7] + ' ' + parts[8]
         speed = parts[9] + ' ' + parts[10]
         time = parts[11] + ' ' + parts[12] + ' ' + parts[13]
+        seen = ' '.join(parts[14:]) if len(parts) > 14 else ''
         
         if all([spotter, dx, distance, freq, mode, type_, snr, speed, time]):
-            data.append([spotter, dx, distance, freq, mode, type_, snr, speed, time])
+            data.append([spotter, dx, distance, freq, mode, type_, snr, speed, time, seen])
     
-    df = pd.DataFrame(data, columns=['spotter', 'dx', 'distance', 'freq', 'mode', 'type', 'snr', 'speed', 'time'])
+    df = pd.DataFrame(data, columns=['spotter', 'dx', 'distance', 'freq', 'mode', 'type', 'snr', 'speed', 'time', 'seen'])
     
     df['snr'] = df['snr'].str.split().str[0].astype(float)
     df['freq'] = df['freq'].astype(float)
@@ -227,7 +230,7 @@ def process_pasted_data(pasted_data):
 
 def process_downloaded_data(filename):
     df = pd.read_csv(filename)
-    df = df.rename(columns={'callsign': 'spotter', 'dx': 'dx', 'db': 'snr', 'freq': 'freq', 'band': 'band', 'time': 'time'})
+    df = df.rename(columns={'callsign': 'spotter', 'dx': 'dx', 'db': 'snr', 'freq': 'freq', 'band': 'band'})
     df['snr'] = pd.to_numeric(df['snr'], errors='coerce')
     df['freq'] = pd.to_numeric(df['freq'], errors='coerce')
     return df
