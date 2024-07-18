@@ -83,10 +83,13 @@ def create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons
         if spotter in spotter_coords:
             coords = spotter_coords[spotter]
             snr = row['snr']
+            popup_text = f'Spotter: {spotter}<br>SNR: {snr} dB'
+            if 'time' in row:
+                popup_text += f'<br>Time: {row["time"]}'
             folium.CircleMarker(
                 location=coords,
                 radius=snr / 2,
-                popup=f'Spotter: {spotter}<br>SNR: {snr} dB<br>Time: {row["time"]}',
+                popup=popup_text,
                 color=get_color(snr),
                 fill=True,
                 fill_color=get_color(snr)
@@ -207,13 +210,12 @@ def process_pasted_data(pasted_data):
         type_ = parts[6]
         snr = parts[7] + ' ' + parts[8]
         speed = parts[9] + ' ' + parts[10]
-        time = parts[11] + ' ' + parts[12] + ' ' + parts[13]
-        seen = ' '.join(parts[14:]) if len(parts) > 14 else ''
+        time = ' '.join(parts[11:])  # Combine remaining parts into 'time'
         
         if all([spotter, dx, distance, freq, mode, type_, snr, speed, time]):
-            data.append([spotter, dx, distance, freq, mode, type_, snr, speed, time, seen])
+            data.append([spotter, dx, distance, freq, mode, type_, snr, speed, time])
     
-    df = pd.DataFrame(data, columns=['spotter', 'dx', 'distance', 'freq', 'mode', 'type', 'snr', 'speed', 'time', 'seen'])
+    df = pd.DataFrame(data, columns=['spotter', 'dx', 'distance', 'freq', 'mode', 'type', 'snr', 'speed', 'time'])
     
     df['snr'] = df['snr'].str.split().str[0].astype(float)
     df['freq'] = df['freq'].astype(float)
