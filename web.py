@@ -63,17 +63,6 @@ def get_band(freq):
     else:
         return 'unknown'
 
-def create_custom_cluster_icon(cluster):
-    max_snr = max([marker[2] for marker in cluster])
-    color = get_color(max_snr)
-    radius = max_snr / 2
-    icon_html = f"""
-    <div style="background-color:{color}; border-radius:50%; width:{radius * 2}px; height:{radius * 2}px; display:flex; align-items:center; justify-content:center;">
-        <span style="color:white;">{len(cluster)}</span>
-    </div>
-    """
-    return folium.DivIcon(html=icon_html)
-
 def create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons, grid_square, use_band_column, callsign, stats):
     m = folium.Map(location=[39.8283, -98.5795], zoom_start=4)
 
@@ -88,7 +77,7 @@ def create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons
             ).add_to(m)
 
     # Create clusters with custom icons
-    marker_cluster = MarkerCluster(icon_create_function=create_custom_cluster_icon).add_to(m)
+    marker_cluster = MarkerCluster().add_to(m)
 
     for _, row in filtered_df.iterrows():
         spotter = row['spotter']
