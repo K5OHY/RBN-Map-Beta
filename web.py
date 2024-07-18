@@ -4,7 +4,6 @@ import folium
 import matplotlib.colors as mcolors
 import zipfile
 import os
-import re
 from io import BytesIO
 import streamlit as st
 from datetime import datetime, timedelta, timezone
