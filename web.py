@@ -80,12 +80,13 @@ def create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons
         if spotter in spotter_coords:
             coords = spotter_coords[spotter]
             snr = row['snr']
-            time = row['time'] if 'time' in row else ''  # Added time
-            time_only = time.split()[1][:5] if time else ''  # Extract only the HH:MM part
+            time = row['time']
+            if ' ' in time:
+                time = time.split()[1][:5]  # Extract only the HH:MM part if datetime format
             folium.CircleMarker(
                 location=coords,
                 radius=snr / 2,
-                popup=f'Spotter: {spotter}<br>SNR: {snr} dB<br>Time: {time_only}',  # Included time in the popup
+                popup=f'Spotter: {spotter}<br>SNR: {snr} dB<br>Time: {time}',
                 color=get_color(snr),
                 fill=True,
                 fill_color=get_color(snr)
@@ -206,16 +207,18 @@ def process_pasted_data(pasted_data):
         type_ = parts[6]
         snr = parts[7] + ' ' + parts[8]
         speed = parts[9] + ' ' + parts[10]
-        time = parts[11] + ' ' + parts[12] + ' ' + parts[13]
+        time = parts[11]  # Update this to get only the time part
+        date = parts[12] + ' ' + parts[13]  # Store date separately
         seen = ' '.join(parts[14:]) if len(parts) > 14 else ''
         
-        if all([spotter, dx, distance, freq, mode, type_, snr, speed, time]):
-            data.append([spotter, dx, distance, freq, mode, type_, snr, speed, time, seen])
+        if all([spotter, dx, distance, freq, mode, type_, snr, speed, time, date]):
+            data.append([spotter, dx, distance, freq, mode, type_, snr, speed, time, date, seen])
     
-    df = pd.DataFrame(data, columns=['spotter', 'dx', 'distance', 'freq', 'mode', 'type', 'snr', 'speed', 'time', 'seen'])
+    df = pd.DataFrame(data, columns=['spotter', 'dx', 'distance', 'freq', 'mode', 'type', 'snr', 'speed', 'time', 'date', 'seen'])
     
     df['snr'] = df['snr'].str.split().str[0].astype(float)
     df['freq'] = df['freq'].astype(float)
+    df['time'] = df['time'] + ' ' + df['date']  # Combine time and date into a single field
     
     if 'band' not in df.columns:
         df['band'] = df['freq'].apply(get_band)
@@ -263,13 +266,11 @@ def main():
         st.session_state.map_html = None
     if 'filtered_df' not in st.session_state:
         st.session_state.filtered_df = None
-    if 'callsign' not in st.session_state:
-        st.session_state.callsign = None
 
     with st.sidebar:
         st.header("Input Data")
-        callsign = st.text_input("Enter Callsign:", key="callsign_input")
-        grid_square = st.text_input("Enter Grid Square (optional):", key="grid_square_input")
+        callsign = st.text_input("Enter Callsign:", key="callsign")
+        grid_square = st.text_input("Enter Grid Square (optional):", key="grid_square")
         show_all_beacons = st.checkbox("Show all reverse beacons")
         data_source = st.radio(
             "Select data source",
@@ -277,9 +278,9 @@ def main():
         )
 
         if data_source == 'Paste RBN data':
-            pasted_data = st.text_area("Paste RBN data here:")
+            pasted_data = st.text_area("Paste RBN data here:", key="pasted_data")
         else:
-            date = st.text_input("Enter the date (YYYYMMDD):")
+            date = st.text_input("Enter the date (YYYYMMDD):", key="date")
 
         generate_map = st.button("Generate Map")
 
@@ -310,13 +311,6 @@ def main():
             5. You can download the generated map using the provided download button.
             """)
 
-    if generate_map:
-        if st.session_state.callsign != callsign:
-            # Clear session state if new callsign is entered
-            st.session_state.filtered_df = None
-            st.session_state.map_html = None
-            st.session_state.callsign = callsign
-
     if generate_map or st.session_state.filtered_df is not None:
         try:
             with st.spinner("Generating map..."):
@@ -325,9 +319,11 @@ def main():
 
                 if callsign:
                     callsign = callsign.upper()
+                    st.session_state.callsign = callsign
 
                 if grid_square:
                     grid_square = grid_square[:2].upper() + grid_square[2:]
+                    st.session_state.grid_square = grid_square
 
                 if not grid_square:
                     st.warning(f"No grid square provided, using default: {DEFAULT_GRID_SQUARE}")
