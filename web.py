@@ -75,18 +75,21 @@ def create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons
                 fill_color='black'
             ).add_to(m)
 
-    for _, row in filtered_df.iterrows():
+    aggregated_data = filtered_df.groupby('spotter').agg(
+        max_snr=('snr', 'max'),
+        count=('spotter', 'size')
+    ).reset_index()
+
+    for _, row in aggregated_data.iterrows():
         spotter = row['spotter']
         if spotter in spotter_coords:
             coords = spotter_coords[spotter]
-            snr = row['snr']
-            folium.CircleMarker(
+            max_snr = row['max_snr']
+            count = row['count']
+            folium.Marker(
                 location=coords,
-                radius=snr / 2,
-                popup=f'Spotter: {spotter}<br>SNR: {snr} dB',
-                color=get_color(snr),
-                fill=True,
-                fill_color=get_color(snr)
+                icon=folium.DivIcon(html=f'<div style="background-color: {get_color(max_snr)}; border-radius: 50%; width: 24px; height: 24px; line-height: 24px; text-align: center; color: white;">{count}</div>'),
+                popup=folium.Popup(max_width=300).add_child(folium.Vega(json.loads(create_spiral_chart(filtered_df[filtered_df['spotter'] == spotter])), width=300, height=300))
             ).add_to(m)
 
     folium.Marker(
@@ -168,6 +171,32 @@ def create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons
     m.get_root().html.add_child(folium.Element(legend_html))
 
     return m
+
+def create_spiral_chart(df):
+    import matplotlib.pyplot as plt
+    import base64
+    from io import BytesIO
+
+    plt.figure(figsize=(5, 5))
+    ax = plt.subplot(111, projection='polar')
+    theta = []
+    r = []
+    colors = []
+
+    for idx, row in df.iterrows():
+        theta.append(idx * (2 * np.pi / len(df)))
+        r.append(row['snr'] / 30)
+        colors.append(get_color(row['snr']))
+
+    ax.scatter(theta, r, c=colors, alpha=0.75)
+    ax.set_rmax(1)
+    ax.grid(True)
+    
+    buf = BytesIO()
+    plt.savefig(buf, format='png')
+    buf.seek(0)
+    img_base64 = base64.b64encode(buf.getvalue()).decode('utf-8')
+    return img_base64
 
 def grid_square_to_latlon(grid_square):
     upper_alpha = "ABCDEFGHIJKLMNOPQR"
