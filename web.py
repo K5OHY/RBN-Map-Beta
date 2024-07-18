@@ -9,7 +9,6 @@ from io import BytesIO
 import streamlit as st
 from datetime import datetime, timedelta, timezone
 from geopy.distance import geodesic
-from folium.plugins import MarkerCluster
 
 DEFAULT_GRID_SQUARE = "DM81wx"  # Default grid square location
 
@@ -76,22 +75,36 @@ def create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons
                 fill_color='black'
             ).add_to(m)
 
-    marker_cluster = MarkerCluster().add_to(m)
+    aggregated_data = filtered_df.groupby('spotter').agg(
+        max_snr=('snr', 'max'),
+        count=('spotter', 'size')
+    ).reset_index()
 
-    for _, row in filtered_df.iterrows():
+    for _, row in aggregated_data.iterrows():
         spotter = row['spotter']
         if spotter in spotter_coords:
             coords = spotter_coords[spotter]
-            snr = row['snr']
-            popup_text = f'Spotter: {spotter}<br>SNR: {snr} dB'
+            max_snr = row['max_snr']
+            count = row['count']
             folium.CircleMarker(
                 location=coords,
-                radius=snr / 2,
-                popup=popup_text,
-                color=get_color(snr),
+                radius=max_snr / 2,
+                popup=f'Spotter: {spotter}<br>Spots: {count}<br>Max SNR: {max_snr} dB',
+                color=get_color(max_snr),
                 fill=True,
-                fill_color=get_color(snr)
-            ).add_to(marker_cluster)
+                fill_color=get_color(max_snr)
+            ).add_to(m)
+
+            for _, spot_row in filtered_df[filtered_df['spotter'] == spotter].iterrows():
+                snr = spot_row['snr']
+                folium.CircleMarker(
+                    location=coords,
+                    radius=snr / 2,
+                    popup=f'Spotter: {spotter}<br>SNR: {snr} dB',
+                    color=get_color(snr),
+                    fill=True,
+                    fill_color=get_color(snr)
+                ).add_to(m)
 
     folium.Marker(
         location=grid_square_coords,
