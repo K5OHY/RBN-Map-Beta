@@ -82,11 +82,10 @@ def create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons
         if spotter in spotter_coords:
             coords = spotter_coords[spotter]
             snr = row['snr']
-            date_time = row['time']
             folium.CircleMarker(
                 location=coords,
                 radius=snr / 2,
-                popup=f'Spotter: {spotter}<br>SNR: {snr} dB<br>Time: {date_time}',
+                popup=f'Spotter: {spotter}<br>SNR: {snr} dB',
                 color=get_color(snr),
                 fill=True,
                 fill_color=get_color(snr)
@@ -225,10 +224,9 @@ def process_pasted_data(pasted_data):
 
 def process_downloaded_data(filename):
     df = pd.read_csv(filename)
-    df = df.rename(columns={'callsign': 'spotter', 'dx': 'dx', 'db': 'snr', 'freq': 'freq', 'band': 'band', 'time': 'time'})
+    df = df.rename(columns={'callsign': 'spotter', 'dx': 'dx', 'db': 'snr', 'freq': 'freq', 'band': 'band'})
     df['snr'] = pd.to_numeric(df['snr'], errors='coerce')
     df['freq'] = pd.to_numeric(df['freq'], errors='coerce')
-    df['time'] = pd.to_datetime(df['time'], errors='coerce')
     return df
 
 def calculate_statistics(filtered_df, grid_square_coords, spotter_coords):
