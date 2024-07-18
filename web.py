@@ -9,7 +9,7 @@ from io import BytesIO
 import streamlit as st
 from datetime import datetime, timedelta, timezone
 from geopy.distance import geodesic
-from folium.plugins import MarkerCluster, HeatMap
+from folium.plugins import MarkerCluster
 
 DEFAULT_GRID_SQUARE = "DM81wx"  # Default grid square location
 
@@ -63,11 +63,6 @@ def get_band(freq):
     else:
         return 'unknown'
 
-def create_custom_cluster_icon(snr):
-    color = get_color(snr)
-    icon = folium.Icon(color=color, icon='circle')
-    return icon
-
 def create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons, grid_square, use_band_column, callsign, stats):
     m = folium.Map(location=[39.8283, -98.5795], zoom_start=4)
 
@@ -81,35 +76,21 @@ def create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons
                 fill_color='black'
             ).add_to(m)
 
-    marker_cluster = MarkerCluster(icon_create_function=lambda x: create_custom_cluster_icon(max([item[2] for item in x])).get_root().render()).add_to(m)
+    marker_cluster = MarkerCluster().add_to(m)
 
-    cluster_data = {}
-
-    for spotter, spot_df in filtered_df.groupby('spotter'):
+    for _, row in filtered_df.iterrows():
+        spotter = row['spotter']
         if spotter in spotter_coords:
             coords = spotter_coords[spotter]
-            max_snr = spot_df['snr'].max()
-            cluster_data[spotter] = (coords, max_snr)
-            for _, row in spot_df.iterrows():
-                popup_text = f'Spotter: {spotter}<br>SNR: {row["snr"]} dB'
-                folium.CircleMarker(
-                    location=coords,
-                    radius=row["snr"] / 2,
-                    popup=popup_text,
-                    color=get_color(row["snr"]),
-                    fill=True,
-                    fill_color=get_color(row["snr"])
-                ).add_to(marker_cluster)
-
-    for coords, max_snr in cluster_data.values():
-        folium.CircleMarker(
-            location=coords,
-            radius=max_snr / 2,
-            color=get_color(max_snr),
-            fill=True,
-            fill_color=get_color(max_snr),
-            fill_opacity=0.7
-        ).add_to(m)
+            snr = row['snr']
+            folium.CircleMarker(
+                location=coords,
+                radius=snr / 2,
+                popup=f'Spotter: {spotter}<br>SNR: {snr} dB',
+                color=get_color(snr),
+                fill=True,
+                fill_color=get_color(snr)
+            ).add_to(marker_cluster)
 
     folium.Marker(
         location=grid_square_coords,
@@ -273,29 +254,6 @@ def calculate_statistics(filtered_df, grid_square_coords, spotter_coords):
         'bands': bands
     }
 
-def create_heatmap(filtered_df, map_object, spotter_coords):
-    heat_data = []
-    for _, row in filtered_df.iterrows():
-        spotter = row['spotter']
-        if spotter in spotter_coords:
-            coords = spotter_coords[spotter]
-            heat_data.append([coords[0], coords[1], row['snr']])
-    
-    # Normalize SNR values to 0-1 range for better heatmap scaling
-    snr_values = filtered_df['snr']
-    min_snr = snr_values.min()
-    max_snr = snr_values.max()
-    normalized_heat_data = [[lat, lon, (snr - min_snr) / (max_snr - min_snr)] for lat, lon, snr in heat_data]
-    
-    HeatMap(
-        data=normalized_heat_data,
-        min_opacity=0.3,
-        max_val=1,  # max_val is now 1 due to normalization
-        radius=15,
-        blur=10,
-        gradient={0.0: 'green', 0.5: 'yellow', 1.0: 'red'}  # Adjusted gradient for better contrast
-    ).add_to(map_object)
-
 def main():
     st.set_page_config(layout="wide", page_title="RBN Signal Mapper", page_icon=":radio:")
 
@@ -321,21 +279,6 @@ def main():
             date = st.text_input("Enter the date (YYYYMMDD):")
 
         generate_map = st.button("Generate Map")
-
-        band_colors = {
-            '160m': '#FFFF00',  # yellow
-            '80m': '#003300',   # dark green
-            '40m': '#FFA500',   # orange
-            '30m': '#FF4500',   # red
-            '20m': '#0000FF',   # blue
-            '17m': '#800080',   # purple
-            '15m': '#696969',   # dim gray
-            '12m': '#00FFFF',   # cyan
-            '10m': '#FF00FF',   # magenta
-            '6m': '#F5DEB3',    # wheat
-        }
-        band_options = ['All'] + list(band_colors.keys())
-        selected_band = st.selectbox('Select Band', band_options)
 
         with st.expander("Instructions", expanded=False):
             st.markdown("""
@@ -388,8 +331,6 @@ def main():
                     st.error("Please provide the necessary data.")
 
                 filtered_df = df[df['dx'] == callsign].copy()
-                if selected_band != 'All':
-                    filtered_df = filtered_df[filtered_df['band'] == selected_band]
 
                 spotter_coords_df = pd.read_csv('spotter_coords.csv')
                 spotter_coords = {
@@ -404,11 +345,6 @@ def main():
                 stats = calculate_statistics(filtered_df, grid_square_coords, spotter_coords)
 
                 m = create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons, grid_square, use_band_column, callsign, stats)
-
-                # Add heatmap
-                if not filtered_df.empty:
-                    create_heatmap(filtered_df, m, spotter_coords)
-
                 map_html = m._repr_html_()
                 st.session_state.map_html = map_html
                 st.session_state.file_date = file_date
