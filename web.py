@@ -4,11 +4,11 @@ import folium
 import matplotlib.colors as mcolors
 import zipfile
 import os
-import re
 from io import BytesIO
 import streamlit as st
 from datetime import datetime, timedelta, timezone
 from geopy.distance import geodesic
+from folium.plugins import MarkerCluster
 
 DEFAULT_GRID_SQUARE = "DM81wx"  # Default grid square location
 
@@ -75,36 +75,22 @@ def create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons
                 fill_color='black'
             ).add_to(m)
 
-    aggregated_data = filtered_df.groupby('spotter').agg(
-        max_snr=('snr', 'max'),
-        count=('spotter', 'size')
-    ).reset_index()
+    marker_cluster = MarkerCluster().add_to(m)
 
-    for _, row in aggregated_data.iterrows():
+    for _, row in filtered_df.iterrows():
         spotter = row['spotter']
         if spotter in spotter_coords:
             coords = spotter_coords[spotter]
-            max_snr = row['max_snr']
-            count = row['count']
+            snr = row['snr']
+            date_time = row['time']
             folium.CircleMarker(
                 location=coords,
-                radius=max_snr / 2,
-                popup=f'Spotter: {spotter}<br>Spots: {count}<br>Max SNR: {max_snr} dB',
-                color=get_color(max_snr),
+                radius=snr / 2,
+                popup=f'Spotter: {spotter}<br>SNR: {snr} dB<br>Time: {date_time}',
+                color=get_color(snr),
                 fill=True,
-                fill_color=get_color(max_snr)
-            ).add_to(m)
-
-            for _, spot_row in filtered_df[filtered_df['spotter'] == spotter].iterrows():
-                snr = spot_row['snr']
-                folium.CircleMarker(
-                    location=coords,
-                    radius=snr / 2,
-                    popup=f'Spotter: {spotter}<br>SNR: {snr} dB',
-                    color=get_color(snr),
-                    fill=True,
-                    fill_color=get_color(snr)
-                ).add_to(m)
+                fill_color=get_color(snr)
+            ).add_to(marker_cluster)
 
     folium.Marker(
         location=grid_square_coords,
@@ -294,21 +280,6 @@ def main():
 
         generate_map = st.button("Generate Map")
 
-        band_colors = {
-            '160m': '#FFFF00',  # yellow
-            '80m': '#003300',   # dark green
-            '40m': '#FFA500',   # orange
-            '30m': '#FF4500',   # red
-            '20m': '#0000FF',   # blue
-            '17m': '#800080',   # purple
-            '15m': '#696969',   # dim gray
-            '12m': '#00FFFF',   # cyan
-            '10m': '#FF00FF',   # magenta
-            '6m': '#F5DEB3',    # wheat
-        }
-        band_options = ['All'] + list(band_colors.keys())
-        selected_band = st.selectbox('Select Band', band_options)
-
         with st.expander("Instructions", expanded=False):
             st.markdown("""
             **Instructions:**
@@ -360,8 +331,6 @@ def main():
                     st.error("Please provide the necessary data.")
 
                 filtered_df = df[df['dx'] == callsign].copy()
-                if selected_band != 'All':
-                    filtered_df = filtered_df[filtered_df['band'] == selected_band]
 
                 spotter_coords_df = pd.read_csv('spotter_coords.csv')
                 spotter_coords = {
