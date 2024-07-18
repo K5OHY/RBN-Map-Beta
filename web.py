@@ -99,7 +99,7 @@ def create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons
                 snr = spot_row['snr']
                 time = spot_row['time']
                 if 'date' in spot_row:
-                    date = spot_row['date']
+                    date = spot_row['date'].split(' ')[0]
                     time_str = f'{date} {time}'
                 else:
                     time_str = time
