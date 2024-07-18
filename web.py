@@ -268,6 +268,7 @@ def main():
         callsign = st.text_input("Enter Callsign:")
         grid_square = st.text_input("Enter Grid Square (optional):")
         show_all_beacons = st.checkbox("Show all reverse beacons")
+        band_filter = st.selectbox("Filter by Band:", ["All", "160m", "80m", "40m", "30m", "20m", "17m", "15m", "12m", "10m", "6m"])
         data_source = st.radio(
             "Select data source",
             ('Paste RBN data', 'Download RBN data by date')
@@ -288,8 +289,9 @@ def main():
                 - Paste RBN data manually.
                 - Download RBN data by date.
             3. Optionally, choose to show all reverse beacons.
-            4. Click 'Generate Map' to visualize the signal map.
-            5. You can download the generated map using the provided download button.
+            4. Optionally, filter by band.
+            5. Click 'Generate Map' to visualize the signal map.
+            6. You can download the generated map using the provided download button.
             """)
 
     if generate_map:
@@ -331,6 +333,9 @@ def main():
                     st.error("Please provide the necessary data.")
 
                 filtered_df = df[df['dx'] == callsign].copy()
+
+                if band_filter != "All":
+                    filtered_df = filtered_df[filtered_df['band'] == band_filter]
 
                 spotter_coords_df = pd.read_csv('spotter_coords.csv')
                 spotter_coords = {
