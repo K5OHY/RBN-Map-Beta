@@ -279,13 +279,6 @@ def main():
         else:
             date = st.text_input("Enter the date (YYYYMMDD):")
 
-        time_filter = st.slider("Filter by time (UTC)",
-                                value=(datetime.now(timezone.utc).replace(hour=0, minute=0),
-                                       datetime.now(timezone.utc).replace(hour=23, minute=59)),
-                                format="HH:mm")
-
-        snr_filter = st.slider("Filter by Signal Strength (SNR)", 0, 60, (0, 60))
-
         generate_map = st.button("Generate Map")
 
         band_colors = {
@@ -353,16 +346,7 @@ def main():
                 else:
                     st.error("Please provide the necessary data.")
 
-                # Filter by time
-                df['time'] = pd.to_datetime(df['time']).dt.time
-                filtered_df = df[(df['time'] >= time_filter[0].time()) & (df['time'] <= time_filter[1].time())]
-
-                # Filter by SNR
-                filtered_df = filtered_df[(filtered_df['snr'] >= snr_filter[0]) & (filtered_df['snr'] <= snr_filter[1])]
-
-                # Filter by callsign
-                filtered_df = filtered_df[filtered_df['dx'] == callsign].copy()
-
+                filtered_df = df[df['dx'] == callsign].copy()
                 st.session_state.filtered_df = filtered_df.copy()  # Store the filtered dataframe in session state
 
                 spotter_coords_df = pd.read_csv('spotter_coords.csv')
