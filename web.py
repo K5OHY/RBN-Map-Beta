@@ -66,8 +66,9 @@ def get_band(freq):
 def create_custom_cluster_icon(cluster):
     max_snr = max([marker[2] for marker in cluster])
     color = get_color(max_snr)
+    radius = max_snr / 2
     icon_html = f"""
-    <div style="background-color:{color}; border-radius:50%; width:30px; height:30px; display:flex; align-items:center; justify-content:center;">
+    <div style="background-color:{color}; border-radius:50%; width:{radius * 2}px; height:{radius * 2}px; display:flex; align-items:center; justify-content:center;">
         <span style="color:white;">{len(cluster)}</span>
     </div>
     """
@@ -86,7 +87,8 @@ def create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons
                 fill_color='black'
             ).add_to(m)
 
-    marker_cluster = MarkerCluster().add_to(m)
+    # Create clusters with custom icons
+    marker_cluster = MarkerCluster(icon_create_function=create_custom_cluster_icon).add_to(m)
 
     for _, row in filtered_df.iterrows():
         spotter = row['spotter']
