@@ -225,9 +225,10 @@ def process_pasted_data(pasted_data):
 
 def process_downloaded_data(filename):
     df = pd.read_csv(filename)
-    df = df.rename(columns={'callsign': 'spotter', 'dx': 'dx', 'db': 'snr', 'freq': 'freq', 'band': 'band'})
+    df = df.rename(columns={'callsign': 'spotter', 'dx': 'dx', 'db': 'snr', 'freq': 'freq', 'band': 'band', 'time': 'time'})
     df['snr'] = pd.to_numeric(df['snr'], errors='coerce')
     df['freq'] = pd.to_numeric(df['freq'], errors='coerce')
+    df['time'] = pd.to_datetime(df['time'], errors='coerce')
     return df
 
 def calculate_statistics(filtered_df, grid_square_coords, spotter_coords):
