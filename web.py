@@ -348,9 +348,7 @@ def main():
                     st.error("Please provide the necessary data.")
 
                 filtered_df = df[df['dx'] == callsign].copy()
-
-                if selected_band != 'All':
-                    filtered_df = filtered_df[filtered_df['band'] == selected_band]
+                st.session_state.filtered_df = filtered_df.copy()  # Store the filtered dataframe in session state
 
                 spotter_coords_df = pd.read_csv('spotter_coords.csv')
                 spotter_coords = {
@@ -369,6 +367,33 @@ def main():
                 st.session_state.map_html = map_html
                 st.session_state.file_date = file_date
                 st.write("Map generated successfully!")
+        except Exception as e:
+            st.error(f"Error: {e}")
+
+    elif st.session_state.filtered_df is not None:
+        try:
+            with st.spinner("Filtering data..."):
+                filtered_df = st.session_state.filtered_df.copy()
+
+                if selected_band != 'All':
+                    filtered_df = filtered_df[filtered_df['band'] == selected_band]
+
+                spotter_coords_df = pd.read_csv('spotter_coords.csv')
+                spotter_coords = {
+                    row['callsign']: (row['latitude'], row['longitude']) for _, row in spotter_coords_df.iterrows()
+                }
+
+                if grid_square:
+                    grid_square_coords = grid_square_to_latlon(grid_square)
+                else:
+                    grid_square_coords = grid_square_to_latlon(DEFAULT_GRID_SQUARE)
+
+                stats = calculate_statistics(filtered_df, grid_square_coords, spotter_coords)
+
+                m = create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons, grid_square, True, callsign, stats)
+                map_html = m._repr_html_()
+                st.session_state.map_html = map_html
+                st.write("Data filtered successfully!")
         except Exception as e:
             st.error(f"Error: {e}")
 
