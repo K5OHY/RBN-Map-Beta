@@ -9,7 +9,7 @@ from io import BytesIO
 import streamlit as st
 from datetime import datetime, timedelta, timezone
 from geopy.distance import geodesic
-from folium.plugins import HeatMap, MarkerCluster
+from folium.plugins import MarkerCluster
 
 DEFAULT_GRID_SQUARE = "DM81wx"  # Default grid square location
 
@@ -65,7 +65,6 @@ def get_band(freq):
 
 def create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons, grid_square, use_band_column, callsign, stats):
     m = folium.Map(location=[39.8283, -98.5795], zoom_start=4)
-    marker_cluster = MarkerCluster().add_to(m)
 
     if show_all_beacons:
         for spotter, coords in spotter_coords.items():
@@ -77,25 +76,40 @@ def create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons
                 fill_color='black'
             ).add_to(m)
 
-    heat_data = []
-    for _, row in filtered_df.iterrows():
+    aggregated_data = filtered_df.groupby('spotter').agg(
+        max_snr=('snr', 'max'),
+        count=('spotter', 'size')
+    ).reset_index()
+
+    marker_cluster = MarkerCluster().add_to(m)
+
+    for _, row in aggregated_data.iterrows():
         spotter = row['spotter']
         if spotter in spotter_coords:
             coords = spotter_coords[spotter]
-            snr = row['snr']
-            time = row['time']
-            time_only = time.split()[1][:5]
-            heat_data.append([coords[0], coords[1], snr])
+            max_snr = row['max_snr']
+            count = row['count']
             folium.CircleMarker(
                 location=coords,
-                radius=snr / 2,
-                popup=f'Spotter: {spotter}<br>SNR: {snr} dB<br>Time: {time_only}',
-                color=get_color(snr),
+                radius=max_snr / 2,
+                popup=f'Spotter: {spotter}<br>Spots: {count}<br>Max SNR: {max_snr} dB',
+                color=get_color(max_snr),
                 fill=True,
-                fill_color=get_color(snr)
+                fill_color=get_color(max_snr)
             ).add_to(marker_cluster)
 
-    HeatMap(heat_data, radius=15, blur=25).add_to(m)
+            for _, spot_row in filtered_df[filtered_df['spotter'] == spotter].iterrows():
+                snr = spot_row['snr']
+                time = spot_row['time']  # Added time
+                time_only = time.split()[1][:5]  # Extract only the HH:MM part
+                folium.CircleMarker(
+                    location=coords,
+                    radius=snr / 2,
+                    popup=f'Spotter: {spotter}<br>SNR: {snr} dB<br>Time: {time_only}',  # Included time in the popup
+                    color=get_color(snr),
+                    fill=True,
+                    fill_color=get_color(snr)
+                ).add_to(marker_cluster)
 
     folium.Marker(
         location=grid_square_coords,
