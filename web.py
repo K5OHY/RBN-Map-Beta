@@ -9,7 +9,6 @@ from io import BytesIO
 import streamlit as st
 from datetime import datetime, timedelta, timezone
 from geopy.distance import geodesic
-from folium.plugins import MarkerCluster
 
 DEFAULT_GRID_SQUARE = "DM81wx"  # Default grid square location
 
@@ -65,7 +64,6 @@ def get_band(freq):
 
 def create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons, grid_square, use_band_column, callsign, stats):
     m = folium.Map(location=[39.8283, -98.5795], zoom_start=4)
-    marker_cluster = MarkerCluster().add_to(m)
 
     if show_all_beacons:
         for spotter, coords in spotter_coords.items():
@@ -95,7 +93,18 @@ def create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons
                 color=get_color(max_snr),
                 fill=True,
                 fill_color=get_color(max_snr)
-            ).add_to(marker_cluster)
+            ).add_to(m)
+
+            for _, spot_row in filtered_df[filtered_df['spotter'] == spotter].iterrows():
+                snr = spot_row['snr']
+                folium.CircleMarker(
+                    location=coords,
+                    radius=snr / 2,
+                    popup=f'Spotter: {spotter}<br>SNR: {snr} dB',
+                    color=get_color(snr),
+                    fill=True,
+                    fill_color=get_color(snr)
+                ).add_to(m)
 
     folium.Marker(
         location=grid_square_coords,
