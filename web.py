@@ -86,25 +86,20 @@ def create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons
                 fill_color='black'
             ).add_to(m)
 
-    marker_cluster = MarkerCluster(
-        icon_create_function=lambda cluster: create_custom_cluster_icon(
-            [(spotter_coords[spotter][0], spotter_coords[spotter][1], row['snr']) for spotter, row in cluster]
-        )
-    ).add_to(m)
+    marker_cluster = MarkerCluster().add_to(m)
 
     for _, row in filtered_df.iterrows():
         spotter = row['spotter']
         if spotter in spotter_coords:
             coords = spotter_coords[spotter]
             snr = row['snr']
-            folium.Marker(
+            folium.CircleMarker(
                 location=coords,
-                icon=folium.DivIcon(html=f"""
-                    <div style="background-color:{get_color(snr)}; border-radius:50%; width:{snr/2 + 10}px; height:{snr/2 + 10}px; display:flex; align-items:center; justify-content:center;">
-                        <span style="color:white;">{snr}</span>
-                    </div>
-                """),
-                popup=f'Spotter: {spotter}<br>SNR: {snr} dB'
+                radius=snr / 2,
+                popup=f'Spotter: {spotter}<br>SNR: {snr} dB',
+                color=get_color(snr),
+                fill=True,
+                fill_color=get_color(snr)
             ).add_to(marker_cluster)
 
     folium.Marker(
