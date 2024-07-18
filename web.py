@@ -63,6 +63,16 @@ def get_band(freq):
     else:
         return 'unknown'
 
+def create_custom_cluster_icon(cluster):
+    max_snr = max(cluster, key=lambda x: x[2])[2]
+    color = get_color(max_snr)
+    icon_html = f"""
+    <div style="background-color:{color}; border-radius:50%; width:30px; height:30px; display:flex; align-items:center; justify-content:center;">
+        <span style="color:white;">{len(cluster)}</span>
+    </div>
+    """
+    return folium.DivIcon(html=icon_html)
+
 def create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons, grid_square, use_band_column, callsign, stats):
     m = folium.Map(location=[39.8283, -98.5795], zoom_start=4)
 
@@ -76,7 +86,11 @@ def create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons
                 fill_color='black'
             ).add_to(m)
 
-    marker_cluster = MarkerCluster().add_to(m)
+    marker_cluster = MarkerCluster(
+        icon_create_function=lambda cluster: create_custom_cluster_icon(
+            [(spotter_coords[spotter][0], spotter_coords[spotter][1], row['snr']) for spotter, row in cluster]
+        )
+    ).add_to(m)
 
     for _, row in filtered_df.iterrows():
         spotter = row['spotter']
@@ -280,6 +294,21 @@ def main():
 
         generate_map = st.button("Generate Map")
 
+        band_colors = {
+            '160m': '#FFFF00',  # yellow
+            '80m': '#003300',   # dark green
+            '40m': '#FFA500',   # orange
+            '30m': '#FF4500',   # red
+            '20m': '#0000FF',   # blue
+            '17m': '#800080',   # purple
+            '15m': '#696969',   # dim gray
+            '12m': '#00FFFF',   # cyan
+            '10m': '#FF00FF',   # magenta
+            '6m': '#F5DEB3',    # wheat
+        }
+        band_options = ['All'] + list(band_colors.keys())
+        selected_band = st.selectbox('Select Band', band_options)
+
         with st.expander("Instructions", expanded=False):
             st.markdown("""
             **Instructions:**
@@ -331,6 +360,8 @@ def main():
                     st.error("Please provide the necessary data.")
 
                 filtered_df = df[df['dx'] == callsign].copy()
+                if selected_band != 'All':
+                    filtered_df = filtered_df[filtered_df['band'] == selected_band]
 
                 spotter_coords_df = pd.read_csv('spotter_coords.csv')
                 spotter_coords = {
