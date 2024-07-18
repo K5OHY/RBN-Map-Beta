@@ -97,10 +97,11 @@ def create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons
 
             for _, spot_row in filtered_df[filtered_df['spotter'] == spotter].iterrows():
                 snr = spot_row['snr']
+                time = spot_row['time']
                 folium.CircleMarker(
                     location=coords,
                     radius=snr / 2,
-                    popup=f'Spotter: {spotter}<br>SNR: {snr} dB',
+                    popup=f'Spotter: {spotter}<br>SNR: {snr} dB<br>Time: {time}',
                     color=get_color(snr),
                     fill=True,
                     fill_color=get_color(snr)
