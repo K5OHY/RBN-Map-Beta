@@ -4,11 +4,11 @@ import folium
 import matplotlib.colors as mcolors
 import zipfile
 import os
+import re
 from io import BytesIO
 import streamlit as st
 from datetime import datetime, timedelta, timezone
 from geopy.distance import geodesic
-from folium.plugins import HeatMap
 
 DEFAULT_GRID_SQUARE = "DM81wx"  # Default grid square location
 
@@ -127,11 +127,11 @@ def create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons
                 color=color,
                 weight=1
             ).add_to(m)
-
+    
     band_stats = "<br>".join([f"{band}: {count}" for band, count in stats['bands'].items()])
     
     stats_html = f'''
-     <div style="position: fixed; 
+     <div style="position: absolute; 
      top: 20px; right: 20px; width: 150px; height: auto; 
      border:1px solid grey; z-index:9999; font-size:10px;
      background-color:white;
@@ -149,7 +149,7 @@ def create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons
     m.get_root().html.add_child(folium.Element(stats_html))
 
     legend_html = '''
-     <div style="position: fixed; 
+     <div style="position: absolute; 
      bottom: 20px; left: 20px; width: 80px; height: auto; 
      border:1px solid grey; z-index:9999; font-size:10px;
      background-color:white;
@@ -170,11 +170,6 @@ def create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons
      '''
     m.get_root().html.add_child(folium.Element(legend_html))
 
-    # Add HeatMap
-    heat_data = [[spotter_coords[row['spotter']][0], spotter_coords[row['spotter']][1], row['snr']] 
-                 for _, row in filtered_df.iterrows() if row['spotter'] in spotter_coords]
-    HeatMap(heat_data).add_to(m)
-
     return m
 
 def grid_square_to_latlon(grid_square):
@@ -187,7 +182,7 @@ def grid_square_to_latlon(grid_square):
     lon = -180 + (upper_alpha.index(grid_square[0]) * 20) + (digits.index(grid_square[2]) * 2)
     lat = -90 + (upper_alpha.index(grid_square[1]) * 10) + (digits.index(grid_square[3]) * 1)
 
-    if len(grid_square == 6):
+    if len(grid_square) == 6:
         lon += (lower_alpha.index(grid_square[4].lower()) + 0.5) / 12
         lat += (lower_alpha.index(grid_square[5].lower()) + 0.5) / 24
 
@@ -216,6 +211,11 @@ def process_pasted_data(pasted_data):
         seen = ' '.join(parts[14:]) if len(parts) > 14 else ''
         
         if all([spotter, dx, distance, freq, mode, type_, snr, speed, time]):
+            # Correcting time format
+            try:
+                time = datetime.strptime(time, "%H%Mz %d %b").strftime("%H:%M")
+            except ValueError:
+                time = "Invalid Time"
             data.append([spotter, dx, distance, freq, mode, type_, snr, speed, time, seen])
     
     df = pd.DataFrame(data, columns=['spotter', 'dx', 'distance', 'freq', 'mode', 'type', 'snr', 'speed', 'time', 'seen'])
