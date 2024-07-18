@@ -266,8 +266,8 @@ def main():
 
     with st.sidebar:
         st.header("Input Data")
-        callsign = st.text_input("Enter Callsign:")
-        grid_square = st.text_input("Enter Grid Square (optional):")
+        callsign = st.text_input("Enter Callsign:", key="callsign")
+        grid_square = st.text_input("Enter Grid Square (optional):", key="grid_square")
         show_all_beacons = st.checkbox("Show all reverse beacons")
         data_source = st.radio(
             "Select data source",
@@ -308,6 +308,12 @@ def main():
             5. You can download the generated map using the provided download button.
             """)
 
+    if generate_map:
+        if st.session_state.filtered_df is not None and st.session_state.callsign != callsign:
+            # Clear session state if new callsign is entered
+            st.session_state.filtered_df = None
+            st.session_state.map_html = None
+
     if generate_map or st.session_state.filtered_df is not None:
         try:
             with st.spinner("Generating map..."):
@@ -316,13 +322,16 @@ def main():
 
                 if callsign:
                     callsign = callsign.upper()
+                    st.session_state.callsign = callsign
 
                 if grid_square:
                     grid_square = grid_square[:2].upper() + grid_square[2:]
+                    st.session_state.grid_square = grid_square
 
                 if not grid_square:
                     st.warning(f"No grid square provided, using default: {DEFAULT_GRID_SQUARE}")
                     grid_square = DEFAULT_GRID_SQUARE
+                    st.session_state.grid_square = DEFAULT_GRID_SQUARE
 
                 if data_source == 'Paste RBN data' and not pasted_data.strip():
                     data_source = 'Download RBN data by date'
