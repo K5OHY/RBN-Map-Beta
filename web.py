@@ -207,18 +207,16 @@ def process_pasted_data(pasted_data):
         type_ = parts[6]
         snr = parts[7] + ' ' + parts[8]
         speed = parts[9] + ' ' + parts[10]
-        time = parts[11]  # Update this to get only the time part
-        date = parts[12] + ' ' + parts[13]  # Store date separately
+        time = parts[11] + ' ' + parts[12] + ' ' + parts[13]
         seen = ' '.join(parts[14:]) if len(parts) > 14 else ''
         
-        if all([spotter, dx, distance, freq, mode, type_, snr, speed, time, date]):
-            data.append([spotter, dx, distance, freq, mode, type_, snr, speed, time, date, seen])
+        if all([spotter, dx, distance, freq, mode, type_, snr, speed, time]):
+            data.append([spotter, dx, distance, freq, mode, type_, snr, speed, time, seen])
     
-    df = pd.DataFrame(data, columns=['spotter', 'dx', 'distance', 'freq', 'mode', 'type', 'snr', 'speed', 'time', 'date', 'seen'])
+    df = pd.DataFrame(data, columns=['spotter', 'dx', 'distance', 'freq', 'mode', 'type', 'snr', 'speed', 'time', 'seen'])
     
     df['snr'] = df['snr'].str.split().str[0].astype(float)
     df['freq'] = df['freq'].astype(float)
-    df['time'] = df['time'] + ' ' + df['date']  # Combine time and date into a single field
     
     if 'band' not in df.columns:
         df['band'] = df['freq'].apply(get_band)
@@ -269,8 +267,8 @@ def main():
 
     with st.sidebar:
         st.header("Input Data")
-        callsign = st.text_input("Enter Callsign:", key="callsign")
-        grid_square = st.text_input("Enter Grid Square (optional):", key="grid_square")
+        callsign = st.text_input("Enter Callsign:")
+        grid_square = st.text_input("Enter Grid Square (optional):")
         show_all_beacons = st.checkbox("Show all reverse beacons")
         data_source = st.radio(
             "Select data source",
@@ -278,9 +276,9 @@ def main():
         )
 
         if data_source == 'Paste RBN data':
-            pasted_data = st.text_area("Paste RBN data here:", key="pasted_data")
+            pasted_data = st.text_area("Paste RBN data here:")
         else:
-            date = st.text_input("Enter the date (YYYYMMDD):", key="date")
+            date = st.text_input("Enter the date (YYYYMMDD):")
 
         generate_map = st.button("Generate Map")
 
@@ -311,7 +309,7 @@ def main():
             5. You can download the generated map using the provided download button.
             """)
 
-    if generate_map or st.session_state.filtered_df is not None:
+    if generate_map:
         try:
             with st.spinner("Generating map..."):
                 use_band_column = False
@@ -319,11 +317,9 @@ def main():
 
                 if callsign:
                     callsign = callsign.upper()
-                    st.session_state.callsign = callsign
 
                 if grid_square:
                     grid_square = grid_square[:2].upper() + grid_square[2:]
-                    st.session_state.grid_square = grid_square
 
                 if not grid_square:
                     st.warning(f"No grid square provided, using default: {DEFAULT_GRID_SQUARE}")
@@ -333,12 +329,11 @@ def main():
                     data_source = 'Download RBN data by date'
                     date = ""
 
-                if data_source == 'Paste RBN data' and pasted_data.strip() and st.session_state.filtered_df is None:
+                if data_source == 'Paste RBN data' and pasted_data.strip():
                     df = process_pasted_data(pasted_data)
-                    st.session_state.filtered_df = df[df['dx'] == callsign].copy()
                     st.write("Using pasted data.")
                     file_date = datetime.now(timezone.utc).strftime("%Y%m%d")
-                elif data_source == 'Download RBN data by date' and st.session_state.filtered_df is None:
+                elif data_source == 'Download RBN data by date':
                     if not date.strip():
                         yesterday = datetime.now(timezone.utc) - timedelta(1)
                         date = yesterday.strftime('%Y%m%d')
@@ -348,15 +343,14 @@ def main():
                     os.remove(csv_filename)
                     use_band_column = True
                     file_date = date
-                    st.session_state.filtered_df = df[df['dx'] == callsign].copy()
                     st.write("Using downloaded data.")
-                elif st.session_state.filtered_df is not None:
-                    filtered_df = st.session_state.filtered_df
+                else:
+                    st.error("Please provide the necessary data.")
+
+                filtered_df = df[df['dx'] == callsign].copy()
 
                 if selected_band != 'All':
-                    filtered_df = st.session_state.filtered_df[st.session_state.filtered_df['band'] == selected_band]
-                else:
-                    filtered_df = st.session_state.filtered_df
+                    filtered_df = filtered_df[filtered_df['band'] == selected_band]
 
                 spotter_coords_df = pd.read_csv('spotter_coords.csv')
                 spotter_coords = {
