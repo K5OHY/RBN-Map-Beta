@@ -150,10 +150,11 @@ def create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons
 
     legend_html = '''
      <div style="position: absolute; 
-     bottom: 20px; left: 20px; width: 80px; height: auto; 
+     bottom: 20px; left: 20px; max-width: 80px; height: auto; 
      border:1px solid grey; z-index:9999; font-size:10px;
      background-color:white;
      padding: 5px;
+     overflow-wrap: break-word;
      ">
      <b>Legend</b><br>
      160m <i class="fa fa-circle" style="color:#FFFF00"></i><br>
