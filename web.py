@@ -97,11 +97,16 @@ def create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons
 
             for _, spot_row in filtered_df[filtered_df['spotter'] == spotter].iterrows():
                 snr = spot_row['snr']
-                time = spot_row['time'][:-3]  # Remove seconds from the time
+                time = spot_row['time']
+                if 'date' in spot_row:
+                    date = spot_row['date']
+                    time_str = f'{date} {time}'
+                else:
+                    time_str = time
                 folium.CircleMarker(
                     location=coords,
                     radius=snr / 2,
-                    popup=f'Spotter: {spotter}<br>SNR: {snr} dB<br>Time: {time}',
+                    popup=f'Spotter: {spotter}<br>SNR: {snr} dB<br>Time: {time_str}',
                     color=get_color(snr),
                     fill=True,
                     fill_color=get_color(snr)
@@ -222,7 +227,7 @@ def process_pasted_data(pasted_data):
         type_ = parts[6]
         snr = parts[7] + ' ' + parts[8]
         speed = parts[9] + ' ' + parts[10]
-        time = parts[11][:5]  # Extract hours and minutes only
+        time = parts[11][:4]  # Extract hours and minutes only
         seen = ' '.join(parts[12:]) if len(parts) > 12 else ''
         
         if all([spotter, dx, distance, freq, mode, type_, snr, speed, time]):
@@ -240,10 +245,10 @@ def process_pasted_data(pasted_data):
 
 def process_downloaded_data(filename):
     df = pd.read_csv(filename)
-    df = df.rename(columns={'callsign': 'spotter', 'dx': 'dx', 'db': 'snr', 'freq': 'freq', 'band': 'band', 'time': 'time'})
+    df = df.rename(columns={'callsign': 'spotter', 'dx': 'dx', 'db': 'snr', 'freq': 'freq', 'band': 'band'})
     df['snr'] = pd.to_numeric(df['snr'], errors='coerce')
     df['freq'] = pd.to_numeric(df['freq'], errors='coerce')
-    df['time'] = df['time'].apply(lambda x: str(x)[:5])  # Extract hours and minutes only
+    df['time'] = df['date'].str.split(' ').str[1].str[:5]  # Extract hours and minutes only
     return df
 
 def calculate_statistics(filtered_df, grid_square_coords, spotter_coords):
