@@ -9,6 +9,7 @@ from io import BytesIO
 import streamlit as st
 from datetime import datetime, timedelta, timezone
 from geopy.distance import geodesic
+from folium.plugins import HeatMap, MarkerCluster
 
 DEFAULT_GRID_SQUARE = "DM81wx"  # Default grid square location
 
@@ -80,6 +81,8 @@ def create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons
         count=('spotter', 'size')
     ).reset_index()
 
+    marker_cluster = MarkerCluster().add_to(m)
+
     for _, row in aggregated_data.iterrows():
         spotter = row['spotter']
         if spotter in spotter_coords:
@@ -93,7 +96,7 @@ def create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons
                 color=get_color(max_snr),
                 fill=True,
                 fill_color=get_color(max_snr)
-            ).add_to(m)
+            ).add_to(marker_cluster)
 
             for _, spot_row in filtered_df[filtered_df['spotter'] == spotter].iterrows():
                 snr = spot_row['snr']
@@ -106,7 +109,7 @@ def create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons
                     color=get_color(snr),
                     fill=True,
                     fill_color=get_color(snr)
-                ).add_to(m)
+                ).add_to(marker_cluster)
 
     folium.Marker(
         location=grid_square_coords,
@@ -143,6 +146,9 @@ def create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons
                 color=color,
                 weight=1
             ).add_to(m)
+
+    heat_data = [[spotter_coords[row['spotter']][0], spotter_coords[row['spotter']][1], row['snr']] for _, row in filtered_df.iterrows() if row['spotter'] in spotter_coords]
+    HeatMap(heat_data, min_opacity=0.2, radius=15, blur=15, max_zoom=1).add_to(m)
     
     band_stats = "<br>".join([f"{band}: {count}" for band, count in stats['bands'].items()])
     
