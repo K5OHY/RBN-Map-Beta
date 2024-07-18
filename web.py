@@ -80,12 +80,12 @@ def create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons
         if spotter in spotter_coords:
             coords = spotter_coords[spotter]
             snr = row['snr']
-            time = row['time']
-            time_only = time.split()[1][:5]
+            time = row['time'] if 'time' in row else ''  # Added time
+            time_only = time.split()[1][:5] if time else ''  # Extract only the HH:MM part
             folium.CircleMarker(
                 location=coords,
                 radius=snr / 2,
-                popup=f'Spotter: {spotter}<br>SNR: {snr} dB<br>Time: {time_only}',
+                popup=f'Spotter: {spotter}<br>SNR: {snr} dB<br>Time: {time_only}',  # Included time in the popup
                 color=get_color(snr),
                 fill=True,
                 fill_color=get_color(snr)
@@ -263,6 +263,8 @@ def main():
         st.session_state.map_html = None
     if 'filtered_df' not in st.session_state:
         st.session_state.filtered_df = None
+    if 'callsign' not in st.session_state:
+        st.session_state.callsign = None
 
     with st.sidebar:
         st.header("Input Data")
