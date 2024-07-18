@@ -97,7 +97,7 @@ def create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons
 
             for _, spot_row in filtered_df[filtered_df['spotter'] == spotter].iterrows():
                 snr = spot_row['snr']
-                time = spot_row['time']
+                time = spot_row['time'][:-3]  # Remove seconds from the time
                 folium.CircleMarker(
                     location=coords,
                     radius=snr / 2,
@@ -222,8 +222,8 @@ def process_pasted_data(pasted_data):
         type_ = parts[6]
         snr = parts[7] + ' ' + parts[8]
         speed = parts[9] + ' ' + parts[10]
-        time = parts[11] + ' ' + parts[12] + ' ' + parts[13]
-        seen = ' '.join(parts[14:]) if len(parts) > 14 else ''
+        time = parts[11][:5]  # Extract hours and minutes only
+        seen = ' '.join(parts[12:]) if len(parts) > 12 else ''
         
         if all([spotter, dx, distance, freq, mode, type_, snr, speed, time]):
             data.append([spotter, dx, distance, freq, mode, type_, snr, speed, time, seen])
@@ -240,9 +240,10 @@ def process_pasted_data(pasted_data):
 
 def process_downloaded_data(filename):
     df = pd.read_csv(filename)
-    df = df.rename(columns={'callsign': 'spotter', 'dx': 'dx', 'db': 'snr', 'freq': 'freq', 'band': 'band'})
+    df = df.rename(columns={'callsign': 'spotter', 'dx': 'dx', 'db': 'snr', 'freq': 'freq', 'band': 'band', 'time': 'time'})
     df['snr'] = pd.to_numeric(df['snr'], errors='coerce')
     df['freq'] = pd.to_numeric(df['freq'], errors='coerce')
+    df['time'] = df['time'].apply(lambda x: str(x)[:5])  # Extract hours and minutes only
     return df
 
 def calculate_statistics(filtered_df, grid_square_coords, spotter_coords):
