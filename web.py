@@ -149,26 +149,28 @@ def create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons
     m.get_root().html.add_child(folium.Element(stats_html))
 
     legend_html = '''
-     <div style="position: absolute; 
-     top: 50%; transform: translateY(-50%); left: 20px; width: auto; max-width: 100px; height: auto; 
-     border:1px solid grey; z-index:9999; font-size:10px;
-     background-color:white;
-     padding: 5px;
-     word-wrap: break-word;
-     ">
-     <b>Legend</b><br>
-     160m <i class="fa fa-circle" style="color:#FFFF00"></i><br>
-     80m <i class="fa fa-circle" style="color:#003300"></i><br>
-     40m <i class="fa fa-circle" style="color:#FFA500"></i><br>
-     30m <i class="fa fa-circle" style="color:#FF4500"></i><br>
-     20m <i class="fa fa-circle" style="color:#0000FF"></i><br>
-     17m <i class="fa fa-circle" style="color:#800080"></i><br>
-     15m <i class="fa fa-circle" style="color:#696969"></i><br>
-     12m <i class="fa fa-circle" style="color:#00FFFF"></i><br>
-     10m <i class="fa fa-circle" style="color:#FF00FF"></i><br>
-     6m <i class="fa fa-circle" style="color:#F5DEB3"></i>
-     </div>
-     '''
+    <div style="position: absolute; 
+    top: 50%; transform: translateY(-50%); left: 20px; width: auto; max-width: 150px; height: auto; 
+    border:1px solid grey; z-index:9999; font-size:10px;
+    background-color:white;
+    padding: 5px;
+    word-wrap: break-word;
+    ">
+    <b>Legend</b><br>
+    <table>
+        <tr><td>160m</td><td><i class="fa fa-circle" style="color:#FFFF00"></i></td></tr>
+        <tr><td>80m</td><td><i class="fa fa-circle" style="color:#003300"></i></td></tr>
+        <tr><td>40m</td><td><i class="fa fa-circle" style="color:#FFA500"></i></td></tr>
+        <tr><td>30m</td><td><i class="fa fa-circle" style="color:#FF4500"></i></td></tr>
+        <tr><td>20m</td><td><i class="fa fa-circle" style="color:#0000FF"></i></td></tr>
+        <tr><td>17m</td><td><i class="fa fa-circle" style="color:#800080"></i></td></tr>
+        <tr><td>15m</td><td><i class="fa fa-circle" style="color:#696969"></i></td></tr>
+        <tr><td>12m</td><td><i class="fa fa-circle" style="color:#00FFFF"></i></td></tr>
+        <tr><td>10m</td><td><i class="fa fa-circle" style="color:#FF00FF"></i></td></tr>
+        <tr><td>6m</td><td><i class="fa fa-circle" style="color:#F5DEB3"></i></td></tr>
+    </table>
+    </div>
+    '''
     m.get_root().html.add_child(folium.Element(legend_html))
 
     return m
