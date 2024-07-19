@@ -4,10 +4,9 @@ import folium
 import matplotlib.colors as mcolors
 import zipfile
 import os
-import re
 from io import BytesIO
 import streamlit as st
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone, time
 from geopy.distance import geodesic
 from folium.plugins import HeatMap
 
@@ -83,9 +82,7 @@ def create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons
         if spotter in spotter_coords:
             coords = spotter_coords[spotter]
             snr = row['snr']
-            time = row['time']
-            if ' ' in time:
-                time = time.split()[1][:5]  # Extract only the HH:MM part if datetime format
+            time = row['time'].strftime("%H:%M")  # Extract only the HH:MM part if datetime format
             folium.CircleMarker(
                 location=coords,
                 radius=snr / 2,
@@ -243,6 +240,7 @@ def process_downloaded_data(filename):
     df = df.rename(columns={'callsign': 'spotter', 'dx': 'dx', 'db': 'snr', 'freq': 'freq', 'band': 'band', 'date': 'time'})
     df['snr'] = pd.to_numeric(df['snr'], errors='coerce')
     df['freq'] = pd.to_numeric(df['freq'], errors='coerce')
+    df['time'] = pd.to_datetime(df['time'], errors='coerce')
     return df
 
 def calculate_statistics(filtered_df, grid_square_coords, spotter_coords):
@@ -370,7 +368,7 @@ def main():
                     st.error("Please provide the necessary data.")
 
                 # Filter by time
-                df['time'] = pd.to_datetime(df['time'], format='%Y-%m-%d %H:%M:%S')
+                df['time'] = pd.to_datetime(df['time'], errors='coerce')
                 start_time_dt = datetime.strptime(start_time, '%H:%M').time()
                 end_time_dt = datetime.strptime(end_time, '%H:%M').time()
                 df = df[(df['time'].dt.time >= start_time_dt) & (df['time'].dt.time <= end_time_dt)]
