@@ -101,11 +101,11 @@ def create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons
             # Add the marker with the highest SNR within the cluster
             folium.CircleMarker(
                 location=(max_snr_coords[0], max_snr_coords[1]),
-                radius=max_snr / 2,
+                radius=10,  # Make the marker larger to indicate it's the highest SNR in the cluster
                 popup=f'SNR: {max_snr} dB',
-                color=get_color(max_snr),
+                color='blue',  # Different color to indicate highest SNR
                 fill=True,
-                fill_color=get_color(max_snr)
+                fill_color='blue'
             ).add_to(marker_cluster)
 
             # Add cluster markers for other points in the cluster
