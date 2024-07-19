@@ -422,16 +422,18 @@ def main():
             st.error(f"Error: {e}")
 
     if st.session_state.map_html:
-        map_container = st.container()
-        with map_container:
-            st.components.v1.html(st.session_state.map_html, height=700)
-            st.download_button(
-                label="Download Map",
-                data=st.session_state.map_html,
-                file_name=f"RBN_signal_map_{st.session_state.file_date}.html",
-                mime="text/html"
-            )
-            st.write(f"Map generated successfully for callsign: {callsign}!")
+        st.components.v1.html(st.session_state.map_html, height=700)
+        st.download_button(
+            label="Download Map",
+            data=st.session_state.map_html,
+            file_name=f"RBN_signal_map_{st.session_state.file_date}.html",
+            mime="text/html"
+        )
+        st.write(f"Map generated successfully for callsign: {callsign}!")
+        st.write(f"Using latest available date: {file_date}")
+        st.write("Using downloaded data.")
+        if not grid_square:
+            st.warning(f"No grid square provided, using default: {DEFAULT_GRID_SQUARE}")
 
 if __name__ == "__main__":
     main()
