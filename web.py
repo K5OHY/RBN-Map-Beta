@@ -4,7 +4,6 @@ import folium
 import matplotlib.colors as mcolors
 import zipfile
 import os
-import re
 from io import BytesIO
 import streamlit as st
 from datetime import datetime, timedelta, timezone
@@ -334,7 +333,9 @@ def main():
 
     def generate_filtered_map():
         if 'df' not in st.session_state or st.session_state.df is None:
+            st.error("No data available to generate the map.")
             return
+
         try:
             with st.spinner("Generating map..."):
                 df = st.session_state.df.copy()
@@ -379,12 +380,15 @@ def main():
             st.session_state.df = df.copy()  # Store the dataframe in session state
             generate_filtered_map()
         elif data_source == 'Download RBN data by date' and date.strip():
-            csv_filename = download_and_extract_rbn_data(date)
-            df = process_downloaded_data(csv_filename)
-            os.remove(csv_filename)
-            st.write("Using downloaded data.")
-            st.session_state.df = df.copy()  # Store the dataframe in session state
-            generate_filtered_map()
+            try:
+                csv_filename = download_and_extract_rbn_data(date)
+                df = process_downloaded_data(csv_filename)
+                os.remove(csv_filename)
+                st.write("Using downloaded data.")
+                st.session_state.df = df.copy()  # Store the dataframe in session state
+                generate_filtered_map()
+            except Exception as e:
+                st.error(f"Error downloading data: {e}")
         else:
             st.error("Please provide the necessary data.")
 
