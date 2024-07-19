@@ -67,6 +67,7 @@ def get_band(freq):
 
 def create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons, grid_square, use_band_column, callsign, stats):
     m = folium.Map(location=[39.8283, -98.5795], zoom_start=4)
+    marker_cluster = MarkerCluster().add_to(m)
 
     if show_all_beacons:
         for spotter, coords in spotter_coords.items():
@@ -105,7 +106,7 @@ def create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons
                 color=get_color(max_snr),
                 fill=True,
                 fill_color=get_color(max_snr)
-            ).add_to(m)
+            ).add_to(marker_cluster)
 
             # Add cluster markers for other points in the cluster
             for coords, snr in cluster:
@@ -117,7 +118,7 @@ def create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons
                         color=get_color(snr),
                         fill=True,
                         fill_color=get_color(snr)
-                    ).add_to(m)
+                    ).add_to(marker_cluster)
 
     folium.Marker(
         location=grid_square_coords,
