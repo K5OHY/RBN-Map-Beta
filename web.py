@@ -374,12 +374,11 @@ def main():
             st.session_state.df = df.copy()  # Store the dataframe in session state
             generate_filtered_map()
         elif data_source == 'Download RBN data by date' and date.strip():
-            if 'df' not in st.session_state or st.session_state.df is None:
-                csv_filename = download_and_extract_rbn_data(date)
-                df = process_downloaded_data(csv_filename)
-                os.remove(csv_filename)
-                st.write("Using downloaded data.")
-                st.session_state.df = df.copy()  # Store the dataframe in session state
+            csv_filename = download_and_extract_rbn_data(date)
+            df = process_downloaded_data(csv_filename)
+            os.remove(csv_filename)
+            st.write("Using downloaded data.")
+            st.session_state.df = df.copy()  # Store the dataframe in session state
             generate_filtered_map()
         else:
             st.error("Please provide the necessary data.")
