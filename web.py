@@ -388,6 +388,15 @@ def main():
                 st.session_state.map_html = map_html
                 st.session_state.file_date = file_date
                 st.write("Map generated successfully!")
+
+                # Adding the download button within the same container
+                st.download_button(
+                    label="Download Map",
+                    data=map_html,
+                    file_name=f"RBN_signal_map_{file_date}.html",
+                    mime="text/html"
+                )
+
         except Exception as e:
             st.error(f"Error: {e}")
 
@@ -418,23 +427,20 @@ def main():
                 map_html = m._repr_html_()
                 st.session_state.map_html = map_html
                 st.write("Data filtered successfully!")
+
+                # Adding the download button within the same container
+                st.download_button(
+                    label="Download Map",
+                    data=map_html,
+                    file_name=f"RBN_signal_map_{st.session_state.file_date}.html",
+                    mime="text/html"
+                )
+
         except Exception as e:
             st.error(f"Error: {e}")
 
     if st.session_state.map_html:
         st.components.v1.html(st.session_state.map_html, height=700)
-
-        map_filename = f"RBN_signal_map_{st.session_state.file_date}.html"
-        with open(map_filename, "w") as file:
-            file.write(st.session_state.map_html)
-
-        with open(map_filename, "rb") as file:
-            st.download_button(
-                label="Download Map",
-                data=file,
-                file_name=map_filename,
-                mime="text/html"
-            )
 
 if __name__ == "__main__":
     main()
