@@ -410,7 +410,7 @@ def main():
                 if selected_band != 'All':
                     filtered_df = filtered_df[filtered_df['band'] == selected_band]
 
-                spotter_coords_df = pd.read_csv('updated_spotters.csv')
+                spotter_coords_df = pd.read_csv('spotter_coords.csv')
                 spotter_coords = {
                     row['callsign']: (row['latitude'], row['longitude']) for _, row in spotter_coords_df.iterrows()
                 }
