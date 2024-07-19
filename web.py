@@ -312,6 +312,8 @@ def main():
         band_options = ['All'] + list(band_colors.keys())
         selected_band = st.selectbox('Select Band', band_options)
 
+        generate_map = st.button("Generate Map")
+
         with st.expander("Instructions", expanded=False):
             st.markdown("""
             **Instructions:**
@@ -325,42 +327,12 @@ def main():
             6. You can download the generated map using the provided download button.
             """)
 
-    if (st.session_state.df is not None or data_source == 'Paste RBN data' and pasted_data.strip()) or (data_source == 'Download RBN data by date' and date.strip()):
+    def generate_filtered_map():
+        if 'df' not in st.session_state or st.session_state.df is None:
+            return
         try:
             with st.spinner("Generating map..."):
-                use_band_column = False
-                file_date = ""
-
-                if callsign:
-                    callsign = callsign.upper()
-
-                if grid_square:
-                    grid_square = grid_square[:2].upper() + grid_square[2:]
-
-                if not grid_square:
-                    st.warning(f"No grid square provided, using default: {DEFAULT_GRID_SQUARE}")
-                    grid_square = DEFAULT_GRID_SQUARE
-
-                if data_source == 'Paste RBN data' and pasted_data.strip():
-                    df = process_pasted_data(pasted_data)
-                    st.write("Using pasted data.")
-                    file_date = datetime.now(timezone.utc).strftime("%Y%m%d")
-                    st.session_state.df = df.copy()  # Store the dataframe in session state
-                elif data_source == 'Download RBN data by date':
-                    if 'df' not in st.session_state or st.session_state.df is None:
-                        if not date.strip():
-                            yesterday = datetime.now(timezone.utc) - timedelta(1)
-                            date = yesterday.strftime('%Y%m%d')
-                            st.write(f"Using latest available date: {date}")
-                        csv_filename = download_and_extract_rbn_data(date)
-                        df = process_downloaded_data(csv_filename)
-                        os.remove(csv_filename)
-                        use_band_column = True
-                        file_date = date
-                        st.write("Using downloaded data.")
-                        st.session_state.df = df.copy()  # Store the dataframe in session state
-                    else:
-                        df = st.session_state.df.copy()
+                df = st.session_state.df.copy()
 
                 # Filter by time range
                 df['time'] = pd.to_datetime(df['time'], errors='coerce')
@@ -388,13 +360,33 @@ def main():
 
                 stats = calculate_statistics(filtered_df, grid_square_coords, spotter_coords)
 
-                m = create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons, grid_square, use_band_column, callsign, stats)
+                m = create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons, grid_square, True, callsign, stats)
                 map_html = m._repr_html_()
                 st.session_state.map_html = map_html
-                st.session_state.file_date = file_date
                 st.write("Map generated successfully!")
         except Exception as e:
             st.error(f"Error: {e}")
+
+    if generate_map:
+        if data_source == 'Paste RBN data' and pasted_data.strip():
+            df = process_pasted_data(pasted_data)
+            st.write("Using pasted data.")
+            st.session_state.df = df.copy()  # Store the dataframe in session state
+            generate_filtered_map()
+        elif data_source == 'Download RBN data by date' and date.strip():
+            if 'df' not in st.session_state or st.session_state.df is None:
+                csv_filename = download_and_extract_rbn_data(date)
+                df = process_downloaded_data(csv_filename)
+                os.remove(csv_filename)
+                st.write("Using downloaded data.")
+                st.session_state.df = df.copy()  # Store the dataframe in session state
+            generate_filtered_map()
+        else:
+            st.error("Please provide the necessary data.")
+
+    if st.session_state.filtered_df is not None:
+        st.write("Data filtered successfully!")
+        generate_filtered_map()
 
     if st.session_state.map_html:
         st.components.v1.html(st.session_state.map_html, height=700)
