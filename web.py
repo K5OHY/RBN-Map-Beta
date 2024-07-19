@@ -369,6 +369,7 @@ def main():
                 m = create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons, grid_square, True, callsign, stats)
                 map_html = m._repr_html_()
                 st.session_state.map_html = map_html
+                st.session_state.file_date = datetime.now(timezone.utc).strftime("%Y%m%d")
                 st.write("Map generated successfully!")
         except Exception as e:
             st.error(f"Error: {e}")
