@@ -297,8 +297,6 @@ def main():
             format="%02d:00"
         )
 
-        generate_map = st.button("Generate Map")
-
         band_colors = {
             '160m': '#FFFF00',  # yellow
             '80m': '#003300',   # dark green
@@ -327,7 +325,7 @@ def main():
             6. You can download the generated map using the provided download button.
             """)
 
-    if generate_map:
+    if (st.session_state.df is not None or data_source == 'Paste RBN data' and pasted_data.strip()) or (data_source == 'Download RBN data by date' and date.strip()):
         try:
             with st.spinner("Generating map..."):
                 use_band_column = False
@@ -343,14 +341,11 @@ def main():
                     st.warning(f"No grid square provided, using default: {DEFAULT_GRID_SQUARE}")
                     grid_square = DEFAULT_GRID_SQUARE
 
-                if data_source == 'Paste RBN data' and not pasted_data.strip():
-                    data_source = 'Download RBN data by date'
-                    date = ""
-
                 if data_source == 'Paste RBN data' and pasted_data.strip():
                     df = process_pasted_data(pasted_data)
                     st.write("Using pasted data.")
                     file_date = datetime.now(timezone.utc).strftime("%Y%m%d")
+                    st.session_state.df = df.copy()  # Store the dataframe in session state
                 elif data_source == 'Download RBN data by date':
                     if 'df' not in st.session_state or st.session_state.df is None:
                         if not date.strip():
@@ -366,8 +361,6 @@ def main():
                         st.session_state.df = df.copy()  # Store the dataframe in session state
                     else:
                         df = st.session_state.df.copy()
-                else:
-                    st.error("Please provide the necessary data.")
 
                 # Filter by time range
                 df['time'] = pd.to_datetime(df['time'], errors='coerce')
@@ -377,6 +370,10 @@ def main():
                 df = df[(df['time'].dt.time >= start_time_dt) & (df['time'].dt.time <= end_time_dt)]
 
                 filtered_df = df[df['dx'] == callsign].copy()
+
+                if selected_band != 'All':
+                    filtered_df = filtered_df[filtered_df['band'] == selected_band]
+
                 st.session_state.filtered_df = filtered_df.copy()  # Store the filtered dataframe in session state
 
                 spotter_coords_df = pd.read_csv('spotter_coords.csv')
@@ -396,33 +393,6 @@ def main():
                 st.session_state.map_html = map_html
                 st.session_state.file_date = file_date
                 st.write("Map generated successfully!")
-        except Exception as e:
-            st.error(f"Error: {e}")
-
-    elif st.session_state.filtered_df is not None:
-        try:
-            with st.spinner("Filtering data..."):
-                filtered_df = st.session_state.filtered_df.copy()
-
-                if selected_band != 'All':
-                    filtered_df = filtered_df[filtered_df['band'] == selected_band]
-
-                spotter_coords_df = pd.read_csv('spotter_coords.csv')
-                spotter_coords = {
-                    row['callsign']: (row['latitude'], row['longitude']) for _, row in spotter_coords_df.iterrows()
-                }
-
-                if grid_square:
-                    grid_square_coords = grid_square_to_latlon(grid_square)
-                else:
-                    grid_square_coords = grid_square_to_latlon(DEFAULT_GRID_SQUARE)
-
-                stats = calculate_statistics(filtered_df, grid_square_coords, spotter_coords)
-
-                m = create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons, grid_square, True, callsign, stats)
-                map_html = m._repr_html_()
-                st.session_state.map_html = map_html
-                st.write("Data filtered successfully!")
         except Exception as e:
             st.error(f"Error: {e}")
 
