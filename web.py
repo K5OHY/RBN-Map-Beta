@@ -6,7 +6,7 @@ import zipfile
 import os
 from io import BytesIO
 import streamlit as st
-from datetime import datetime, timedelta, timezone, time
+from datetime import datetime, timedelta, timezone
 from geopy.distance import geodesic
 from folium.plugins import HeatMap
 
@@ -130,7 +130,7 @@ def create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons
             ).add_to(m)
 
     if add_heatmap:
-        HeatMap(heatmap_data).add_to(m)
+        HeatMap(heatmap_data, min_opacity=0.2, radius=15, blur=10, max_zoom=1).add_to(m)
     
     band_stats = "<br>".join([f"{band}: {count}" for band, count in stats['bands'].items()])
     
@@ -277,6 +277,8 @@ def main():
         st.session_state.map_html = None
     if 'filtered_df' not in st.session_state:
         st.session_state.filtered_df = None
+    if 'df' not in st.session_state:
+        st.session_state.df = None
 
     with st.sidebar:
         st.header("Input Data")
@@ -354,16 +356,20 @@ def main():
                     st.write("Using pasted data.")
                     file_date = datetime.now(timezone.utc).strftime("%Y%m%d")
                 elif data_source == 'Download RBN data by date':
-                    if not date.strip():
-                        yesterday = datetime.now(timezone.utc) - timedelta(1)
-                        date = yesterday.strftime('%Y%m%d')
-                        st.write(f"Using latest available date: {date}")
-                    csv_filename = download_and_extract_rbn_data(date)
-                    df = process_downloaded_data(csv_filename)
-                    os.remove(csv_filename)
-                    use_band_column = True
-                    file_date = date
-                    st.write("Using downloaded data.")
+                    if 'df' not in st.session_state or st.session_state.df is None:
+                        if not date.strip():
+                            yesterday = datetime.now(timezone.utc) - timedelta(1)
+                            date = yesterday.strftime('%Y%m%d')
+                            st.write(f"Using latest available date: {date}")
+                        csv_filename = download_and_extract_rbn_data(date)
+                        df = process_downloaded_data(csv_filename)
+                        os.remove(csv_filename)
+                        use_band_column = True
+                        file_date = date
+                        st.write("Using downloaded data.")
+                        st.session_state.df = df.copy()  # Store the dataframe in session state
+                    else:
+                        df = st.session_state.df.copy()
                 else:
                     st.error("Please provide the necessary data.")
 
