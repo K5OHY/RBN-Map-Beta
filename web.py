@@ -4,6 +4,7 @@ import folium
 import matplotlib.colors as mcolors
 import zipfile
 import os
+import re
 from io import BytesIO
 import streamlit as st
 from datetime import datetime, timedelta, timezone
@@ -235,7 +236,6 @@ def process_downloaded_data(filename):
     df = df.rename(columns={'callsign': 'spotter', 'dx': 'dx', 'db': 'snr', 'freq': 'freq', 'band': 'band', 'date': 'time'})
     df['snr'] = pd.to_numeric(df['snr'], errors='coerce')
     df['freq'] = pd.to_numeric(df['freq'], errors='coerce')
-    df['time'] = pd.to_datetime(df['time'], errors='coerce')
     return df
 
 def calculate_statistics(filtered_df, grid_square_coords, spotter_coords):
@@ -272,8 +272,6 @@ def main():
         st.session_state.map_html = None
     if 'filtered_df' not in st.session_state:
         st.session_state.filtered_df = None
-    if 'df' not in st.session_state:
-        st.session_state.df = None
 
     with st.sidebar:
         st.header("Input Data")
@@ -290,14 +288,7 @@ def main():
         else:
             date = st.text_input("Enter the date (YYYYMMDD):")
 
-        time_range = st.slider(
-            "Select time range (UTC)",
-            value=(0, 23),
-            min_value=0,
-            max_value=23,
-            step=1,
-            format="%02d:00"
-        )
+        generate_map = st.button("Generate Map")
 
         band_colors = {
             '160m': '#FFFF00',  # yellow
@@ -314,8 +305,6 @@ def main():
         band_options = ['All'] + list(band_colors.keys())
         selected_band = st.selectbox('Select Band', band_options)
 
-        generate_map = st.button("Generate Map")
-
         with st.expander("Instructions", expanded=False):
             st.markdown("""
             **Instructions:**
@@ -324,33 +313,81 @@ def main():
                 - Paste RBN data manually.
                 - Download RBN data by date.
             3. Optionally, choose to show all reverse beacons.
-            4. Specify the time range in UTC.
-            5. Click 'Generate Map' to visualize the signal map.
-            6. You can download the generated map using the provided download button.
+            4. Click 'Generate Map' to visualize the signal map.
+            5. You can download the generated map using the provided download button.
             """)
 
-    def generate_filtered_map():
-        if 'df' not in st.session_state or st.session_state.df is None:
-            st.error("No data available to generate the map.")
-            return
-
+    if generate_map:
         try:
             with st.spinner("Generating map..."):
-                df = st.session_state.df.copy()
+                use_band_column = False
+                file_date = ""
 
-                # Filter by time range
-                df['time'] = pd.to_datetime(df['time'], errors='coerce')
-                start_time, end_time = time_range
-                start_time_dt = datetime.strptime(f"{start_time:02d}:00", '%H:%M').time()
-                end_time_dt = datetime.strptime(f"{end_time:02d}:00", '%H:%M').time()
-                df = df[(df['time'].dt.time >= start_time_dt) & (df['time'].dt.time <= end_time_dt)]
+                if callsign:
+                    callsign = callsign.upper()
+
+                if grid_square:
+                    grid_square = grid_square[:2].upper() + grid_square[2:]
+
+                if not grid_square:
+                    st.warning(f"No grid square provided, using default: {DEFAULT_GRID_SQUARE}")
+                    grid_square = DEFAULT_GRID_SQUARE
+
+                if data_source == 'Paste RBN data' and not pasted_data.strip():
+                    data_source = 'Download RBN data by date'
+                    date = ""
+
+                if data_source == 'Paste RBN data' and pasted_data.strip():
+                    df = process_pasted_data(pasted_data)
+                    st.write("Using pasted data.")
+                    file_date = datetime.now(timezone.utc).strftime("%Y%m%d")
+                elif data_source == 'Download RBN data by date':
+                    if not date.strip():
+                        yesterday = datetime.now(timezone.utc) - timedelta(1)
+                        date = yesterday.strftime('%Y%m%d')
+                        st.write(f"Using latest available date: {date}")
+                    csv_filename = download_and_extract_rbn_data(date)
+                    df = process_downloaded_data(csv_filename)
+                    os.remove(csv_filename)
+                    use_band_column = True
+                    file_date = date
+                    st.write("Using downloaded data.")
+                else:
+                    st.error("Please provide the necessary data.")
 
                 filtered_df = df[df['dx'] == callsign].copy()
+                st.session_state.filtered_df = filtered_df.copy()  # Store the filtered dataframe in session state
+
+                spotter_coords_df = pd.read_csv('spotter_coords.csv')
+                spotter_coords = {
+                    row['callsign']: (row['latitude'], row['longitude']) for _, row in spotter_coords_df.iterrows()
+                }
+
+                if grid_square:
+                    grid_square_coords = grid_square_to_latlon(grid_square)
+                else:
+                    grid_square_coords = grid_square_to_latlon(DEFAULT_GRID_SQUARE)
 
                 if selected_band != 'All':
                     filtered_df = filtered_df[filtered_df['band'] == selected_band]
 
-                st.session_state.filtered_df = filtered_df.copy()  # Store the filtered dataframe in session state
+                stats = calculate_statistics(filtered_df, grid_square_coords, spotter_coords)
+
+                m = create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons, grid_square, use_band_column, callsign, stats)
+                map_html = m._repr_html_()
+                st.session_state.map_html = map_html
+                st.session_state.file_date = file_date
+                st.write("Map generated successfully!")
+        except Exception as e:
+            st.error(f"Error: {e}")
+
+    elif st.session_state.filtered_df is not None:
+        try:
+            with st.spinner("Filtering data..."):
+                filtered_df = st.session_state.filtered_df.copy()
+
+                if selected_band != 'All':
+                    filtered_df = filtered_df[filtered_df['band'] == selected_band]
 
                 spotter_coords_df = pd.read_csv('spotter_coords.csv')
                 spotter_coords = {
@@ -367,33 +404,9 @@ def main():
                 m = create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons, grid_square, True, callsign, stats)
                 map_html = m._repr_html_()
                 st.session_state.map_html = map_html
-                st.session_state.file_date = datetime.now(timezone.utc).strftime("%Y%m%d")
-                st.write("Map generated successfully!")
+                st.write("Data filtered successfully!")
         except Exception as e:
             st.error(f"Error: {e}")
-
-    if generate_map:
-        if data_source == 'Paste RBN data' and pasted_data.strip():
-            df = process_pasted_data(pasted_data)
-            st.write("Using pasted data.")
-            st.session_state.df = df.copy()  # Store the dataframe in session state
-            generate_filtered_map()
-        elif data_source == 'Download RBN data by date' and date.strip():
-            try:
-                csv_filename = download_and_extract_rbn_data(date)
-                df = process_downloaded_data(csv_filename)
-                os.remove(csv_filename)
-                st.write("Using downloaded data.")
-                st.session_state.df = df.copy()  # Store the dataframe in session state
-                generate_filtered_map()
-            except Exception as e:
-                st.error(f"Error downloading data: {e}")
-        else:
-            st.error("Please provide the necessary data.")
-
-    if st.session_state.filtered_df is not None:
-        st.write("Data filtered successfully!")
-        generate_filtered_map()
 
     if st.session_state.map_html:
         st.components.v1.html(st.session_state.map_html, height=700)
