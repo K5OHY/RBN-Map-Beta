@@ -9,6 +9,9 @@ from io import BytesIO
 import streamlit as st
 from datetime import datetime, timedelta, timezone, time
 from geopy.distance import geodesic
+from folium.plugins import MarkerCluster
+from sklearn.cluster import DBSCAN
+import numpy as np
 
 DEFAULT_GRID_SQUARE = "DM81wx"  # Default grid square location
 
@@ -75,21 +78,46 @@ def create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons
                 fill_color='black'
             ).add_to(m)
 
-    for _, row in filtered_df.iterrows():
-        spotter = row['spotter']
-        if spotter in spotter_coords:
-            coords = spotter_coords[spotter]
-            snr = row['snr']
-            time = row['time']
-            time_str = time.strftime("%H:%M")  # Extract only the HH:MM part
+    # Create clusters with DBSCAN
+    coords_list = [(spotter_coords[row['spotter']][0], spotter_coords[row['spotter']][1], row['snr'])
+                   for _, row in filtered_df.iterrows() if row['spotter'] in spotter_coords]
+
+    if coords_list:
+        coords_np = np.array([(lat, lon) for lat, lon, _ in coords_list])
+        snrs = np.array([snr for _, _, snr in coords_list])
+        db = DBSCAN(eps=1, min_samples=1).fit(coords_np)
+
+        clusters = {}
+        for idx, label in enumerate(db.labels_):
+            if label not in clusters:
+                clusters[label] = []
+            clusters[label].append((coords_np[idx], snrs[idx]))
+
+        for cluster in clusters.values():
+            max_snr_idx = np.argmax([snr for _, snr in cluster])
+            max_snr_coords, max_snr = cluster[max_snr_idx]
+
+            # Add the marker with the highest SNR within the cluster
             folium.CircleMarker(
-                location=coords,
-                radius=snr / 2,
-                popup=f'Spotter: {spotter}<br>SNR: {snr} dB<br>Time: {time_str}',
-                color=get_color(snr),
+                location=(max_snr_coords[0], max_snr_coords[1]),
+                radius=max_snr / 2,
+                popup=f'SNR: {max_snr} dB',
+                color=get_color(max_snr),
                 fill=True,
-                fill_color=get_color(snr)
+                fill_color=get_color(max_snr)
             ).add_to(m)
+
+            # Add cluster markers for other points in the cluster
+            for coords, snr in cluster:
+                if coords != max_snr_coords:
+                    folium.CircleMarker(
+                        location=(coords[0], coords[1]),
+                        radius=snr / 2,
+                        popup=f'SNR: {snr} dB',
+                        color=get_color(snr),
+                        fill=True,
+                        fill_color=get_color(snr)
+                    ).add_to(m)
 
     folium.Marker(
         location=grid_square_coords,
@@ -389,7 +417,7 @@ def main():
                 st.session_state.file_date = file_date
                 st.write("Map generated successfully!")
 
-                # Center the download button below the map
+                # Adding the download button within the same container
                 st.download_button(
                     label="Download Map",
                     data=map_html,
@@ -428,7 +456,7 @@ def main():
                 st.session_state.map_html = map_html
                 st.write("Data filtered successfully!")
 
-                # Center the download button below the map
+                # Adding the download button within the same container
                 st.download_button(
                     label="Download Map",
                     data=map_html,
