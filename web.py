@@ -358,7 +358,7 @@ def main():
                 filtered_df = df[df['dx'] == callsign].copy()
                 st.session_state.filtered_df = filtered_df.copy()  # Store the filtered dataframe in session state
 
-                spotter_coords_df = pd.read_csv('spotter_coords.csv')
+                spotter_coords_df = pd.read_csv('updated_spotters.csv')
                 spotter_coords = {
                     row['callsign']: (row['latitude'], row['longitude']) for _, row in spotter_coords_df.iterrows()
                 }
