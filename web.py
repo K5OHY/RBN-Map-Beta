@@ -4,6 +4,7 @@ import folium
 import matplotlib.colors as mcolors
 import zipfile
 import os
+import re
 from io import BytesIO
 import streamlit as st
 from datetime import datetime, timedelta, timezone
@@ -79,7 +80,11 @@ def create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons
         if spotter in spotter_coords:
             coords = spotter_coords[spotter]
             snr = row['snr']
-            time = row['time'].strftime("%H:%M")  # Extract only the HH:MM part if datetime format
+            time = row['time']
+            if isinstance(time, str) and ' ' in time:
+                time = time.split()[1][:5]  # Extract only the HH:MM part if datetime format
+            elif isinstance(time, pd.Timestamp):
+                time = time.strftime("%H:%M")  # Extract only the HH:MM part if datetime format
             folium.CircleMarker(
                 location=coords,
                 radius=snr / 2,
