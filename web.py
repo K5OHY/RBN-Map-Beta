@@ -109,7 +109,7 @@ def create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons
 
             # Add cluster markers for other points in the cluster
             for coords, snr in cluster:
-                if coords != max_snr_coords:
+                if (coords[0], coords[1]) != (max_snr_coords[0], max_snr_coords[1]):
                     folium.CircleMarker(
                         location=(coords[0], coords[1]),
                         radius=snr / 2,
