@@ -8,7 +8,6 @@ from io import BytesIO
 import streamlit as st
 from datetime import datetime, timedelta, timezone
 from geopy.distance import geodesic
-from folium.plugins import HeatMap
 
 DEFAULT_GRID_SQUARE = "DM81wx"  # Default grid square location
 
@@ -62,7 +61,7 @@ def get_band(freq):
     else:
         return 'unknown'
 
-def create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons, grid_square, use_band_column, callsign, stats, add_heatmap):
+def create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons, grid_square, use_band_column, callsign, stats):
     m = folium.Map(location=[39.8283, -98.5795], zoom_start=4)
 
     if show_all_beacons:
@@ -74,8 +73,6 @@ def create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons
                 fill=True,
                 fill_color='black'
             ).add_to(m)
-
-    heatmap_data = []
 
     for _, row in filtered_df.iterrows():
         spotter = row['spotter']
@@ -91,7 +88,6 @@ def create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons
                 fill=True,
                 fill_color=get_color(snr)
             ).add_to(m)
-            heatmap_data.append([coords[0], coords[1], snr])
 
     folium.Marker(
         location=grid_square_coords,
@@ -128,9 +124,6 @@ def create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons
                 color=color,
                 weight=1
             ).add_to(m)
-
-    if add_heatmap:
-        HeatMap(heatmap_data, min_opacity=0.2, radius=15, blur=10, max_zoom=1).add_to(m)
     
     band_stats = "<br>".join([f"{band}: {count}" for band, count in stats['bands'].items()])
     
@@ -295,12 +288,16 @@ def main():
         else:
             date = st.text_input("Enter the date (YYYYMMDD):")
 
-        start_time = st.text_input("Start Time (UTC) (HH:MM):", value="00:00")
-        end_time = st.text_input("End Time (UTC) (HH:MM):", value="23:59")
+        time_range = st.slider(
+            "Select time range (UTC)",
+            value=(0, 23),
+            min_value=0,
+            max_value=23,
+            step=1,
+            format="%02d:00"
+        )
 
         generate_map = st.button("Generate Map")
-
-        add_heatmap = st.checkbox("Add Heatmap")
 
         band_colors = {
             '160m': '#FFFF00',  # yellow
@@ -325,10 +322,9 @@ def main():
                 - Paste RBN data manually.
                 - Download RBN data by date.
             3. Optionally, choose to show all reverse beacons.
-            4. Specify start and end times in UTC.
-            5. Optionally, add a heatmap layer to visualize signal intensity.
-            6. Click 'Generate Map' to visualize the signal map.
-            7. You can download the generated map using the provided download button.
+            4. Specify the time range in UTC.
+            5. Click 'Generate Map' to visualize the signal map.
+            6. You can download the generated map using the provided download button.
             """)
 
     if generate_map:
@@ -373,10 +369,11 @@ def main():
                 else:
                     st.error("Please provide the necessary data.")
 
-                # Filter by time
+                # Filter by time range
                 df['time'] = pd.to_datetime(df['time'], errors='coerce')
-                start_time_dt = datetime.strptime(start_time, '%H:%M').time()
-                end_time_dt = datetime.strptime(end_time, '%H:%M').time()
+                start_time, end_time = time_range
+                start_time_dt = datetime.strptime(f"{start_time:02d}:00", '%H:%M').time()
+                end_time_dt = datetime.strptime(f"{end_time:02d}:00", '%H:%M').time()
                 df = df[(df['time'].dt.time >= start_time_dt) & (df['time'].dt.time <= end_time_dt)]
 
                 filtered_df = df[df['dx'] == callsign].copy()
@@ -394,7 +391,7 @@ def main():
 
                 stats = calculate_statistics(filtered_df, grid_square_coords, spotter_coords)
 
-                m = create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons, grid_square, use_band_column, callsign, stats, add_heatmap)
+                m = create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons, grid_square, use_band_column, callsign, stats)
                 map_html = m._repr_html_()
                 st.session_state.map_html = map_html
                 st.session_state.file_date = file_date
@@ -410,7 +407,7 @@ def main():
                 if selected_band != 'All':
                     filtered_df = filtered_df[filtered_df['band'] == selected_band]
 
-                spotter_coords_df = pd.read_csv('spotter_coords.csv')
+                spotter_coords_df = pd.read_csv('updated_spotters.csv')
                 spotter_coords = {
                     row['callsign']: (row['latitude'], row['longitude']) for _, row in spotter_coords_df.iterrows()
                 }
@@ -422,7 +419,7 @@ def main():
 
                 stats = calculate_statistics(filtered_df, grid_square_coords, spotter_coords)
 
-                m = create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons, grid_square, True, callsign, stats, add_heatmap)
+                m = create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons, grid_square, True, callsign, stats)
                 map_html = m._repr_html_()
                 st.session_state.map_html = map_html
                 st.write("Data filtered successfully!")
