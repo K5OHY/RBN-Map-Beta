@@ -387,15 +387,6 @@ def main():
                 map_html = m._repr_html_()
                 st.session_state.map_html = map_html
                 st.session_state.file_date = file_date
-                st.write("Map generated successfully!")
-
-                # Adding the download button within the same container
-                st.download_button(
-                    label="Download Map",
-                    data=map_html,
-                    file_name=f"RBN_signal_map_{file_date}.html",
-                    mime="text/html"
-                )
 
         except Exception as e:
             st.error(f"Error: {e}")
@@ -426,21 +417,21 @@ def main():
                 m = create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons, grid_square, True, callsign, stats)
                 map_html = m._repr_html_()
                 st.session_state.map_html = map_html
-                st.write("Data filtered successfully!")
-
-                # Adding the download button within the same container
-                st.download_button(
-                    label="Download Map",
-                    data=map_html,
-                    file_name=f"RBN_signal_map_{st.session_state.file_date}.html",
-                    mime="text/html"
-                )
 
         except Exception as e:
             st.error(f"Error: {e}")
 
     if st.session_state.map_html:
         st.components.v1.html(st.session_state.map_html, height=700)
+
+        st.download_button(
+            label="Download Map",
+            data=st.session_state.map_html,
+            file_name=f"RBN_signal_map_{st.session_state.file_date}.html",
+            mime="text/html"
+        )
+
+        st.write(f"Map generated successfully for callsign: {callsign}!")
 
 if __name__ == "__main__":
     main()
