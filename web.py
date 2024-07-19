@@ -365,16 +365,8 @@ def main():
                 filtered_df = df[df['dx'] == callsign].copy()
                 st.session_state.filtered_df = filtered_df.copy()  # Store the filtered dataframe in session state
 
-                # Debugging: Print the first few rows of the filtered dataframe
-                st.write("Filtered DataFrame before time filtering:", filtered_df.head())
-
                 # Filter by the selected time range
-                start_time_dt = datetime.combine(datetime.today(), start_time)
-                end_time_dt = datetime.combine(datetime.today(), end_time)
                 filtered_df = filtered_df[(filtered_df['time'].dt.time >= start_time) & (filtered_df['time'].dt.time <= end_time)]
-
-                # Debugging: Print the first few rows of the filtered dataframe after time filtering
-                st.write("Filtered DataFrame after time filtering:", filtered_df.head())
 
                 spotter_coords_df = pd.read_csv('spotter_coords.csv')
                 spotter_coords = {
@@ -408,8 +400,6 @@ def main():
                     filtered_df = filtered_df[filtered_df['band'] == selected_band]
 
                 # Filter by the selected time range
-                start_time_dt = datetime.combine(datetime.today(), start_time)
-                end_time_dt = datetime.combine(datetime.today(), end_time)
                 filtered_df = filtered_df[(filtered_df['time'].dt.time >= start_time) & (filtered_df['time'].dt.time <= end_time)]
 
                 spotter_coords_df = pd.read_csv('spotter_coords.csv')
