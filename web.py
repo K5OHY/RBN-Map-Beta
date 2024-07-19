@@ -1,3 +1,19 @@
+import requests
+import pandas as pd
+import folium
+import matplotlib.colors as mcolors
+import zipfile
+import os
+import re
+from io import BytesIO
+import streamlit as st
+from datetime import datetime, timedelta, timezone
+from geopy.distance import geodesic
+
+DEFAULT_GRID_SQUARE = "DM81wx"  # Default grid square location
+
+# ... [Other function definitions remain unchanged] ...
+
 def main():
     st.set_page_config(layout="wide", page_title="RBN Signal Mapper", page_icon=":radio:")
 
@@ -45,7 +61,7 @@ def main():
         st.subheader("Filter by UTC Time")
         start_time, end_time = st.slider(
             "Select time range",
-            value=(datetime.strptime("00:00", "%H:%M"), datetime.strptime("23:59", "%H:%M")),
+            value=(time(0, 0), time(23, 59)),
             format="HH:mm"
         )
 
@@ -102,10 +118,8 @@ def main():
                 filtered_df = df[df['dx'] == callsign].copy()
                 st.session_state.filtered_df = filtered_df.copy()  # Store the filtered dataframe in session state
 
-                # Convert time to datetime and filter by the selected time range
-                filtered_df['time'] = pd.to_datetime(filtered_df['time'], format="%H:%M")
-                start_time = datetime.combine(datetime.today(), start_time.time())
-                end_time = datetime.combine(datetime.today(), end_time.time())
+                # Convert time column to datetime.time objects and filter by the selected time range
+                filtered_df['time'] = pd.to_datetime(filtered_df['time'], format="%H:%M").dt.time
                 filtered_df = filtered_df[(filtered_df['time'] >= start_time) & (filtered_df['time'] <= end_time)]
 
                 spotter_coords_df = pd.read_csv('spotter_coords.csv')
@@ -139,10 +153,8 @@ def main():
                 if selected_band != 'All':
                     filtered_df = filtered_df[filtered_df['band'] == selected_band]
 
-                # Convert time to datetime and filter by the selected time range
-                filtered_df['time'] = pd.to_datetime(filtered_df['time'], format="%H:%M")
-                start_time = datetime.combine(datetime.today(), start_time.time())
-                end_time = datetime.combine(datetime.today(), end_time.time())
+                # Convert time column to datetime.time objects and filter by the selected time range
+                filtered_df['time'] = pd.to_datetime(filtered_df['time'], format="%H:%M").dt.time
                 filtered_df = filtered_df[(filtered_df['time'] >= start_time) & (filtered_df['time'] <= end_time)]
 
                 spotter_coords_df = pd.read_csv('spotter_coords.csv')
