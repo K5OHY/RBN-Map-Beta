@@ -6,3 +6,4 @@ streamlit
 geopy
 plotly
 scikit-learn
+beautifulsoup4
