@@ -9,7 +9,8 @@ from io import BytesIO
 import streamlit as st
 from datetime import datetime, timedelta, timezone, time
 from geopy.distance import geodesic
-from bs4 import BeautifulSoup  # Added for web scraping
+from bs4 import BeautifulSoup
+import time as time_module  # For sleep functionality
 
 DEFAULT_GRID_SQUARE = "DM81wx"  # Default grid square location
 
@@ -19,12 +20,12 @@ def fetch_spotter_data():
     """
     url = "https://www.reversebeacon.net/nodes/"
     try:
-        response = requests.get(url)
+        response = requests.get(url, timeout=10)
         if response.status_code == 200:
             soup = BeautifulSoup(response.content, 'html.parser')
             table = soup.find('table')  # Find the table containing spotter data
             if not table:
-                st.error("No table found on the RBN nodes page.")
+                st.warning("No table found on the RBN nodes page.")
                 return None
             
             data = []
@@ -45,7 +46,7 @@ def fetch_spotter_data():
                         st.warning(f"Missing or invalid grid square for {callsign}")
             
             if not data:
-                st.error("No valid spotter data extracted from the RBN nodes page.")
+                st.warning("No valid spotter data extracted from the RBN nodes page.")
                 return None
             
             return pd.DataFrame(data, columns=['callsign', 'latitude', 'longitude'])
@@ -63,22 +64,23 @@ def update_spotter_coords():
     new_spotter_data = fetch_spotter_data()
     
     if new_spotter_data is not None:
-        # Load existing spotter_coords.csv
+        # Load existing spotter_coords.csv from tmp or use default if not present
         try:
-            existing_data = pd.read_csv('spotter_coords.csv')
+            existing_data = pd.read_csv('/tmp/spotter_coords.csv')
         except FileNotFoundError:
-            existing_data = pd.DataFrame(columns=['callsign', 'latitude', 'longitude'])
+            try:
+                existing_data = pd.read_csv('spotter_coords.csv')  # Fallback to repo file
+            except FileNotFoundError:
+                existing_data = pd.DataFrame(columns=['callsign', 'latitude', 'longitude'])
         
         # Merge new data with existing, updating coordinates for matching callsigns
         updated_data = pd.concat([existing_data, new_spotter_data]).drop_duplicates(subset='callsign', keep='last')
         
-        # Save updated data to CSV
-        updated_data.to_csv('spotter_coords.csv', index=False)
-        st.success("Spotter coordinates updated successfully!")
+        # Save updated data to temporary directory
+        updated_data.to_csv('/tmp/spotter_coords.csv', index=False)
+        st.success("Spotter coordinates updated successfully in the background!")
         return True
-    else:
-        st.warning("No new spotter data available.")
-        return False
+    return False
 
 def download_and_extract_rbn_data(date):
     url = f'https://data.reversebeacon.net/rbn_history/{date}.zip'
@@ -334,6 +336,18 @@ def main():
 
     st.markdown("<h1 style='text-align: center;'>RBN Signal Mapper</h1>", unsafe_allow_html=True)
 
+    # Automatic spotter update on startup
+    if 'last_update' not in st.session_state:
+        st.session_state.last_update = 0
+        if update_spotter_coords():
+            st.session_state.last_update = time_module.time()
+
+    # Optional periodic update (e.g., every 24 hours or on app restart)
+    current_time = time_module.time()
+    if current_time - st.session_state.last_update > 24 * 3600:  # Update every 24 hours
+        if update_spotter_coords():
+            st.session_state.last_update = current_time
+
     if 'map_html' not in st.session_state:
         st.session_state.map_html = None
     if 'filtered_df' not in st.session_state:
@@ -354,9 +368,10 @@ def main():
         else:
             date = st.text_input("Enter the date (YYYYMMDD):")
 
-        st.header("Spotter Data Management")
-        if st.button("Update Spotter Coordinates"):
-            update_spotter_coords()
+        # Removed interactive update button since it's now automatic
+        # st.header("Spotter Data Management")
+        # if st.button("Update Spotter Coordinates"):
+        #     update_spotter_coords()
 
         generate_map = st.button("Generate Map")
 
@@ -389,7 +404,7 @@ def main():
             2. Select the data source:
                 - Paste RBN data manually.
                 - Download RBN data by date.
-            3. Update spotter coordinates if needed.
+            3. Spotter coordinates are updated automatically on startup and every 24 hours.
             4. Optionally, choose to show all reverse beacons.
             5. Click 'Generate Map' to visualize the signal map.
             6. You can download the generated map using the provided download button.
@@ -438,7 +453,8 @@ def main():
 
                 filtered_df = filtered_df[(filtered_df['time'].dt.time >= start_time) & (filtered_df['time'].dt.time <= end_time)]
 
-                spotter_coords_df = pd.read_csv('spotter_coords.csv')
+                # Load spotter coordinates from temporary file
+                spotter_coords_df = pd.read_csv('/tmp/spotter_coords.csv')
                 spotter_coords = {
                     row['callsign']: (row['latitude'], row['longitude']) for _, row in spotter_coords_df.iterrows()
                 }
@@ -479,7 +495,8 @@ def main():
 
                 filtered_df = filtered_df[(filtered_df['time'].dt.time >= start_time) & (filtered_df['time'].dt.time <= end_time)]
 
-                spotter_coords_df = pd.read_csv('spotter_coords.csv')
+                # Load spotter coordinates from temporary file
+                spotter_coords_df = pd.read_csv('/tmp/spotter_coords.csv')
                 spotter_coords = {
                     row['callsign']: (row['latitude'], row['longitude']) for _, row in spotter_coords_df.iterrows()
                 }
