@@ -313,4 +313,207 @@ def calculate_statistics(filtered_df, grid_square_coords, spotter_coords):
     if not filtered_df.empty:
         for _, row in filtered_df.iterrows():
             spotter = row['spotter']
-            if spotter in
+            if spotter in spotter_coords:
+                coords = spotter_coords[spotter]
+                distance = geodesic(grid_square_coords, coords).miles
+                if distance > max_distance:
+                    max_distance = distance
+    
+    return {
+        'spots': spots,
+        'avg_snr': avg_snr,
+        'max_distance': max_distance,
+        'max_snr': max_snr,
+        'bands': bands
+    }
+
+def main():
+    st.set_page_config(layout="wide", page_title="RBN Signal Mapper", page_icon=":radio:")
+
+    st.markdown("<h1 style='text-align: center;'>RBN Signal Mapper</h1>", unsafe_allow_html=True)
+
+    # Automatic spotter update on startup
+    if 'last_update' not in st.session_state:
+        st.session_state.last_update = 0
+        if update_spotter_coords():
+            st.session_state.last_update = time_module.time()
+
+    # Periodic update (every 24 hours on restart)
+    current_time = time_module.time()
+    if current_time - st.session_state.last_update > 24 * 3600:
+        if update_spotter_coords():
+            st.session_state.last_update = current_time
+
+    if 'map_html' not in st.session_state:
+        st.session_state.map_html = None
+    if 'filtered_df' not in st.session_state:
+        st.session_state.filtered_df = None
+
+    with st.sidebar:
+        st.header("Input Data")
+        callsign = st.text_input("Enter Callsign:")
+        grid_square = st.text_input("Enter Grid Square (optional):")
+        show_all_beacons = st.checkbox("Show all reverse beacons")
+        data_source = st.radio(
+            "Select data source",
+            ('Paste RBN data', 'Download RBN data by date')
+        )
+
+        if data_source == 'Paste RBN data':
+            pasted_data = st.text_area("Paste RBN data here:")
+        else:
+            date = st.text_input("Enter the date (YYYYMMDD):")
+
+        generate_map = st.button("Generate Map")
+
+        band_colors = {
+            '160m': '#FFFF00',
+            '80m': '#003300',
+            '40m': '#FFA500',
+            '30m': '#FF4500',
+            '20m': '#0000FF',
+            '17m': '#800080',
+            '15m': '#696969',
+            '12m': '#00FFFF',
+            '10m': '#FF00FF',
+            '6m': '#F5DEB3',
+        }
+        band_options = ['All'] + list(band_colors.keys())
+        selected_band = st.selectbox('Select Band', band_options)
+
+        st.subheader("Filter by UTC Time")
+        start_time, end_time = st.slider(
+            "Select time range",
+            value=(time(0, 0), time(23, 59)),
+            format="HH:mm"
+        )
+
+        with st.expander("Instructions", expanded=False):
+            st.markdown("""
+            **Instructions:**
+            1. Enter a callsign and grid square.
+            2. Select the data source:
+                - Paste RBN data manually.
+                - Download RBN data by date.
+            3. Spotter coordinates are updated automatically on startup and every 24 hours.
+            4. Optionally, choose to show all reverse beacons.
+            5. Click 'Generate Map' to visualize the signal map.
+            6. You can download the generated map using the provided download button.
+            """)
+
+    if generate_map:
+        try:
+            with st.spinner("Generating map..."):
+                use_band_column = False
+                file_date = ""
+
+                if callsign:
+                    callsign = callsign.upper()
+
+                if grid_square:
+                    grid_square = grid_square[:2].upper() + grid_square[2:]
+
+                if not grid_square:
+                    st.warning(f"No grid square provided, using default: {DEFAULT_GRID_SQUARE}")
+                    grid_square = DEFAULT_GRID_SQUARE
+
+                if data_source == 'Paste RBN data' and not pasted_data.strip():
+                    data_source = 'Download RBN data by date'
+                    date = ""
+
+                if data_source == 'Paste RBN data' and pasted_data.strip():
+                    df = process_pasted_data(pasted_data)
+                    st.write("Using pasted data.")
+                    file_date = datetime.now(timezone.utc).strftime("%Y%m%d")
+                elif data_source == 'Download RBN data by date':
+                    if not date.strip():
+                        yesterday = datetime.now(timezone.utc) - timedelta(1)
+                        date = yesterday.strftime('%Y%m%d')
+                        st.write(f"Using latest available date: {date}")
+                    csv_filename = download_and_extract_rbn_data(date)
+                    df = process_downloaded_data(csv_filename)
+                    os.remove(csv_filename)
+                    use_band_column = True
+                    file_date = date
+                    st.write("Using downloaded data.")
+                else:
+                    st.error("Please provide the necessary data.")
+
+                filtered_df = df[df['dx'] == callsign].copy()
+                st.session_state.filtered_df = filtered_df.copy()
+
+                filtered_df = filtered_df[(filtered_df['time'].dt.time >= start_time) & (filtered_df['time'].dt.time <= end_time)]
+
+                spotter_coords_df = pd.read_csv('/tmp/spotter_coords.csv')
+                spotter_coords = {
+                    row['callsign']: (row['latitude'], row['longitude']) for _, row in spotter_coords_df.iterrows()
+                }
+
+                if grid_square:
+                    grid_square_coords = grid_square_to_latlon(grid_square)
+                else:
+                    grid_square_coords = grid_square_to_latlon(DEFAULT_GRID_SQUARE)
+
+                if selected_band != 'All':
+                    filtered_df = filtered_df[filtered_df['band'] == selected_band]
+
+                stats = calculate_statistics(filtered_df, grid_square_coords, spotter_coords)
+
+                m = create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons, grid_square, use_band_column, callsign, stats)
+                map_html = m._repr_html_()
+                st.session_state.map_html = map_html
+                st.session_state.file_date = file_date
+                st.write("Map generated successfully!")
+
+                st.download_button(
+                    label="Download Map",
+                    data=map_html,
+                    file_name=f"RBN_signal_map_{file_date}.html",
+                    mime="text/html"
+                )
+
+        except Exception as e:
+            st.error(f"Error: {e}")
+
+    elif st.session_state.filtered_df is not None:
+        try:
+            with st.spinner("Filtering data..."):
+                filtered_df = st.session_state.filtered_df.copy()
+
+                if selected_band != 'All':
+                    filtered_df = filtered_df[filtered_df['band'] == selected_band]
+
+                filtered_df = filtered_df[(filtered_df['time'].dt.time >= start_time) & (filtered_df['time'].dt.time <= end_time)]
+
+                spotter_coords_df = pd.read_csv('/tmp/spotter_coords.csv')
+                spotter_coords = {
+                    row['callsign']: (row['latitude'], row['longitude']) for _, row in spotter_coords_df.iterrows()
+                }
+
+                if grid_square:
+                    grid_square_coords = grid_square_to_latlon(grid_square)
+                else:
+                    grid_square_coords = grid_square_to_latlon(DEFAULT_GRID_SQUARE)
+
+                stats = calculate_statistics(filtered_df, grid_square_coords, spotter_coords)
+
+                m = create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons, grid_square, True, callsign, stats)
+                map_html = m._repr_html_()
+                st.session_state.map_html = map_html
+                st.write("Data filtered successfully!")
+
+                st.download_button(
+                    label="Download Map",
+                    data=map_html,
+                    file_name=f"RBN_signal_map_{st.session_state.file_date}.html",
+                    mime="text/html"
+                )
+
+        except Exception as e:
+            st.error(f"Error: {e}")
+
+    if st.session_state.map_html:
+        st.components.v1.html(st.session_state.map_html, height=700)
+
+if __name__ == "__main__":
+    main()
