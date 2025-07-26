@@ -9,9 +9,6 @@ from io import BytesIO
 import streamlit as st
 from datetime import datetime, timedelta, timezone, time
 from geopy.distance import geodesic
-from folium.plugins import MarkerCluster
-from sklearn.cluster import DBSCAN
-import numpy as np
 
 DEFAULT_GRID_SQUARE = "DM81wx"  # Default grid square location
 
@@ -67,7 +64,6 @@ def get_band(freq):
 
 def create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons, grid_square, use_band_column, callsign, stats):
     m = folium.Map(location=[39.8283, -98.5795], zoom_start=4)
-    marker_cluster = MarkerCluster().add_to(m)
 
     if show_all_beacons:
         for spotter, coords in spotter_coords.items():
@@ -79,46 +75,21 @@ def create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons
                 fill_color='black'
             ).add_to(m)
 
-    # Create clusters with DBSCAN
-    coords_list = [(spotter_coords[row['spotter']][0], spotter_coords[row['spotter']][1], row['snr'])
-                   for _, row in filtered_df.iterrows() if row['spotter'] in spotter_coords]
-
-    if coords_list:
-        coords_np = np.array([(lat, lon) for lat, lon, _ in coords_list])
-        snrs = np.array([snr for _, _, snr in coords_list])
-        db = DBSCAN(eps=1, min_samples=1).fit(coords_np)
-
-        clusters = {}
-        for idx, label in enumerate(db.labels_):
-            if label not in clusters:
-                clusters[label] = []
-            clusters[label].append((coords_np[idx], snrs[idx]))
-
-        for cluster in clusters.values():
-            max_snr_idx = np.argmax([snr for _, snr in cluster])
-            max_snr_coords, max_snr = cluster[max_snr_idx]
-
-            # Add the marker with the highest SNR within the cluster
+    for _, row in filtered_df.iterrows():
+        spotter = row['spotter']
+        if spotter in spotter_coords:
+            coords = spotter_coords[spotter]
+            snr = row['snr']
+            time = row['time']
+            time_str = time.strftime("%H:%M")  # Extract only the HH:MM part
             folium.CircleMarker(
-                location=(max_snr_coords[0], max_snr_coords[1]),
-                radius=10,  # Make the marker larger to indicate it's the highest SNR in the cluster
-                popup=f'SNR: {max_snr} dB',
-                color='blue',  # Different color to indicate highest SNR
+                location=coords,
+                radius=snr / 2,
+                popup=f'Spotter: {spotter}<br>SNR: {snr} dB<br>Time: {time_str}',
+                color=get_color(snr),
                 fill=True,
-                fill_color='blue'
-            ).add_to(marker_cluster)
-
-            # Add cluster markers for other points in the cluster
-            for coords, snr in cluster:
-                if (coords[0], coords[1]) != (max_snr_coords[0], max_snr_coords[1]):
-                    folium.CircleMarker(
-                        location=(coords[0], coords[1]),
-                        radius=snr / 2,
-                        popup=f'SNR: {snr} dB',
-                        color=get_color(snr),
-                        fill=True,
-                        fill_color=get_color(snr)
-                    ).add_to(marker_cluster)
+                fill_color=get_color(snr)
+            ).add_to(m)
 
     folium.Marker(
         location=grid_square_coords,
