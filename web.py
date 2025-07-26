@@ -10,32 +10,33 @@ import streamlit as st
 from datetime import datetime, timedelta, timezone, time
 from geopy.distance import geodesic
 from bs4 import BeautifulSoup
-import time as time_module  # For sleep functionality
+import time as time_module
 
-DEFAULT_GRID_SQUARE = "DM81wx"  # Default grid square location
+DEFAULT_GRID_SQUARE = "DM81wx"
+
+try:
+    import bs4
+except ModuleNotFoundError:
+    raise Exception("beautifulsoup4 is not installed. Please ensure it’s in requirements.txt and redeploy.")
 
 def fetch_spotter_data():
-    """
-    Fetch spotter data from https://www.reversebeacon.net/nodes/ and return a DataFrame.
-    """
     url = "https://www.reversebeacon.net/nodes/"
     try:
         response = requests.get(url, timeout=10)
         if response.status_code == 200:
             soup = BeautifulSoup(response.content, 'html.parser')
-            table = soup.find('table')  # Find the table containing spotter data
+            table = soup.find('table')
             if not table:
                 st.warning("No table found on the RBN nodes page.")
                 return None
             
             data = []
-            # Extract table rows
-            for row in table.find_all('tr')[1:]:  # Skip header row
+            for row in table.find_all('tr')[1:]:
                 cols = row.find_all('td')
-                if len(cols) >= 3:  # Ensure enough columns (callsign, grid, etc.)
+                if len(cols) >= 3:
                     callsign = cols[0].text.strip()
-                    grid_square = cols[2].text.strip()  # Grid square is in the third column
-                    if grid_square and len(grid_square) >= 4:  # Validate grid square
+                    grid_square = cols[2].text.strip() or cols[1].text.strip()
+                    if grid_square and len(grid_square) >= 4:
                         try:
                             lat, lon = grid_square_to_latlon(grid_square)
                             data.append([callsign, lat, lon])
@@ -58,28 +59,21 @@ def fetch_spotter_data():
         return None
 
 def update_spotter_coords():
-    """
-    Update spotter_coords.csv with the latest spotter data from RBN.
-    """
     new_spotter_data = fetch_spotter_data()
-    
     if new_spotter_data is not None:
-        # Load existing spotter_coords.csv from tmp or use default if not present
         try:
             existing_data = pd.read_csv('/tmp/spotter_coords.csv')
         except FileNotFoundError:
             try:
-                existing_data = pd.read_csv('spotter_coords.csv')  # Fallback to repo file
+                existing_data = pd.read_csv('spotter_coords.csv')
             except FileNotFoundError:
                 existing_data = pd.DataFrame(columns=['callsign', 'latitude', 'longitude'])
         
-        # Merge new data with existing, updating coordinates for matching callsigns
         updated_data = pd.concat([existing_data, new_spotter_data]).drop_duplicates(subset='callsign', keep='last')
-        
-        # Save updated data to temporary directory
         updated_data.to_csv('/tmp/spotter_coords.csv', index=False)
         st.success("Spotter coordinates updated successfully in the background!")
         return True
+    st.warning("Failed to update spotter data; using existing data.")
     return False
 
 def download_and_extract_rbn_data(date):
@@ -168,16 +162,16 @@ def create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons
     ).add_to(m)
     
     band_colors = {
-        '160m': '#FFFF00',  # yellow
-        '80m': '#003300',   # dark green
-        '40m': '#FFA500',   # orange
-        '30m': '#FF4500',   # red
-        '20m': '#0000FF',   # blue
-        '17m': '#800080',   # purple
-        '15m': '#696969',   # dim gray
-        '12m': '#00FFFF',   # cyan
-        '10m': '#FF00FF',   # magenta
-        '6m': '#F5DEB3',    # wheat
+        '160m': '#FFFF00',
+        '80m': '#003300',
+        '40m': '#FFA500',
+        '30m': '#FF4500',
+        '20m': '#0000FF',
+        '17m': '#800080',
+        '15m': '#696969',
+        '12m': '#00FFFF',
+        '10m': '#FF00FF',
+        '6m': '#F5DEB3',
     }
 
     for _, row in filtered_df.iterrows():
@@ -342,9 +336,9 @@ def main():
         if update_spotter_coords():
             st.session_state.last_update = time_module.time()
 
-    # Optional periodic update (e.g., every 24 hours or on app restart)
+    # Periodic update (every 24 hours on restart)
     current_time = time_module.time()
-    if current_time - st.session_state.last_update > 24 * 3600:  # Update every 24 hours
+    if current_time - st.session_state.last_update > 24 * 3600:
         if update_spotter_coords():
             st.session_state.last_update = current_time
 
@@ -368,24 +362,19 @@ def main():
         else:
             date = st.text_input("Enter the date (YYYYMMDD):")
 
-        # Removed interactive update button since it's now automatic
-        # st.header("Spotter Data Management")
-        # if st.button("Update Spotter Coordinates"):
-        #     update_spotter_coords()
-
         generate_map = st.button("Generate Map")
 
         band_colors = {
-            '160m': '#FFFF00',  # yellow
-            '80m': '#003300',   # dark green
-            '40m': '#FFA500',   # orange
-            '30m': '#FF4500',   # red
-            '20m': '#0000FF',   # blue
-            '17m': '#800080',   # purple
-            '15m': '#696969',   # dim gray
-            '12m': '#00FFFF',   # cyan
-            '10m': '#FF00FF',   # magenta
-            '6m': '#F5DEB3',    # wheat
+            '160m': '#FFFF00',
+            '80m': '#003300',
+            '40m': '#FFA500',
+            '30m': '#FF4500',
+            '20m': '#0000FF',
+            '17m': '#800080',
+            '15m': '#696969',
+            '12m': '#00FFFF',
+            '10m': '#FF00FF',
+            '6m': '#F5DEB3',
         }
         band_options = ['All'] + list(band_colors.keys())
         selected_band = st.selectbox('Select Band', band_options)
@@ -453,7 +442,6 @@ def main():
 
                 filtered_df = filtered_df[(filtered_df['time'].dt.time >= start_time) & (filtered_df['time'].dt.time <= end_time)]
 
-                # Load spotter coordinates from temporary file
                 spotter_coords_df = pd.read_csv('/tmp/spotter_coords.csv')
                 spotter_coords = {
                     row['callsign']: (row['latitude'], row['longitude']) for _, row in spotter_coords_df.iterrows()
@@ -495,7 +483,6 @@ def main():
 
                 filtered_df = filtered_df[(filtered_df['time'].dt.time >= start_time) & (filtered_df['time'].dt.time <= end_time)]
 
-                # Load spotter coordinates from temporary file
                 spotter_coords_df = pd.read_csv('/tmp/spotter_coords.csv')
                 spotter_coords = {
                     row['callsign']: (row['latitude'], row['longitude']) for _, row in spotter_coords_df.iterrows()
