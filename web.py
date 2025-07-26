@@ -9,8 +9,76 @@ from io import BytesIO
 import streamlit as st
 from datetime import datetime, timedelta, timezone, time
 from geopy.distance import geodesic
+from bs4 import BeautifulSoup  # Added for web scraping
 
 DEFAULT_GRID_SQUARE = "DM81wx"  # Default grid square location
+
+def fetch_spotter_data():
+    """
+    Fetch spotter data from https://www.reversebeacon.net/nodes/ and return a DataFrame.
+    """
+    url = "https://www.reversebeacon.net/nodes/"
+    try:
+        response = requests.get(url)
+        if response.status_code == 200:
+            soup = BeautifulSoup(response.content, 'html.parser')
+            table = soup.find('table')  # Find the table containing spotter data
+            if not table:
+                st.error("No table found on the RBN nodes page.")
+                return None
+            
+            data = []
+            # Extract table rows
+            for row in table.find_all('tr')[1:]:  # Skip header row
+                cols = row.find_all('td')
+                if len(cols) >= 3:  # Ensure enough columns (callsign, grid, etc.)
+                    callsign = cols[0].text.strip()
+                    grid_square = cols[2].text.strip()  # Grid square is in the third column
+                    if grid_square and len(grid_square) >= 4:  # Validate grid square
+                        try:
+                            lat, lon = grid_square_to_latlon(grid_square)
+                            data.append([callsign, lat, lon])
+                        except Exception as e:
+                            st.warning(f"Invalid grid square for {callsign}: {grid_square}")
+                            continue
+                    else:
+                        st.warning(f"Missing or invalid grid square for {callsign}")
+            
+            if not data:
+                st.error("No valid spotter data extracted from the RBN nodes page.")
+                return None
+            
+            return pd.DataFrame(data, columns=['callsign', 'latitude', 'longitude'])
+        else:
+            st.error(f"Failed to fetch spotter data: HTTP {response.status_code}")
+            return None
+    except Exception as e:
+        st.error(f"Error fetching spotter data: {e}")
+        return None
+
+def update_spotter_coords():
+    """
+    Update spotter_coords.csv with the latest spotter data from RBN.
+    """
+    new_spotter_data = fetch_spotter_data()
+    
+    if new_spotter_data is not None:
+        # Load existing spotter_coords.csv
+        try:
+            existing_data = pd.read_csv('spotter_coords.csv')
+        except FileNotFoundError:
+            existing_data = pd.DataFrame(columns=['callsign', 'latitude', 'longitude'])
+        
+        # Merge new data with existing, updating coordinates for matching callsigns
+        updated_data = pd.concat([existing_data, new_spotter_data]).drop_duplicates(subset='callsign', keep='last')
+        
+        # Save updated data to CSV
+        updated_data.to_csv('spotter_coords.csv', index=False)
+        st.success("Spotter coordinates updated successfully!")
+        return True
+    else:
+        st.warning("No new spotter data available.")
+        return False
 
 def download_and_extract_rbn_data(date):
     url = f'https://data.reversebeacon.net/rbn_history/{date}.zip'
@@ -81,7 +149,7 @@ def create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons
             coords = spotter_coords[spotter]
             snr = row['snr']
             time = row['time']
-            time_str = time.strftime("%H:%M")  # Extract only the HH:MM part
+            time_str = time.strftime("%H:%M")
             folium.CircleMarker(
                 location=coords,
                 radius=snr / 2,
@@ -264,7 +332,6 @@ def calculate_statistics(filtered_df, grid_square_coords, spotter_coords):
 def main():
     st.set_page_config(layout="wide", page_title="RBN Signal Mapper", page_icon=":radio:")
 
-    # Center the title
     st.markdown("<h1 style='text-align: center;'>RBN Signal Mapper</h1>", unsafe_allow_html=True)
 
     if 'map_html' not in st.session_state:
@@ -287,6 +354,10 @@ def main():
         else:
             date = st.text_input("Enter the date (YYYYMMDD):")
 
+        st.header("Spotter Data Management")
+        if st.button("Update Spotter Coordinates"):
+            update_spotter_coords()
+
         generate_map = st.button("Generate Map")
 
         band_colors = {
@@ -304,7 +375,6 @@ def main():
         band_options = ['All'] + list(band_colors.keys())
         selected_band = st.selectbox('Select Band', band_options)
 
-        # Adding the time slider
         st.subheader("Filter by UTC Time")
         start_time, end_time = st.slider(
             "Select time range",
@@ -319,9 +389,10 @@ def main():
             2. Select the data source:
                 - Paste RBN data manually.
                 - Download RBN data by date.
-            3. Optionally, choose to show all reverse beacons.
-            4. Click 'Generate Map' to visualize the signal map.
-            5. You can download the generated map using the provided download button.
+            3. Update spotter coordinates if needed.
+            4. Optionally, choose to show all reverse beacons.
+            5. Click 'Generate Map' to visualize the signal map.
+            6. You can download the generated map using the provided download button.
             """)
 
     if generate_map:
@@ -363,9 +434,8 @@ def main():
                     st.error("Please provide the necessary data.")
 
                 filtered_df = df[df['dx'] == callsign].copy()
-                st.session_state.filtered_df = filtered_df.copy()  # Store the filtered dataframe in session state
+                st.session_state.filtered_df = filtered_df.copy()
 
-                # Filter by the selected time range
                 filtered_df = filtered_df[(filtered_df['time'].dt.time >= start_time) & (filtered_df['time'].dt.time <= end_time)]
 
                 spotter_coords_df = pd.read_csv('spotter_coords.csv')
@@ -389,7 +459,6 @@ def main():
                 st.session_state.file_date = file_date
                 st.write("Map generated successfully!")
 
-                # Adding the download button within the same container
                 st.download_button(
                     label="Download Map",
                     data=map_html,
@@ -408,7 +477,6 @@ def main():
                 if selected_band != 'All':
                     filtered_df = filtered_df[filtered_df['band'] == selected_band]
 
-                # Filter by the selected time range
                 filtered_df = filtered_df[(filtered_df['time'].dt.time >= start_time) & (filtered_df['time'].dt.time <= end_time)]
 
                 spotter_coords_df = pd.read_csv('spotter_coords.csv')
@@ -428,7 +496,6 @@ def main():
                 st.session_state.map_html = map_html
                 st.write("Data filtered successfully!")
 
-                # Adding the download button within the same container
                 st.download_button(
                     label="Download Map",
                     data=map_html,
