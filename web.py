@@ -12,6 +12,8 @@ from geopy.distance import geodesic
 import numpy as np
 import math
 
+from geographiclib.geodesic import Geodesic
+
 DEFAULT_GRID_SQUARE = "DM81wx"  # Default grid square location
 
 def download_and_extract_rbn_data(date):
@@ -77,8 +79,6 @@ def calculate_initial_bearing(start_coords, end_coords):
     bearing = (bearing + 360) % 360  # Normalize to 0-360
     return bearing
 
-from geographiclib.geodesic import Geodesic
-
 def interpolate_great_circle(start_coords, end_coords, num_points=50):
     geod = Geodesic.WGS84
     line = geod.InverseLine(start_coords[0], start_coords[1], end_coords[0], end_coords[1])
@@ -108,17 +108,18 @@ def interpolate_great_circle(start_coords, end_coords, num_points=50):
 # Normalize longitude to keep spotters and paths aligned visually
 def normalize_lon(lon):
     """Normalize longitude to the range [-180, 180]"""
-    if lon > 180:
-        lon -= 360
-    elif lon < -180:
-        lon += 360
-    return lon
+    return ((lon + 180) % 360) - 180
 
 def create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons, grid_square, use_band_column, callsign, stats):
-    m = folium.Map(location=[39.8283, -98.5795], zoom_start=4)
-   
+    # Normalize all coordinates
+    normalized_spotter_coords = {spotter: (lat, normalize_lon(lon)) for spotter, (lat, lon) in spotter_coords.items()}
+    gs_lat, gs_lon = grid_square_coords
+    normalized_grid_square_coords = (gs_lat, normalize_lon(gs_lon))
+
+    m = folium.Map(location=normalized_grid_square_coords, zoom_start=3)  # Start centered on grid square
+    
     if show_all_beacons:
-        for spotter, coords in spotter_coords.items():
+        for spotter, coords in normalized_spotter_coords.items():
             folium.CircleMarker(
                 location=coords,
                 radius=1,
@@ -130,8 +131,8 @@ def create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons
        
     for _, row in filtered_df.iterrows():
         spotter = row['spotter']
-        if spotter in spotter_coords:
-            coords = spotter_coords[spotter]
+        if spotter in normalized_spotter_coords:
+            coords = normalized_spotter_coords[spotter]
             snr = row['snr']
             time = row['time']
             time_str = time.strftime("%H:%M")  # Extract only the HH:MM part
@@ -145,7 +146,7 @@ def create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons
             ).add_to(m)
 
     folium.Marker(
-        location=grid_square_coords,
+        location=normalized_grid_square_coords,
         icon=folium.Icon(icon='star', color='red'),
         popup=f'Your Location: {grid_square}'
     ).add_to(m)
@@ -163,12 +164,21 @@ def create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons
         '6m': '#F5DEB3',    # wheat
     }
 
+    # Collect all coordinates for bounds
+    all_coords = [normalized_grid_square_coords]
+    for spotter, coords in normalized_spotter_coords.items():
+        all_coords.append(coords)
+    for points in [interpolate_great_circle(normalized_grid_square_coords, coords) for coords in normalized_spotter_coords.values()]:
+        all_coords.extend(points)
+
+    # Fit map bounds to include all normalized coordinates
+    if all_coords:
+        m.fit_bounds(all_coords)
+
     for _, row in filtered_df.iterrows():
         spotter = row['spotter']
-        if spotter in spotter_coords:
-            raw_lat, raw_lon = spotter_coords[spotter]
-            coords = (raw_lat, normalize_lon(raw_lon))
-
+        if spotter in normalized_spotter_coords:
+            coords = normalized_spotter_coords[spotter]
             if use_band_column:
                 band = row['band']
             else:
@@ -177,9 +187,7 @@ def create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons
             color = band_colors.get(band, 'blue')
 
             # Interpolate great circle route
-            gs_lat, gs_lon = grid_square_coords
-            gs_coords_normalized = (gs_lat, normalize_lon(gs_lon))
-            curve_points = interpolate_great_circle(gs_coords_normalized, coords)
+            curve_points = interpolate_great_circle(normalized_grid_square_coords, coords)
             folium.PolyLine(
                 locations=curve_points,
                 color=color,
