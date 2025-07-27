@@ -1,28 +1,21 @@
-import re
+# update_spotters.py
 import pandas as pd
-from web import grid_square_to_latlon  # from your main file
 
 def main():
-    with open("spotters_raw.txt", "r", encoding="utf-8") as f:
-        lines = f.readlines()
+    raw_file = "spotters_raw.txt"
+    output_file = "spotter_coords.csv"
 
-    pattern = re.compile(r"^(\\S+)\\s+(?:[^\\s]*,?)*\\s+([A-R]{2}\\d{2}[a-xA-X]{2})\\s")
-    records = []
+    data = []
+    with open(raw_file, "r") as f:
+        for line in f:
+            parts = line.strip().split()
+            if len(parts) >= 3:
+                callsign = parts[0]
+                lat = float(parts[1])
+                lon = float(parts[2])
+                data.append({"callsign": callsign, "latitude": lat, "longitude": lon})
 
-    for line in lines:
-        match = pattern.search(line)
-        if match:
-            callsign, grid = match.groups()
-            try:
-                lat, lon = grid_square_to_latlon(grid.upper())
-                records.append((callsign, lat, lon))
-            except Exception:
-                continue
-
-    df = pd.DataFrame(records, columns=[\"callsign\", \"latitude\", \"longitude\"])
-    df.drop_duplicates(subset=\"callsign\", inplace=True)
-    df.to_csv(\"spotter_coords.csv\", index=False)
-
-if __name__ == \"__main__\":
-    main()
+    df = pd.DataFrame(data)
+    df.to_csv(output_file, index=False)
+    print(f"✅ Updated {output_file} with {len(df)} entries")
 
