@@ -9,6 +9,7 @@ from io import BytesIO
 import streamlit as st
 from datetime import datetime, timedelta, timezone, time
 from geopy.distance import geodesic
+import numpy as np
 
 DEFAULT_GRID_SQUARE = "DM81wx"  # Default grid square location
 
@@ -61,6 +62,16 @@ def get_band(freq):
         return '6m'
     else:
         return 'unknown'
+
+def interpolate_great_circle(start_coords, end_coords, num_points=10):
+    """Interpolate points along a great circle route between two coordinates."""
+    distances = [geodesic(degrees=start_coords, degrees=end_coords).miles * i / (num_points - 1) for i in range(num_points)]
+    bearings = [geodesic(degrees=start_coords, degrees=end_coords).destination(point=(0, 0), bearing=geodesic(start_coords, end_coords).bearing).bearing for _ in range(num_points)]
+    points = []
+    for dist, bear in zip(distances, bearings):
+        point = geodesic(degrees=start_coords).destination(point=(dist, bear))
+        points.append([point.latitude, point.longitude])
+    return points
 
 def create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons, grid_square, use_band_column, callsign, stats):
     m = folium.Map(location=[39.8283, -98.5795], zoom_start=4)
@@ -122,10 +133,13 @@ def create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons
                 band = get_band(freq)
             color = band_colors.get(band, 'blue')
 
+            # Interpolate great circle route
+            curve_points = interpolate_great_circle(grid_square_coords, coords)
             folium.PolyLine(
-                locations=[grid_square_coords, coords],
+                locations=curve_points,
                 color=color,
-                weight=1
+                weight=2,
+                opacity=0.7
             ).add_to(m)
     
     band_stats = "<br>".join([f"{band}: {count}" for band, count in stats['bands'].items()])
@@ -174,6 +188,9 @@ def create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons
     m.get_root().html.add_child(folium.Element(legend_html))
 
     return m
+
+# Rest of your functions (grid_square_to_latlon, process_pasted_data, etc.) remain unchanged
+# Only the create_map function is updated above
 
 def grid_square_to_latlon(grid_square):
     upper_alpha = "ABCDEFGHIJKLMNOPQR"
