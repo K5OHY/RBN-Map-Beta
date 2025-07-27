@@ -11,7 +11,6 @@ from datetime import datetime, timedelta, timezone, time
 from geopy.distance import geodesic
 import numpy as np
 import math
-from geographiclib.geodesic import Geodesic
 
 DEFAULT_GRID_SQUARE = "DM81wx"  # Default grid square location
 
@@ -65,28 +64,46 @@ def get_band(freq):
     else:
         return 'unknown'
 
+def calculate_initial_bearing(start_coords, end_coords):
+    """Calculate the initial bearing from start_coords to end_coords."""
+    lat1, lon1 = map(math.radians, start_coords)
+    lat2, lon2 = map(math.radians, end_coords)
+    
+    delta_lon = lon2 - lon1
+    y = math.sin(delta_lon) * math.cos(lat2)
+    x = math.cos(lat1) * math.sin(lat2) - math.sin(lat1) * math.cos(lat2) * math.cos(delta_lon)
+    bearing = math.atan2(y, x)
+    bearing = math.degrees(bearing)
+    bearing = (bearing + 360) % 360  # Normalize to 0-360
+    return bearing
+
 def interpolate_great_circle(start_coords, end_coords, num_points=10):
-    """Interpolate points along a great circle route between two coordinates using geographiclib."""
-    geod = Geodesic.WGS84  # WGS84 ellipsoid for accurate calculations
+    """Interpolate points along a great circle route, favoring the shorter westward path."""
     lat1, lon1 = start_coords
     lat2, lon2 = end_coords
     
-    # Calculate the geodesic line
-    g = geod.Inverse(lat1, lon1, lat2, lon2)
-    total_distance = g['s12'] / 1000  # Distance in kilometers
-    
-    points = []
-    for i in range(num_points):
-        fraction = i / (num_points - 1) if num_points > 1 else 0
-        if i == 0:
-            point = (lat1, lon1)
-        elif i == num_points - 1:
-            point = (lat2, lon2)
+    # Calculate the shortest path by adjusting for longitude wraparound
+    lon_diff = (lon2 - lon1 + 180) % 360 - 180
+    if abs(lon_diff) > 180:  # If the long way around, adjust to the shorter path
+        if lon2 > lon1:
+            lon2 -= 360
         else:
-            g = geod.Direct(lat1, lon1, g['azi1'], total_distance * 1000 * fraction)
-            point = (g['lat2'], g['lon2'])
-        points.append(point)
+            lon2 += 360
     
+    # Recalculate total distance with adjusted coordinates
+    adjusted_end_coords = (lat2, lon2)
+    total_distance = geodesic(start_coords, adjusted_end_coords).km
+    initial_bearing = calculate_initial_bearing(start_coords, adjusted_end_coords)
+    
+    points = [start_coords]
+    for i in range(1, num_points - 1):
+        fraction = i / (num_points - 1)
+        distance = total_distance * fraction
+        # Use destination with the initial bearing
+        intermediate_point = geodesic(kilometers=distance).destination(point=start_coords, bearing=initial_bearing)
+        points.append([intermediate_point.latitude, intermediate_point.longitude])
+    
+    points.append(end_coords)  # Use original end_coords for final point
     return points
 
 def create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons, grid_square, use_band_column, callsign, stats):
@@ -150,7 +167,7 @@ def create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons
             color = band_colors.get(band, 'blue')
 
             # Interpolate great circle route
-            curve_points = interpolate_great_circle(grid_square_coords, coords)
+            curve_points = interpolate_great_circle(grid_square_coords, coords, num_points=15)  # Reduced points for smoothness
             folium.PolyLine(
                 locations=curve_points,
                 color=color,
