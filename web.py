@@ -15,18 +15,19 @@ import time as time_module
 DEFAULT_GRID_SQUARE = "DM81wx"
 
 def fetch_spotter_data():
-    """
-    Fetch spotter data from https://www.reversebeacon.net/nodes/ and return a DataFrame.
-    """
     url = "https://www.reversebeacon.net/nodes/"
     try:
-        response = requests.get(url, timeout=10)
+        # Add headers to mimic a browser request
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
+        }
+        response = requests.get(url, headers=headers, timeout=10)
         if response.status_code == 200:
             soup = BeautifulSoup(response.content, 'html.parser')
-            # Look for the table with the 'Nodes list' header or specific class
-            table = soup.find('table', {'summary': 'Nodes list'}) or soup.find('table')
+            # Try a more specific selector or fallback
+            table = soup.find('table', {'summary': 'Nodes list'}) or soup.find('table', class_='table') or soup.find('table')
             if not table:
-                st.warning("No table found on the RBN nodes page.")
+                st.warning("No table found on the RBN nodes page. Check for dynamic content or page changes.")
                 return None
             
             data = []
@@ -34,7 +35,7 @@ def fetch_spotter_data():
                 cols = row.find_all('td')
                 if len(cols) >= 3:  # Ensure enough columns
                     callsign = cols[0].text.strip()
-                    grid_square = cols[2].text.strip()  # Grid square is in the third column
+                    grid_square = cols[2].text.strip()  # Grid square in third column
                     if grid_square and len(grid_square) >= 4:  # Validate grid square
                         try:
                             lat, lon = grid_square_to_latlon(grid_square)
