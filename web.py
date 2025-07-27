@@ -9,6 +9,7 @@ from io import BytesIO
 import streamlit as st
 from datetime import datetime, timedelta, timezone, time
 from geopy.distance import geodesic
+import update_spotters  # make sure update_spotters.py is in the same folder
 
 DEFAULT_GRID_SQUARE = "DM81wx"  # Default grid square location
 
@@ -324,6 +325,10 @@ def main():
             4. Click 'Generate Map' to visualize the signal map.
             5. You can download the generated map using the provided download button.
             """)
+        if st.button("🗺️ Update Spotter Coordinates CSV"):
+    with st.spinner("Updating spotter_coords.csv..."):
+        update_spotters.main()
+        st.success("✅ spotter_coords.csv updated!")
 
     if generate_map:
         try:
