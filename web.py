@@ -177,7 +177,9 @@ def create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons
             color = band_colors.get(band, 'blue')
 
             # Interpolate great circle route
-            curve_points = interpolate_great_circle(grid_square_coords, coords)
+            gs_lat, gs_lon = grid_square_coords
+            gs_coords_normalized = (gs_lat, normalize_lon(gs_lon))
+            curve_points = interpolate_great_circle(gs_coords_normalized, coords)
             folium.PolyLine(
                 locations=curve_points,
                 color=color,
