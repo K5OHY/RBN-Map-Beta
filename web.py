@@ -363,21 +363,15 @@ def main():
         if data_source == 'Paste RBN data':
             pasted_data = st.text_area("Paste RBN data here:")
         else:
-            date = st.text_input("Enter the date (YYYYMMDD):")
+            date = st.date_input("Select date for RBN data", value=datetime.now(timezone.utc) - timedelta(1))
+            date_str = date.strftime('%Y%m%d')
 
         generate_map = st.button("Generate Map")
 
         band_colors = {
-            '160m': '#FFFF00',  # yellow
-            '80m': '#003300',   # dark green
-            '40m': '#FFA500',   # orange
-            '30m': '#FF4500',   # red
-            '20m': '#0000FF',   # blue
-            '17m': '#800080',   # purple
-            '15m': '#696969',   # dim gray
-            '12m': '#00FFFF',   # cyan
-            '10m': '#FF00FF',   # magenta
-            '6m': '#F5DEB3',    # wheat
+            '160m': '#FFFF00', '80m': '#003300', '40m': '#FFA500', '30m': '#FF4500',
+            '20m': '#0000FF', '17m': '#800080', '15m': '#696969', '12m': '#00FFFF',
+            '10m': '#FF00FF', '6m': '#F5DEB3'
         }
         band_options = ['All'] + list(band_colors.keys())
         selected_band = st.selectbox('Select Band', band_options)
@@ -420,28 +414,23 @@ def main():
 
                 if data_source == 'Paste RBN data' and not pasted_data.strip():
                     data_source = 'Download RBN data by date'
-                    date = ""
 
                 if data_source == 'Paste RBN data' and pasted_data.strip():
                     df = process_pasted_data(pasted_data)
                     st.write("Using pasted data.")
                     file_date = datetime.now(timezone.utc).strftime("%Y%m%d")
                 elif data_source == 'Download RBN data by date':
-                    if not date.strip():
-                        yesterday = datetime.now(timezone.utc) - timedelta(1)
-                        date = yesterday.strftime('%Y%m%d')
-                        st.write(f"Using latest available date: {date}")
-                    csv_filename = download_and_extract_rbn_data(date)
+                    csv_filename = download_and_extract_rbn_data(date_str)
                     df = process_downloaded_data(csv_filename)
                     os.remove(csv_filename)
                     use_band_column = True
-                    file_date = date
-                    st.write("Using downloaded data.")
+                    file_date = date_str
+                    st.write(f"Using selected date: {date_str}")
                 else:
                     st.error("Please provide the necessary data.")
 
                 filtered_df = df[df['dx'] == callsign].copy()
-                st.session_state.filtered_df = filtered_df.copy()  # Store the filtered dataframe in session state
+                st.session_state.filtered_df = filtered_df.copy()
 
                 # Filter by the selected time range
                 filtered_df = filtered_df[(filtered_df['time'].dt.time >= start_time) & (filtered_df['time'].dt.time <= end_time)]
@@ -467,7 +456,6 @@ def main():
                 st.session_state.file_date = file_date
                 st.write("Map generated successfully!")
 
-                # Adding the download button within the same container
                 st.download_button(
                     label="Download Map",
                     data=map_html,
@@ -506,7 +494,6 @@ def main():
                 st.session_state.map_html = map_html
                 st.write("Data filtered successfully!")
 
-                # Adding the download button within the same container
                 st.download_button(
                     label="Download Map",
                     data=map_html,
