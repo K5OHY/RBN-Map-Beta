@@ -65,12 +65,20 @@ def get_band(freq):
 
 def interpolate_great_circle(start_coords, end_coords, num_points=10):
     """Interpolate points along a great circle route between two coordinates."""
-    distances = [geodesic(degrees=start_coords, degrees=end_coords).miles * i / (num_points - 1) for i in range(num_points)]
-    bearings = [geodesic(degrees=start_coords, degrees=end_coords).destination(point=(0, 0), bearing=geodesic(start_coords, end_coords).bearing).bearing for _ in range(num_points)]
-    points = []
-    for dist, bear in zip(distances, bearings):
-        point = geodesic(degrees=start_coords).destination(point=(dist, bear))
-        points.append([point.latitude, point.longitude])
+    # Calculate the total distance
+    total_distance = geodesic(start_coords, end_coords).miles
+    # Calculate bearing from start to end
+    initial_bearing = geodesic(start_coords, end_coords).bearing
+    
+    points = [start_coords]
+    for i in range(1, num_points - 1):
+        # Calculate fraction of the distance
+        fraction = i / (num_points - 1)
+        # Use destination to get intermediate point
+        intermediate_point = geodesic(kilometers=total_distance * fraction * 1.60934).destination(point=start_coords, bearing=initial_bearing)
+        points.append([intermediate_point.latitude, intermediate_point.longitude])
+    points.append(end_coords)
+    
     return points
 
 def create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons, grid_square, use_band_column, callsign, stats):
@@ -190,8 +198,6 @@ def create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons
     return m
 
 # Rest of your functions (grid_square_to_latlon, process_pasted_data, etc.) remain unchanged
-# Only the create_map function is updated above
-
 def grid_square_to_latlon(grid_square):
     upper_alpha = "ABCDEFGHIJKLMNOPQR"
     digits = "0123456789"
