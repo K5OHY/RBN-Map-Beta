@@ -64,17 +64,18 @@ def get_band(freq):
 
 def create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons, grid_square, use_band_column, callsign, stats):
     m = folium.Map(location=[39.8283, -98.5795], zoom_start=4)
-
+   
     if show_all_beacons:
         for spotter, coords in spotter_coords.items():
             folium.CircleMarker(
                 location=coords,
-                radius=1,
+                radius=3,
                 color='black',
                 fill=True,
-                fill_color='black'
+                fill_color='black',
+                popup=folium.Popup(f"Spotter: {spotter}", parse_html=True)
             ).add_to(m)
-
+       
     for _, row in filtered_df.iterrows():
         spotter = row['spotter']
         if spotter in spotter_coords:
