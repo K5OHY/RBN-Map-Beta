@@ -69,7 +69,7 @@ def create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons
         for spotter, coords in spotter_coords.items():
             folium.CircleMarker(
                 location=coords,
-                radius=3,
+                radius=1,
                 color='black',
                 fill=True,
                 fill_color='black',
