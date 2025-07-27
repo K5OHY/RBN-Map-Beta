@@ -1,3 +1,4 @@
+
 import requests
 import pandas as pd
 import folium
@@ -115,66 +116,68 @@ def create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons
     def normalize_lon(lon):
         return ((lon + 180) % 360) - 180
 
-    # Function to get the closest longitude based on distance from origin
-    def get_closest_lon(origin_lon, target_lon):
-        from geopy.distance import geodesic
-        origin_coords = (0, origin_lon)  # Use latitude 0 as a reference for longitude comparison
-        # Test original and wrapped longitudes
-        dist_original = geodesic(origin_coords, (0, target_lon)).km
-        wrapped_lon = target_lon - 360 if normalize_lon(target_lon) < 0 else target_lon + 360
-        dist_wrapped = geodesic(origin_coords, (0, wrapped_lon)).km
-        return wrapped_lon if dist_wrapped < dist_original else target_lon
-
-    # Get origin longitude
+    # Normalize all coordinates
+    normalized_spotter_coords = {spotter: (lat, normalize_lon(lon)) for spotter, (lat, lon) in spotter_coords.items()}
     gs_lat, gs_lon = grid_square_coords
-    origin_lon = gs_lon
+    normalized_grid_square_coords = (gs_lat, normalize_lon(gs_lon))
 
-    # Determine closest coordinates for spotters
-    closest_spotter_coords = {}
+    # Create dual coordinates for all spotters and grid square
+    dual_spotter_coords = {}
     for spotter, (lat, lon) in spotter_coords.items():
-        closest_lon = get_closest_lon(origin_lon, lon)
-        closest_spotter_coords[spotter] = (lat, closest_lon)
+        normalized_lon_val = normalize_lon(lon)
+        # Force dual plotting: original, normalized, and wrapped
+        dual_spotter_coords[spotter] = [
+            (lat, lon),  # Original (e.g., 140°E)
+            (lat, normalized_lon_val - 360 if normalized_lon_val > 0 else normalized_lon_val + 360),  # Wrapped (e.g., -220°E)
+            (lat, normalized_lon_val)  # Normalized (e.g., -220°E)
+        ]
 
-    # Determine closest coordinate for grid square
-    closest_grid_square_coords = (gs_lat, get_closest_lon(origin_lon, gs_lon))
+    dual_grid_square_coords = [
+        (gs_lat, gs_lon),  # Original (e.g., -94.5°W)
+        (gs_lat, normalize_lon(gs_lon) - 360 if normalize_lon(gs_lon) > 0 else normalize_lon(gs_lon) + 360),  # Wrapped
+        normalized_grid_square_coords
+    ]
 
-    m = folium.Map(location=closest_grid_square_coords, zoom_start=2)  # Center on closest grid square
+    m = folium.Map(location=normalized_grid_square_coords, zoom_start=2)  # Wider initial view
     
-    # Plot spotters at closest longitude
+    # Plot spotters on both sides
     if show_all_beacons:
-        for spotter, coords in closest_spotter_coords.items():
-            folium.CircleMarker(
-                location=coords,
-                radius=1,
-                color='black',
-                fill=True,
-                fill_color='black',
-                popup=folium.Popup(f"Spotter: {spotter}", parse_html=True)
-            ).add_to(m)
+        for spotter, coords_list in dual_spotter_coords.items():
+            for coords in coords_list:
+                folium.CircleMarker(
+                    location=coords,
+                    radius=1,
+                    color='black',
+                    fill=True,
+                    fill_color='black',
+                    popup=folium.Popup(f"Spotter: {spotter}", parse_html=True)
+                ).add_to(m)
        
-    # Plot RBN spots at closest longitude
+    # Plot RBN spots on both sides
     for _, row in filtered_df.iterrows():
         spotter = row['spotter']
-        if spotter in closest_spotter_coords:
-            coords = closest_spotter_coords[spotter]
+        if spotter in dual_spotter_coords:
+            coords_list = dual_spotter_coords[spotter]
             snr = row['snr']
             time = row['time']
             time_str = time.strftime("%H:%M")
-            folium.CircleMarker(
-                location=coords,
-                radius=snr / 2,
-                popup=f'Spotter: {spotter}<br>SNR: {snr} dB<br>Time: {time_str}',
-                color=get_color(snr),
-                fill=True,
-                fill_color=get_color(snr)
-            ).add_to(m)
+            for coords in coords_list:
+                folium.CircleMarker(
+                    location=coords,
+                    radius=snr / 2,
+                    popup=f'Spotter: {spotter}<br>SNR: {snr} dB<br>Time: {time_str}',
+                    color=get_color(snr),
+                    fill=True,
+                    fill_color=get_color(snr)
+                ).add_to(m)
 
-    # Plot grid square at closest longitude
-    folium.Marker(
-        location=closest_grid_square_coords,
-        icon=folium.Icon(icon='star', color='red'),
-        popup=f'Your Location: {grid_square}'
-    ).add_to(m)
+    # Plot grid square on both sides
+    for coords in dual_grid_square_coords:
+        folium.Marker(
+            location=coords,
+            icon=folium.Icon(icon='star', color='red'),
+            popup=f'Your Location: {grid_square}'
+        ).add_to(m)
     
     band_colors = {
         '160m': '#FFFF00', '80m': '#003300', '40m': '#FFA500', '30m': '#FF4500',
@@ -182,17 +185,16 @@ def create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons
         '10m': '#FF00FF', '6m': '#F5DEB3'
     }
 
-    # Normalize for lines (shortest path)
-    normalized_spotter_coords = {spotter: (lat, normalize_lon(lon)) for spotter, (lat, lon) in spotter_coords.items()}
-    normalized_grid_square_coords = (gs_lat, normalize_lon(gs_lon))
-
     # Collect all coordinates for bounds
-    all_coords = [closest_grid_square_coords]
-    all_coords.extend(closest_spotter_coords.values())
+    all_coords = dual_grid_square_coords
+    for coords_list in dual_spotter_coords.values():
+        all_coords.extend(coords_list)
     for _, row in filtered_df.iterrows():
         spotter = row['spotter']
-        if spotter in closest_spotter_coords:
-            all_coords.append(closest_spotter_coords[spotter])
+        if spotter in dual_spotter_coords:
+            coords_list = dual_spotter_coords[spotter]
+            for coords in coords_list:
+                all_coords.append(coords)
     for points in [interpolate_great_circle(normalized_grid_square_coords, coords) for coords in normalized_spotter_coords.values()]:
         all_coords.extend(points)
 
@@ -200,7 +202,7 @@ def create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons
     if all_coords:
         m.fit_bounds(all_coords)
 
-    # Plot lines using normalized coordinates for shortest path
+    # Plot lines using normalized coordinates
     for _, row in filtered_df.iterrows():
         spotter = row['spotter']
         if spotter in normalized_spotter_coords:
