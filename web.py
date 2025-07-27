@@ -274,7 +274,7 @@ def main():
     if 'filtered_df' not in st.session_state:
         st.session_state.filtered_df = None
 
-   with st.sidebar:
+  with st.sidebar:
     st.header("Input Data")
     callsign = st.text_input("Enter Callsign:")
     grid_square = st.text_input("Enter Grid Square (optional):")
@@ -291,47 +291,47 @@ def main():
 
     generate_map = st.button("Generate Map")
 
+    # NEW BUTTON: Update Spotter Coordinates CSV
     if st.button("🗺️ Update Spotter Coordinates CSV"):
         with st.spinner("Updating spotter_coords.csv..."):
-            import update_spotters  # make sure it's in the same folder
+            import update_spotters
             update_spotters.main()
             st.success("✅ spotter_coords.csv updated!")
 
+    band_colors = {
+        '160m': '#FFFF00',
+        '80m': '#003300',
+        '40m': '#FFA500',
+        '30m': '#FF4500',
+        '20m': '#0000FF',
+        '17m': '#800080',
+        '15m': '#696969',
+        '12m': '#00FFFF',
+        '10m': '#FF00FF',
+        '6m': '#F5DEB3',
+    }
+    band_options = ['All'] + list(band_colors.keys())
+    selected_band = st.selectbox('Select Band', band_options)
 
-        band_colors = {
-            '160m': '#FFFF00',  # yellow
-            '80m': '#003300',   # dark green
-            '40m': '#FFA500',   # orange
-            '30m': '#FF4500',   # red
-            '20m': '#0000FF',   # blue
-            '17m': '#800080',   # purple
-            '15m': '#696969',   # dim gray
-            '12m': '#00FFFF',   # cyan
-            '10m': '#FF00FF',   # magenta
-            '6m': '#F5DEB3',    # wheat
-        }
-        band_options = ['All'] + list(band_colors.keys())
-        selected_band = st.selectbox('Select Band', band_options)
+    st.subheader("Filter by UTC Time")
+    start_time, end_time = st.slider(
+        "Select time range",
+        value=(time(0, 0), time(23, 59)),
+        format="HH:mm"
+    )
 
-        # Adding the time slider
-        st.subheader("Filter by UTC Time")
-        start_time, end_time = st.slider(
-            "Select time range",
-            value=(time(0, 0), time(23, 59)),
-            format="HH:mm"
-        )
+    with st.expander("Instructions", expanded=False):
+        st.markdown("""
+        **Instructions:**
+        1. Enter a callsign and grid square.
+        2. Select the data source:
+            - Paste RBN data manually.
+            - Download RBN data by date.
+        3. Optionally, choose to show all reverse beacons.
+        4. Click 'Generate Map' to visualize the signal map.
+        5. Click 'Update Spotter Coordinates CSV' to refresh from raw list.
+        """)
 
-        with st.expander("Instructions", expanded=False):
-            st.markdown("""
-            **Instructions:**
-            1. Enter a callsign and grid square.
-            2. Select the data source:
-                - Paste RBN data manually.
-                - Download RBN data by date.
-            3. Optionally, choose to show all reverse beacons.
-            4. Click 'Generate Map' to visualize the signal map.
-            5. You can download the generated map using the provided download button.
-            """)
       
     if generate_map:
         try:
