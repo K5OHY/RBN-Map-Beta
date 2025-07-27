@@ -116,40 +116,71 @@ def create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons
     gs_lat, gs_lon = grid_square_coords
     normalized_grid_square_coords = (gs_lat, normalize_lon(gs_lon))
 
-    m = folium.Map(location=normalized_grid_square_coords, zoom_start=3)  # Start centered on grid square
+    # Create dual coordinates (original and wrapped) for spotters and grid square
+    dual_spotter_coords = {}
+    for spotter, (lat, lon) in spotter_coords.items():
+        normalized_lon_val = normalize_lon(lon)
+        # Add both original and wrapped (shifted by 360° if crossing IDL)
+        dual_spotter_coords[spotter] = [
+            (lat, lon),  # Original
+            (lat, normalized_lon_val)  # Normalized
+        ]
+        if abs(lon - normalized_lon_val) > 180:  # If wrapping occurred, add the other side
+            if lon > 0:
+                dual_spotter_coords[spotter].append((lat, lon - 360))
+            else:
+                dual_spotter_coords[spotter].append((lat, lon + 360))
+
+    dual_grid_square_coords = [
+        (gs_lat, gs_lon),  # Original
+        normalized_grid_square_coords
+    ]
+    if abs(gs_lon - normalize_lon(gs_lon)) > 180:
+        if gs_lon > 0:
+            dual_grid_square_coords.append((gs_lat, gs_lon - 360))
+        else:
+            dual_grid_square_coords.append((gs_lat, gs_lon + 360))
+
+    m = folium.Map(location=normalized_grid_square_coords, zoom_start=3)  # Start centered on normalized grid square
     
+    # Plot spotters on both sides
     if show_all_beacons:
-        for spotter, coords in normalized_spotter_coords.items():
-            folium.CircleMarker(
-                location=coords,
-                radius=1,
-                color='black',
-                fill=True,
-                fill_color='black',
-                popup=folium.Popup(f"Spotter: {spotter}", parse_html=True)
-            ).add_to(m)
+        for spotter, coords_list in dual_spotter_coords.items():
+            for coords in coords_list:
+                folium.CircleMarker(
+                    location=coords,
+                    radius=1,
+                    color='black',
+                    fill=True,
+                    fill_color='black',
+                    popup=folium.Popup(f"Spotter: {spotter}", parse_html=True)
+                ).add_to(m)
        
+    # Plot RBN spots on both sides
     for _, row in filtered_df.iterrows():
         spotter = row['spotter']
-        if spotter in normalized_spotter_coords:
-            coords = normalized_spotter_coords[spotter]
+        if spotter in dual_spotter_coords:
+            coords_list = dual_spotter_coords[spotter]
             snr = row['snr']
             time = row['time']
             time_str = time.strftime("%H:%M")  # Extract only the HH:MM part
-            folium.CircleMarker(
-                location=coords,
-                radius=snr / 2,
-                popup=f'Spotter: {spotter}<br>SNR: {snr} dB<br>Time: {time_str}',
-                color=get_color(snr),
-                fill=True,
-                fill_color=get_color(snr)
-            ).add_to(m)
+            for coords in coords_list:
+                folium.CircleMarker(
+                    location=coords,
+                    radius=snr / 2,
+                    popup=f'Spotter: {spotter}<br>SNR: {snr} dB<br>Time: {time_str}',
+                    color=get_color(snr),
+                    fill=True,
+                    fill_color=get_color(snr)
+                ).add_to(m)
 
-    folium.Marker(
-        location=normalized_grid_square_coords,
-        icon=folium.Icon(icon='star', color='red'),
-        popup=f'Your Location: {grid_square}'
-    ).add_to(m)
+    # Plot grid square on both sides
+    for coords in dual_grid_square_coords:
+        folium.Marker(
+            location=coords,
+            icon=folium.Icon(icon='star', color='red'),
+            popup=f'Your Location: {grid_square}'
+        ).add_to(m)
     
     band_colors = {
         '160m': '#FFFF00',  # yellow
@@ -165,16 +196,23 @@ def create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons
     }
 
     # Collect all coordinates for bounds
-    all_coords = [normalized_grid_square_coords]
-    for spotter, coords in normalized_spotter_coords.items():
-        all_coords.append(coords)
+    all_coords = dual_grid_square_coords
+    for coords_list in dual_spotter_coords.values():
+        all_coords.extend(coords_list)
+    for _, row in filtered_df.iterrows():
+        spotter = row['spotter']
+        if spotter in dual_spotter_coords:
+            coords_list = dual_spotter_coords[spotter]
+            for coords in coords_list:
+                all_coords.append(coords)
     for points in [interpolate_great_circle(normalized_grid_square_coords, coords) for coords in normalized_spotter_coords.values()]:
         all_coords.extend(points)
 
-    # Fit map bounds to include all normalized coordinates
+    # Fit map bounds to include all coordinates
     if all_coords:
         m.fit_bounds(all_coords)
 
+    # Plot lines using normalized coordinates
     for _, row in filtered_df.iterrows():
         spotter = row['spotter']
         if spotter in normalized_spotter_coords:
