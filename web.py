@@ -111,37 +111,33 @@ def normalize_lon(lon):
     return ((lon + 180) % 360) - 180
 
 def create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons, grid_square, use_band_column, callsign, stats):
+    # Normalize longitude function
+    def normalize_lon(lon):
+        return ((lon + 180) % 360) - 180
+
     # Normalize all coordinates
     normalized_spotter_coords = {spotter: (lat, normalize_lon(lon)) for spotter, (lat, lon) in spotter_coords.items()}
     gs_lat, gs_lon = grid_square_coords
     normalized_grid_square_coords = (gs_lat, normalize_lon(gs_lon))
 
-    # Create dual coordinates (original and wrapped) for spotters and grid square
+    # Create dual coordinates for all spotters and grid square
     dual_spotter_coords = {}
     for spotter, (lat, lon) in spotter_coords.items():
         normalized_lon_val = normalize_lon(lon)
-        # Add both original and wrapped (shifted by 360° if crossing IDL)
+        # Force dual plotting: original, normalized, and wrapped
         dual_spotter_coords[spotter] = [
-            (lat, lon),  # Original
-            (lat, normalized_lon_val)  # Normalized
+            (lat, lon),  # Original (e.g., 140°E)
+            (lat, normalized_lon_val - 360 if normalized_lon_val > 0 else normalized_lon_val + 360),  # Wrapped (e.g., -220°E)
+            (lat, normalized_lon_val)  # Normalized (e.g., -220°E)
         ]
-        if abs(lon - normalized_lon_val) > 180:  # If wrapping occurred, add the other side
-            if lon > 0:
-                dual_spotter_coords[spotter].append((lat, lon - 360))
-            else:
-                dual_spotter_coords[spotter].append((lat, lon + 360))
 
     dual_grid_square_coords = [
-        (gs_lat, gs_lon),  # Original
+        (gs_lat, gs_lon),  # Original (e.g., -94.5°W)
+        (gs_lat, normalize_lon(gs_lon) - 360 if normalize_lon(gs_lon) > 0 else normalize_lon(gs_lon) + 360),  # Wrapped
         normalized_grid_square_coords
     ]
-    if abs(gs_lon - normalize_lon(gs_lon)) > 180:
-        if gs_lon > 0:
-            dual_grid_square_coords.append((gs_lat, gs_lon - 360))
-        else:
-            dual_grid_square_coords.append((gs_lat, gs_lon + 360))
 
-    m = folium.Map(location=normalized_grid_square_coords, zoom_start=3)  # Start centered on normalized grid square
+    m = folium.Map(location=normalized_grid_square_coords, zoom_start=2)  # Wider initial view
     
     # Plot spotters on both sides
     if show_all_beacons:
@@ -163,7 +159,7 @@ def create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons
             coords_list = dual_spotter_coords[spotter]
             snr = row['snr']
             time = row['time']
-            time_str = time.strftime("%H:%M")  # Extract only the HH:MM part
+            time_str = time.strftime("%H:%M")
             for coords in coords_list:
                 folium.CircleMarker(
                     location=coords,
@@ -183,16 +179,9 @@ def create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons
         ).add_to(m)
     
     band_colors = {
-        '160m': '#FFFF00',  # yellow
-        '80m': '#003300',   # dark green
-        '40m': '#FFA500',   # orange
-        '30m': '#FF4500',   # red
-        '20m': '#0000FF',   # blue
-        '17m': '#800080',   # purple
-        '15m': '#696969',   # dim gray
-        '12m': '#00FFFF',   # cyan
-        '10m': '#FF00FF',   # magenta
-        '6m': '#F5DEB3',    # wheat
+        '160m': '#FFFF00', '80m': '#003300', '40m': '#FFA500', '30m': '#FF4500',
+        '20m': '#0000FF', '17m': '#800080', '15m': '#696969', '12m': '#00FFFF',
+        '10m': '#FF00FF', '6m': '#F5DEB3'
     }
 
     # Collect all coordinates for bounds
@@ -223,8 +212,6 @@ def create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons
                 freq = row['freq']
                 band = get_band(freq)
             color = band_colors.get(band, 'blue')
-
-            # Interpolate great circle route
             curve_points = interpolate_great_circle(normalized_grid_square_coords, coords)
             folium.PolyLine(
                 locations=curve_points,
@@ -234,35 +221,20 @@ def create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons
             ).add_to(m)
     
     band_stats = "<br>".join([f"{band}: {count}" for band, count in stats['bands'].items()])
-    
     stats_html = f'''
-     <div style="position: absolute; 
-     top: 20px; right: 20px; width: 150px; height: auto; 
-     border:1px solid grey; z-index:9999; font-size:10px;
-     background-color:white;
-     padding: 10px;
-     ">
-     <b>Callsign: {callsign}</b><br>
-     Total Spots: {stats['spots']}<br>
-     Max Distance: {stats['max_distance']:.2f} mi<br>
-     Max SNR: {stats['max_snr']} dB<br>
-     Average SNR: {stats['avg_snr']:.2f} dB<br>
-     <b>Bands:</b><br>
-     {band_stats}
+     <div style="position: absolute; top: 20px; right: 20px; width: 150px; height: auto; 
+     border:1px solid grey; z-index:9999; font-size:10px; background-color:white; padding: 10px;">
+     <b>Callsign: {callsign}</b><br>Total Spots: {stats['spots']}<br>
+     Max Distance: {stats['max_distance']:.2f} mi<br>Max SNR: {stats['max_snr']} dB<br>
+     Average SNR: {stats['avg_snr']:.2f} dB<br><b>Bands:</b><br>{band_stats}
      </div>
      '''
     m.get_root().html.add_child(folium.Element(stats_html))
 
     legend_html = '''
-    <div style="position: absolute; 
-    top: 50%; transform: translateY(-50%); left: 20px; width: auto; max-width: 150px; height: auto; 
-    border:1px solid grey; z-index:9999; font-size:10px;
-    background-color:white;
-    padding: 5px;
-    word-wrap: break-word;
-    ">
-    <b>Legend</b><br>
-    <table>
+    <div style="position: absolute; top: 50%; transform: translateY(-50%); left: 20px; width: auto; max-width: 150px; height: auto; 
+    border:1px solid grey; z-index:9999; font-size:10px; background-color:white; padding: 5px; word-wrap: break-word;">
+    <b>Legend</b><br><table>
         <tr><td>160m</td><td><i class="fa fa-circle" style="color:#FFFF00"></i></td></tr>
         <tr><td>80m</td><td><i class="fa fa-circle" style="color:#003300"></i></td></tr>
         <tr><td>40m</td><td><i class="fa fa-circle" style="color:#FFA500"></i></td></tr>
@@ -273,13 +245,11 @@ def create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons
         <tr><td>12m</td><td><i class="fa fa-circle" style="color:#00FFFF"></i></td></tr>
         <tr><td>10m</td><td><i class="fa fa-circle" style="color:#FF00FF"></i></td></tr>
         <tr><td>6m</td><td><i class="fa fa-circle" style="color:#F5DEB3"></i></td></tr>
-    </table>
-    </div>
+    </table></div>
     '''
     m.get_root().html.add_child(folium.Element(legend_html))
 
     return m
-
 # Rest of your functions (grid_square_to_latlon, process_pasted_data, etc.) remain unchanged
 def grid_square_to_latlon(grid_square):
     upper_alpha = "ABCDEFGHIJKLMNOPQR"
