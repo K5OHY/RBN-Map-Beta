@@ -274,29 +274,22 @@ def main():
     if 'filtered_df' not in st.session_state:
         st.session_state.filtered_df = None
 
-  with st.sidebar:
-    st.header("Input Data")
-    callsign = st.text_input("Enter Callsign:")
-    grid_square = st.text_input("Enter Grid Square (optional):")
-    show_all_beacons = st.checkbox("Show all reverse beacons")
-    data_source = st.radio(
-        "Select data source",
-        ('Paste RBN data', 'Download RBN data by date')
-    )
+    with st.sidebar:
+        st.header("Input Data")
+        callsign = st.text_input("Enter Callsign:")
+        grid_square = st.text_input("Enter Grid Square (optional):", value=DEFAULT_GRID_SQUARE)
+        show_all = st.checkbox("Show all reverse beacons")
+        source = st.radio("Select data source", ["Paste RBN data", "Download RBN data by date"])
 
-    if data_source == 'Paste RBN data':
-        pasted_data = st.text_area("Paste RBN data here:")
-    else:
-        date = st.text_input("Enter the date (YYYYMMDD):")
+        if source == "Paste RBN data":
+            pasted_data = st.text_area("Paste RBN data here:")
+        else:
+            date = st.text_input("Enter the date (YYYYMMDD):", value=datetime.utcnow().strftime('%Y%m%d'))
 
-    generate_map = st.button("Generate Map")
-
-    # NEW BUTTON: Update Spotter Coordinates CSV
-    if st.button("🗺️ Update Spotter Coordinates CSV"):
-        with st.spinner("Updating spotter_coords.csv..."):
-            import update_spotters
-            update_spotters.main()
-            st.success("✅ spotter_coords.csv updated!")
+        if st.button("🗺️ Update Spotter Coordinates CSV"):
+            with st.spinner("Updating spotter_coords.csv..."):
+                update_spotters.main()
+                st.success("✅ spotter_coords.csv updated!") 
 
     band_colors = {
         '160m': '#FFFF00',
