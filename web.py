@@ -78,20 +78,22 @@ def calculate_initial_bearing(start_coords, end_coords):
     return bearing
 
 def interpolate_great_circle(start_coords, end_coords, num_points=10):
-    """Interpolate points along a great circle route, favoring the shorter westward path."""
+    """Interpolate points along the shortest great circle route."""
     lat1, lon1 = start_coords
     lat2, lon2 = end_coords
     
-    # Calculate the shortest path by adjusting for longitude wraparound
+    # Calculate the shortest path by adjusting longitude
     lon_diff = (lon2 - lon1 + 180) % 360 - 180
-    if abs(lon_diff) > 180:  # If the long way around, adjust to the shorter path
+    if abs(lon_diff) > 180:  # Take the shorter path
         if lon2 > lon1:
-            lon2 -= 360
+            adjusted_lon2 = lon2 - 360
         else:
-            lon2 += 360
+            adjusted_lon2 = lon2 + 360
+        adjusted_end_coords = (lat2, adjusted_lon2)
+    else:
+        adjusted_end_coords = end_coords
     
     # Recalculate total distance with adjusted coordinates
-    adjusted_end_coords = (lat2, lon2)
     total_distance = geodesic(start_coords, adjusted_end_coords).km
     initial_bearing = calculate_initial_bearing(start_coords, adjusted_end_coords)
     
@@ -99,9 +101,11 @@ def interpolate_great_circle(start_coords, end_coords, num_points=10):
     for i in range(1, num_points - 1):
         fraction = i / (num_points - 1)
         distance = total_distance * fraction
-        # Use destination with the initial bearing
+        # Use destination with the initial bearing for the adjusted path
         intermediate_point = geodesic(kilometers=distance).destination(point=start_coords, bearing=initial_bearing)
-        points.append([intermediate_point.latitude, intermediate_point.longitude])
+        # Adjust the longitude back to the original range for display
+        adjusted_lon = ((intermediate_point.longitude + 540) % 360 - 180)
+        points.append([intermediate_point.latitude, adjusted_lon])
     
     points.append(end_coords)  # Use original end_coords for final point
     return points
@@ -166,8 +170,8 @@ def create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons
                 band = get_band(freq)
             color = band_colors.get(band, 'blue')
 
-            # Interpolate great circle route
-            curve_points = interpolate_great_circle(grid_square_coords, coords, num_points=15)  # Reduced points for smoothness
+            # Interpolate great circle route with fewer points for smoothness
+            curve_points = interpolate_great_circle(grid_square_coords, coords, num_points=12)
             folium.PolyLine(
                 locations=curve_points,
                 color=color,
