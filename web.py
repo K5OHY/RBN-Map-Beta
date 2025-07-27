@@ -77,7 +77,7 @@ def calculate_initial_bearing(start_coords, end_coords):
     bearing = (bearing + 360) % 360  # Normalize to 0-360
     return bearing
 
-def interpolate_great_circle(start_coords, end_coords, num_points=10):
+def interpolate_great_circle(start_coords, end_coords, num_points=30):
     """Interpolate points along a great circle route between two coordinates."""
     # Calculate the total distance in kilometers
     total_distance = geodesic(start_coords, end_coords).km
