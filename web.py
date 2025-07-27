@@ -181,7 +181,7 @@ def create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons
     
     band_colors = {
         '160m': '#FFFF00', '80m': '#003300', '40m': '#FFA500', '30m': '#FF4500',
-        '20m': '#0000FF', '17m': '#800080', '15m': '#696969', '12m': '#00FFFF',
+        '20m': '#800080', '17m': '#0000FF', '15m': '#696969', '12m': '#00FFFF',
         '10m': '#FF00FF', '6m': '#F5DEB3'
     }
 
@@ -240,8 +240,8 @@ def create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons
         <tr><td>80m</td><td><i class="fa fa-circle" style="color:#003300"></i></td></tr>
         <tr><td>40m</td><td><i class="fa fa-circle" style="color:#FFA500"></i></td></tr>
         <tr><td>30m</td><td><i class="fa fa-circle" style="color:#FF4500"></i></td></tr>
-        <tr><td>20m</td><td><i class="fa fa-circle" style="color:#0000FF"></i></td></tr>
-        <tr><td>17m</td><td><i class="fa fa-circle" style="color:#800080"></i></td></tr>
+        <tr><td>20m</td><td><i class="fa fa-circle" style="color:#800080"></i></td></tr>
+        <tr><td>17m</td><td><i class="fa fa-circle" style="color:#0000FF"></i></td></tr>
         <tr><td>15m</td><td><i class="fa fa-circle" style="color:#696969"></i></td></tr>
         <tr><td>12m</td><td><i class="fa fa-circle" style="color:#00FFFF"></i></td></tr>
         <tr><td>10m</td><td><i class="fa fa-circle" style="color:#FF00FF"></i></td></tr>
