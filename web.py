@@ -274,22 +274,29 @@ def main():
     if 'filtered_df' not in st.session_state:
         st.session_state.filtered_df = None
 
-    with st.sidebar:
-        st.header("Input Data")
-        callsign = st.text_input("Enter Callsign:")
-        grid_square = st.text_input("Enter Grid Square (optional):")
-        show_all_beacons = st.checkbox("Show all reverse beacons")
-        data_source = st.radio(
-            "Select data source",
-            ('Paste RBN data', 'Download RBN data by date')
-        )
+   with st.sidebar:
+    st.header("Input Data")
+    callsign = st.text_input("Enter Callsign:")
+    grid_square = st.text_input("Enter Grid Square (optional):")
+    show_all_beacons = st.checkbox("Show all reverse beacons")
+    data_source = st.radio(
+        "Select data source",
+        ('Paste RBN data', 'Download RBN data by date')
+    )
 
-        if data_source == 'Paste RBN data':
-            pasted_data = st.text_area("Paste RBN data here:")
-        else:
-            date = st.text_input("Enter the date (YYYYMMDD):")
+    if data_source == 'Paste RBN data':
+        pasted_data = st.text_area("Paste RBN data here:")
+    else:
+        date = st.text_input("Enter the date (YYYYMMDD):")
 
-        generate_map = st.button("Generate Map")
+    generate_map = st.button("Generate Map")
+
+    if st.button("🗺️ Update Spotter Coordinates CSV"):
+        with st.spinner("Updating spotter_coords.csv..."):
+            import update_spotters  # make sure it's in the same folder
+            update_spotters.main()
+            st.success("✅ spotter_coords.csv updated!")
+
 
         band_colors = {
             '160m': '#FFFF00',  # yellow
@@ -325,11 +332,7 @@ def main():
             4. Click 'Generate Map' to visualize the signal map.
             5. You can download the generated map using the provided download button.
             """)
-        if st.button("🗺️ Update Spotter Coordinates CSV"):
-    with st.spinner("Updating spotter_coords.csv..."):
-        update_spotters.main()
-        st.success("✅ spotter_coords.csv updated!")
-
+      
     if generate_map:
         try:
             with st.spinner("Generating map..."):
