@@ -17,5 +17,3 @@ def main():
 
     df = pd.DataFrame(data)
     df.to_csv(output_file, index=False)
-    print(f"✅ Updated {output_file} with {len(df)} entries")
-
