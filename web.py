@@ -70,9 +70,6 @@ def calculate_initial_bearing(start_coords, end_coords):
     lat2, lon2 = map(math.radians, end_coords)
     
     delta_lon = lon2 - lon1
-    # Adjust for shortest path
-    if abs(delta_lon) > math.pi:
-        delta_lon = -(2 * math.pi - abs(delta_lon)) if delta_lon > 0 else (2 * math.pi - abs(delta_lon))
     y = math.sin(delta_lon) * math.cos(lat2)
     x = math.cos(lat1) * math.sin(lat2) - math.sin(lat1) * math.cos(lat2) * math.cos(delta_lon)
     bearing = math.atan2(y, x)
@@ -80,38 +77,23 @@ def calculate_initial_bearing(start_coords, end_coords):
     bearing = (bearing + 360) % 360  # Normalize to 0-360
     return bearing
 
-def interpolate_great_circle(start_coords, end_coords, num_points=8):
-    """Interpolate points along the shortest great circle route."""
-    lat1, lon1 = start_coords
-    lat2, lon2 = end_coords
-    
-    # Calculate the shortest angular distance
-    lon_diff = ((lon2 - lon1 + 180) % 360 - 180)
-    if abs(lon_diff) > 180:
-        # Adjust to the shortest path (westward for U.S. to Japan)
-        if lon2 > lon1:
-            adjusted_lon2 = lon2 - 360
-        else:
-            adjusted_lon2 = lon2 + 360
-        adjusted_end_coords = (lat2, adjusted_lon2)
-    else:
-        adjusted_end_coords = end_coords
-    
-    # Recalculate distance and bearing for the adjusted path
-    total_distance = geodesic(start_coords, adjusted_end_coords).km
-    initial_bearing = calculate_initial_bearing(start_coords, adjusted_end_coords)
+def interpolate_great_circle(start_coords, end_coords, num_points=10):
+    """Interpolate points along a great circle route between two coordinates."""
+    # Calculate the total distance in kilometers
+    total_distance = geodesic(start_coords, end_coords).km
+    # Calculate initial bearing
+    initial_bearing = calculate_initial_bearing(start_coords, end_coords)
     
     points = [start_coords]
     for i in range(1, num_points - 1):
+        # Calculate fraction of the distance
         fraction = i / (num_points - 1)
+        # Use destination to get intermediate point with the initial bearing
         distance = total_distance * fraction
-        # Use destination with the initial bearing
         intermediate_point = geodesic(kilometers=distance).destination(point=start_coords, bearing=initial_bearing)
-        # Normalize longitude to -180 to 180
-        adjusted_lon = ((intermediate_point.longitude + 540) % 360 - 180)
-        points.append([intermediate_point.latitude, adjusted_lon])
+        points.append([intermediate_point.latitude, intermediate_point.longitude])
     
-    points.append(end_coords)  # Use original end_coords for final point
+    points.append(end_coords)
     return points
 
 def create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons, grid_square, use_band_column, callsign, stats):
@@ -174,8 +156,8 @@ def create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons
                 band = get_band(freq)
             color = band_colors.get(band, 'blue')
 
-            # Interpolate with fewer points for smoothness
-            curve_points = interpolate_great_circle(grid_square_coords, coords, num_points=8)
+            # Interpolate great circle route
+            curve_points = interpolate_great_circle(grid_square_coords, coords)
             folium.PolyLine(
                 locations=curve_points,
                 color=color,
