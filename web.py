@@ -111,9 +111,6 @@ def create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons
         '6m': '#F5DEB3',    # wheat
     }
 
-    # Import AntPath from folium.plugins
-    from folium.plugins import AntPath
-
     for _, row in filtered_df.iterrows():
         spotter = row['spotter']
         if spotter in spotter_coords:
@@ -125,15 +122,10 @@ def create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons
                 band = get_band(freq)
             color = band_colors.get(band, 'blue')
 
-            # Use AntPath for curved lines
-            AntPath(
+            folium.PolyLine(
                 locations=[grid_square_coords, coords],
                 color=color,
-                weight=2,
-                opacity=0.7,
-                dash_array=[10, 20],  # Controls the dash pattern (optional)
-                delay=1000,  # Animation delay in milliseconds (optional)
-                pulse_color=color  # Color of the animated pulse (optional)
+                weight=1
             ).add_to(m)
     
     band_stats = "<br>".join([f"{band}: {count}" for band, count in stats['bands'].items()])
