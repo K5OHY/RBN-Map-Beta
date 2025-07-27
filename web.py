@@ -77,23 +77,18 @@ def calculate_initial_bearing(start_coords, end_coords):
     bearing = (bearing + 360) % 360  # Normalize to 0-360
     return bearing
 
+from geographiclib.geodesic import Geodesic
+
 def interpolate_great_circle(start_coords, end_coords, num_points=50):
-    """Interpolate points along a great circle route between two coordinates."""
-    # Calculate the total distance in kilometers
-    total_distance = geodesic(start_coords, end_coords).km
-    # Calculate initial bearing
-    initial_bearing = calculate_initial_bearing(start_coords, end_coords)
+    geod = Geodesic.WGS84
+    line = geod.InverseLine(start_coords[0], start_coords[1], end_coords[0], end_coords[1])
+    points = []
+
+    for i in range(num_points + 1):
+        s = i * line.s13 / num_points
+        pos = line.Position(s)
+        points.append((pos['lat2'], pos['lon2']))
     
-    points = [start_coords]
-    for i in range(1, num_points - 1):
-        # Calculate fraction of the distance
-        fraction = i / (num_points - 1)
-        # Use destination to get intermediate point with the initial bearing
-        distance = total_distance * fraction
-        intermediate_point = geodesic(kilometers=distance).destination(point=start_coords, bearing=initial_bearing)
-        points.append([intermediate_point.latitude, intermediate_point.longitude])
-    
-    points.append(end_coords)
     return points
 
 def create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons, grid_square, use_band_column, callsign, stats):
