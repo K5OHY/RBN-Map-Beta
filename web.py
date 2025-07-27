@@ -10,6 +10,7 @@ import streamlit as st
 from datetime import datetime, timedelta, timezone, time
 from geopy.distance import geodesic
 import numpy as np
+import math
 
 DEFAULT_GRID_SQUARE = "DM81wx"  # Default grid square location
 
@@ -63,20 +64,33 @@ def get_band(freq):
     else:
         return 'unknown'
 
+def calculate_initial_bearing(start_coords, end_coords):
+    """Calculate the initial bearing from start_coords to end_coords."""
+    lat1, lon1 = map(math.radians, start_coords)
+    lat2, lon2 = map(math.radians, end_coords)
+    
+    delta_lon = lon2 - lon1
+    y = math.sin(delta_lon) * math.cos(lat2)
+    x = math.cos(lat1) * math.sin(lat2) - math.sin(lat1) * math.cos(lat2) * math.cos(delta_lon)
+    bearing = math.atan2(y, x)
+    bearing = math.degrees(bearing)
+    bearing = (bearing + 360) % 360  # Normalize to 0-360
+    return bearing
+
 def interpolate_great_circle(start_coords, end_coords, num_points=10):
     """Interpolate points along a great circle route between two coordinates."""
     # Calculate the total distance in kilometers
     total_distance = geodesic(start_coords, end_coords).km
-    points = [start_coords]
+    # Calculate initial bearing
+    initial_bearing = calculate_initial_bearing(start_coords, end_coords)
     
+    points = [start_coords]
     for i in range(1, num_points - 1):
         # Calculate fraction of the distance
         fraction = i / (num_points - 1)
-        # Use destination to get intermediate point (bearing is handled internally)
+        # Use destination to get intermediate point with the initial bearing
         distance = total_distance * fraction
-        intermediate_point = geodesic(kilometers=distance).destination(point=start_coords, bearing=0)
-        # Adjust for great circle by approximating with initial bearing
-        # Note: This is a simplification; for precise great circle, consider geographiclib
+        intermediate_point = geodesic(kilometers=distance).destination(point=start_coords, bearing=initial_bearing)
         points.append([intermediate_point.latitude, intermediate_point.longitude])
     
     points.append(end_coords)
