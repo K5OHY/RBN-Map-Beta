@@ -84,11 +84,25 @@ def interpolate_great_circle(start_coords, end_coords, num_points=50):
     line = geod.InverseLine(start_coords[0], start_coords[1], end_coords[0], end_coords[1])
     points = []
 
+    last_lon = None
+
     for i in range(num_points + 1):
         s = i * line.s13 / num_points
         pos = line.Position(s)
-        points.append((pos['lat2'], pos['lon2']))
-    
+        lat = pos['lat2']
+        lon = pos['lon2']
+
+        # Normalize longitude to avoid antimeridian wrapping
+        if last_lon is not None:
+            delta = lon - last_lon
+            if delta > 180:
+                lon -= 360
+            elif delta < -180:
+                lon += 360
+        last_lon = lon
+
+        points.append((lat, lon))
+
     return points
 
 def create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons, grid_square, use_band_column, callsign, stats):
