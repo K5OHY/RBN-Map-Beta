@@ -1,4 +1,3 @@
-
 import requests
 import pandas as pd
 import folium
@@ -12,7 +11,6 @@ from datetime import datetime, timedelta, timezone, time
 from geopy.distance import geodesic
 import numpy as np
 import math
-
 from geographiclib.geodesic import Geodesic
 
 DEFAULT_GRID_SQUARE = "DM81wx"  # Default grid square location
@@ -106,16 +104,11 @@ def interpolate_great_circle(start_coords, end_coords, num_points=50):
 
     return points
 
-# Normalize longitude to keep spotters and paths aligned visually
 def normalize_lon(lon):
     """Normalize longitude to the range [-180, 180]"""
     return ((lon + 180) % 360) - 180
 
 def create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons, grid_square, use_band_column, callsign, stats):
-    # Normalize longitude function
-    def normalize_lon(lon):
-        return ((lon + 180) % 360) - 180
-
     # Normalize all coordinates
     normalized_spotter_coords = {spotter: (lat, normalize_lon(lon)) for spotter, (lat, lon) in spotter_coords.items()}
     gs_lat, gs_lon = grid_square_coords
@@ -125,34 +118,51 @@ def create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons
     dual_spotter_coords = {}
     for spotter, (lat, lon) in spotter_coords.items():
         normalized_lon_val = normalize_lon(lon)
-        # Force dual plotting: original, normalized, and wrapped
         dual_spotter_coords[spotter] = [
-            (lat, lon),  # Original (e.g., 140°E)
-            (lat, normalized_lon_val - 360 if normalized_lon_val > 0 else normalized_lon_val + 360),  # Wrapped (e.g., -220°E)
-            (lat, normalized_lon_val)  # Normalized (e.g., -220°E)
+            (lat, lon),
+            (lat, normalized_lon_val - 360 if normalized_lon_val > 0 else normalized_lon_val + 360),
+            (lat, normalized_lon_val)
         ]
 
     dual_grid_square_coords = [
-        (gs_lat, gs_lon),  # Original (e.g., -94.5°W)
-        (gs_lat, normalize_lon(gs_lon) - 360 if normalize_lon(gs_lon) > 0 else normalize_lon(gs_lon) + 360),  # Wrapped
+        (gs_lat, gs_lon),
+        (gs_lat, normalize_lon(gs_lon) - 360 if normalize_lon(gs_lon) > 0 else normalize_lon(gs_lon) + 360),
         normalized_grid_square_coords
     ]
 
-    m = folium.Map(location=normalized_grid_square_coords, zoom_start=2)  # Wider initial view
-    
+    # Initialize map centered on user's normalized grid square coordinates
+    m = folium.Map(
+        location=normalized_grid_square_coords,
+        zoom_start=4,  # Country-level zoom (adjustable: 4-6 for country, 2 for world)
+        tiles='OpenStreetMap',
+        min_zoom=2,  # Allow zooming out to see the world
+        max_bounds=True  # Prevent excessive panning
+    )
+
+    # Define a bounding box around the user's location (±20 degrees for regional focus)
+    lat_range = 20
+    lon_range = 20
+    bounds = [
+        [normalized_grid_square_coords[0] - lat_range, normalized_grid_square_coords[1] - lon_range],
+        [normalized_grid_square_coords[0] + lat_range, normalized_grid_square_coords[1] + lon_range]
+    ]
+    m.fit_bounds(bounds)
+
     # Plot spotters on both sides
     if show_all_beacons:
         for spotter, coords_list in dual_spotter_coords.items():
             for coords in coords_list:
-                folium.CircleMarker(
-                    location=coords,
-                    radius=1,
-                    color='black',
-                    fill=True,
-                    fill_color='black',
-                    popup=folium.Popup(f"Spotter: {spotter}", parse_html=True)
-                ).add_to(m)
-       
+                # Only plot if within bounds to reduce clutter
+                if (bounds[0][0] <= coords[0] <= bounds[1][0]) and (bounds[0][1] <= coords[1] <= bounds[1][1]):
+                    folium.CircleMarker(
+                        location=coords,
+                        radius=1,
+                        color='black',
+                        fill=True,
+                        fill_color='black',
+                        popup=folium.Popup(f"Spotter: {spotter}", parse_html=True)
+                    ).add_to(m)
+
     # Plot RBN spots on both sides
     for _, row in filtered_df.iterrows():
         spotter = row['spotter']
@@ -162,45 +172,32 @@ def create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons
             time = row['time']
             time_str = time.strftime("%H:%M")
             for coords in coords_list:
-                folium.CircleMarker(
-                    location=coords,
-                    radius=snr / 2,
-                    popup=f'Spotter: {spotter}<br>SNR: {snr} dB<br>Time: {time_str}',
-                    color=get_color(snr),
-                    fill=True,
-                    fill_color=get_color(snr)
-                ).add_to(m)
+                # Only plot if within bounds
+                if (bounds[0][0] <= coords[0] <= bounds[1][0]) and (bounds[0][1] <= coords[1] <= bounds[1][1]):
+                    folium.CircleMarker(
+                        location=coords,
+                        radius=snr / 2,
+                        popup=f'Spotter: {spotter}<br>SNR: {snr} dB<br>Time: {time_str}',
+                        color=get_color(snr),
+                        fill=True,
+                        fill_color=get_color(snr)
+                    ).add_to(m)
 
     # Plot grid square on both sides
     for coords in dual_grid_square_coords:
-        folium.Marker(
-            location=coords,
-            icon=folium.Icon(icon='star', color='red'),
-            popup=f'Your Location: {grid_square}'
-        ).add_to(m)
-    
+        # Only plot if within bounds
+        if (bounds[0][0] <= coords[0] <= bounds[1][0]) and (bounds[0][1] <= coords[1] <= bounds[1][1]):
+            folium.Marker(
+                location=coords,
+                icon=folium.Icon(icon='star', color='red'),
+                popup=f'Your Location: {grid_square}'
+            ).add_to(m)
+
     band_colors = {
         '160m': '#FFFF00', '80m': '#003300', '40m': '#FFA500', '30m': '#FF4500',
-        '20m': '#800080', '17m': '#0000FF', '15m': '#696969', '12m': '#00FFFF',
+        '20m': '#0000FF', '17m': '#800080', '15m': '#696969', '12m': '#00FFFF',
         '10m': '#FF00FF', '6m': '#F5DEB3'
     }
-
-    # Collect all coordinates for bounds
-    all_coords = dual_grid_square_coords
-    for coords_list in dual_spotter_coords.values():
-        all_coords.extend(coords_list)
-    for _, row in filtered_df.iterrows():
-        spotter = row['spotter']
-        if spotter in dual_spotter_coords:
-            coords_list = dual_spotter_coords[spotter]
-            for coords in coords_list:
-                all_coords.append(coords)
-    for points in [interpolate_great_circle(normalized_grid_square_coords, coords) for coords in normalized_spotter_coords.values()]:
-        all_coords.extend(points)
-
-    # Fit map bounds to include all coordinates
-    if all_coords:
-        m.fit_bounds(all_coords)
 
     # Plot lines using normalized coordinates
     for _, row in filtered_df.iterrows():
@@ -214,22 +211,23 @@ def create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons
                 band = get_band(freq)
             color = band_colors.get(band, 'blue')
             curve_points = interpolate_great_circle(normalized_grid_square_coords, coords)
-            folium.PolyLine(
-                locations=curve_points,
-                color=color,
-                weight=2,
-                opacity=0.7
-            ).add_to(m)
-    
-    band_stats = "<br>".join([f"{band}: {count}" for band, count in stats['bands'].items()])
+            # Only plot line if at least one point is within bounds
+            if any((bounds[0][0] <= lat <= bounds[1][0]) and (bounds[0][1] <= lon <= bounds[1][1]) for lat, lon in curve_points):
+                folium.PolyLine(
+                    locations=curve_points,
+                    color=color,
+                    weight=2,
+                    opacity=0.7
+                ).add_to(m)
+
     stats_html = f'''
-     <div style="position: absolute; top: 20px; right: 20px; width: 150px; height: auto; 
-     border:1px solid grey; z-index:9999; font-size:10px; background-color:white; padding: 10px;">
-     <b>Callsign: {callsign}</b><br>Total Spots: {stats['spots']}<br>
-     Max Distance: {stats['max_distance']:.2f} mi<br>Max SNR: {stats['max_snr']} dB<br>
-     Average SNR: {stats['avg_snr']:.2f} dB<br><b>Bands:</b><br>{band_stats}
-     </div>
-     '''
+    <div style="position: absolute; top: 20px; right: 20px; width: 150px; height: auto; 
+    border:1px solid grey; z-index:9999; font-size:10px; background-color:white; padding: 10px;">
+    <b>Callsign: {callsign}</b><br>Total Spots: {stats['spots']}<br>
+    Max Distance: {stats['max_distance']:.2f} mi<br>Max SNR: {stats['max_snr']} dB<br>
+    Average SNR: {stats['avg_snr']:.2f} dB<br><b>Bands:</b><br>{"<br>".join([f"{band}: {count}" for band, count in stats['bands'].items()])}
+    </div>
+    '''
     m.get_root().html.add_child(folium.Element(stats_html))
 
     legend_html = '''
@@ -240,8 +238,8 @@ def create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons
         <tr><td>80m</td><td><i class="fa fa-circle" style="color:#003300"></i></td></tr>
         <tr><td>40m</td><td><i class="fa fa-circle" style="color:#FFA500"></i></td></tr>
         <tr><td>30m</td><td><i class="fa fa-circle" style="color:#FF4500"></i></td></tr>
-        <tr><td>20m</td><td><i class="fa fa-circle" style="color:#800080"></i></td></tr>
-        <tr><td>17m</td><td><i class="fa fa-circle" style="color:#0000FF"></i></td></tr>
+        <tr><td>20m</td><td><i class="fa fa-circle" style="color:#0000FF"></i></td></tr>
+        <tr><td>17m</td><td><i class="fa fa-circle" style="color:#800080"></i></td></tr>
         <tr><td>15m</td><td><i class="fa fa-circle" style="color:#696969"></i></td></tr>
         <tr><td>12m</td><td><i class="fa fa-circle" style="color:#00FFFF"></i></td></tr>
         <tr><td>10m</td><td><i class="fa fa-circle" style="color:#FF00FF"></i></td></tr>
@@ -251,7 +249,7 @@ def create_map(filtered_df, spotter_coords, grid_square_coords, show_all_beacons
     m.get_root().html.add_child(folium.Element(legend_html))
 
     return m
-# Rest of your functions (grid_square_to_latlon, process_pasted_data, etc.) remain unchanged
+
 def grid_square_to_latlon(grid_square):
     upper_alpha = "ABCDEFGHIJKLMNOPQR"
     digits = "0123456789"
@@ -363,15 +361,21 @@ def main():
         if data_source == 'Paste RBN data':
             pasted_data = st.text_area("Paste RBN data here:")
         else:
-            date = st.date_input("Select date for RBN data", value=datetime.now(timezone.utc) - timedelta(1))
-            date_str = date.strftime('%Y%m%d')
+            date = st.text_input("Enter the date (YYYYMMDD):")
 
         generate_map = st.button("Generate Map")
 
         band_colors = {
-            '160m': '#FFFF00', '80m': '#003300', '40m': '#FFA500', '30m': '#FF4500',
-            '20m': '#0000FF', '17m': '#800080', '15m': '#696969', '12m': '#00FFFF',
-            '10m': '#FF00FF', '6m': '#F5DEB3'
+            '160m': '#FFFF00',  # yellow
+            '80m': '#003300',   # dark green
+            '40m': '#FFA500',   # orange
+            '30m': '#FF4500',   # red
+            '20m': '#0000FF',   # blue
+            '17m': '#800080',   # purple
+            '15m': '#696969',   # dim gray
+            '12m': '#00FFFF',   # cyan
+            '10m': '#FF00FF',   # magenta
+            '6m': '#F5DEB3',    # wheat
         }
         band_options = ['All'] + list(band_colors.keys())
         selected_band = st.selectbox('Select Band', band_options)
@@ -414,23 +418,28 @@ def main():
 
                 if data_source == 'Paste RBN data' and not pasted_data.strip():
                     data_source = 'Download RBN data by date'
+                    date = ""
 
                 if data_source == 'Paste RBN data' and pasted_data.strip():
                     df = process_pasted_data(pasted_data)
                     st.write("Using pasted data.")
                     file_date = datetime.now(timezone.utc).strftime("%Y%m%d")
                 elif data_source == 'Download RBN data by date':
-                    csv_filename = download_and_extract_rbn_data(date_str)
+                    if not date.strip():
+                        yesterday = datetime.now(timezone.utc) - timedelta(1)
+                        date = yesterday.strftime('%Y%m%d')
+                        st.write(f"Using latest available date: {date}")
+                    csv_filename = download_and_extract_rbn_data(date)
                     df = process_downloaded_data(csv_filename)
                     os.remove(csv_filename)
                     use_band_column = True
-                    file_date = date_str
-                    st.write(f"Using selected date: {date_str}")
+                    file_date = date
+                    st.write("Using downloaded data.")
                 else:
                     st.error("Please provide the necessary data.")
 
                 filtered_df = df[df['dx'] == callsign].copy()
-                st.session_state.filtered_df = filtered_df.copy()
+                st.session_state.filtered_df = filtered_df.copy()  # Store the filtered dataframe in session state
 
                 # Filter by the selected time range
                 filtered_df = filtered_df[(filtered_df['time'].dt.time >= start_time) & (filtered_df['time'].dt.time <= end_time)]
@@ -456,6 +465,7 @@ def main():
                 st.session_state.file_date = file_date
                 st.write("Map generated successfully!")
 
+                # Adding the download button within the same container
                 st.download_button(
                     label="Download Map",
                     data=map_html,
@@ -494,6 +504,7 @@ def main():
                 st.session_state.map_html = map_html
                 st.write("Data filtered successfully!")
 
+                # Adding the download button within the same container
                 st.download_button(
                     label="Download Map",
                     data=map_html,
@@ -509,3 +520,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+    
