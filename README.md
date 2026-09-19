@@ -8,7 +8,7 @@ Enter a callsign and a date, and the app draws a path from your station to every
 
 ## Features
 
-- **Automatic location:** the map is centered on your callsign's registered location (RBN skimmer list, then FCC via [callook.info](https://callook.info), then [HamDB](https://hamdb.org)). Type a grid square to override it, for example when operating portable.
+- **Automatic location:** the map is centered on your callsign's registered location (RBN skimmer list, then FCC via [callook.info](https://callook.info), then [HamDB](https://hamdb.org), and finally the centre of the callsign's country as an approximate fallback). Type a grid square to override it, for example when operating portable.
 - **Always-current skimmer list:** skimmer locations are fetched from reversebeacon.net and refreshed automatically every 24 hours.
 - **One day or a date range** (up to 7 days) of RBN history, or paste rows copied from the RBN website.
 - **Filters:** band, UTC time window and minimum SNR update the map instantly.
@@ -41,6 +41,7 @@ To force a skimmer list refresh: `python rbn_to_csv.py`.
 | `web.py` | The Streamlit app (UI, map, stats) |
 | `rbn_data.py` | Skimmer list refresh, callsign location lookup, grid-square conversion |
 | `spotter_coords.csv` | Cached skimmer locations (auto-updated) |
+| `cty.dat` | Country prefix file from [country-files.com](https://www.country-files.com) for the approximate-location fallback (auto-updated monthly) |
 | `rbn_to_csv.py` | Command-line shortcut to refresh the skimmer list |
 
 ## Data sources and thanks

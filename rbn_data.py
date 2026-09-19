@@ -100,13 +100,80 @@ def load_skimmers():
     return {r.callsign: (r.latitude, r.longitude) for r in df.itertuples()}
 
 
+CTY_URL = "https://www.country-files.com/cty/cty.dat"
+CTY_FILE = Path(__file__).with_name("cty.dat")
+CTY_MAX_AGE_DAYS = 30
+_cty_cache = {}
+
+
+def _load_cty():
+    """Parse cty.dat into ({prefix: (lat, lon, country)}, {exact_call: (lat, lon, country)}).
+
+    Refreshes the file monthly; falls back to whatever copy is on disk.
+    """
+    if _cty_cache:
+        return _cty_cache["prefixes"], _cty_cache["exact"]
+
+    stale = not CTY_FILE.exists() or (time.time() - CTY_FILE.stat().st_mtime) > CTY_MAX_AGE_DAYS * 86400
+    if stale:
+        try:
+            resp = requests.get(CTY_URL, headers=HEADERS, timeout=20)
+            resp.raise_for_status()
+            CTY_FILE.write_bytes(resp.content)
+        except Exception:
+            pass  # keep the old copy if there is one
+    if not CTY_FILE.exists():
+        return {}, {}
+
+    prefixes, exact = {}, {}
+    entity = None
+    for line in CTY_FILE.read_text(errors="ignore").splitlines():
+        if not line.strip():
+            continue
+        if not line[0].isspace():  # entity header: name: cq: itu: cont: lat: lon(west+): tz: prefix:
+            f = [x.strip() for x in line.split(":")]
+            entity = (float(f[4]), -float(f[5]), f[0])
+            continue
+        for item in line.strip().rstrip(";").split(","):
+            item = re.sub(r"[\(\[<\{~].*", "", item.strip())  # drop zone/lat-lon overrides
+            if not item or entity is None:
+                continue
+            if item.startswith("="):
+                exact[item[1:]] = entity
+            else:
+                prefixes[item] = entity
+
+    _cty_cache.update(prefixes=prefixes, exact=exact)
+    return prefixes, exact
+
+
+def country_location(callsign):
+    """Approximate (lat, lon, country) of the DXCC entity for a callsign, or None."""
+    prefixes, exact = _load_cty()
+    call = callsign.strip().upper()
+
+    if "/" in call:  # portable: KH6/K5OHY -> use the prefix part; K5OHY/P -> the base call
+        a, b = call.split("/")[:2]
+        call = a if (len(b) <= 2 or b in ("QRP", "MM", "AM") or len(a) <= len(b)) else b
+
+    if call in exact:
+        return exact[call]
+    for n in range(len(call), 0, -1):  # longest matching prefix wins
+        if call[:n] in prefixes:
+            return prefixes[call[:n]]
+    return None
+
+
 def lookup_callsign_location(callsign, skimmers=None):
     """Best-effort (lat, lon, grid, source) for a callsign, or None.
 
-    Order: RBN skimmer with this callsign, then callook.info (US/FCC), then hamdb.org.
+    Order: RBN skimmer with this callsign, callook.info (US/FCC), hamdb.org, and finally the
+    centre of the callsign's DXCC country (approximate).
     """
     call = callsign.strip().upper()
     base = call.split("/")[0] if "/" in call else call
+    if len(base) <= 3 and "/" in call:  # 'W1/K5OHY': the first part is just a prefix
+        base = call.split("/")[1]
 
     if skimmers:
         for key in skimmers:
@@ -130,6 +197,11 @@ def lookup_callsign_location(callsign, skimmers=None):
             return lat, lon, info["grid"], "HamDB"
     except Exception:
         pass
+
+    approx = country_location(call)
+    if approx:
+        lat, lon, country = approx
+        return lat, lon, None, f"center of {country} (approximate - enter a grid for accuracy)"
 
     return None
 

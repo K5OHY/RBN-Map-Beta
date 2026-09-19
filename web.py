@@ -269,6 +269,9 @@ def resolve_home(callsign, grid_override, skimmers):
         raise RuntimeError(
             f"Couldn't find a location for {callsign}. Enter your grid square in the sidebar to place the pin.")
     lat, lon, grid, source = found
+    if "approximate" in source:
+        st.warning(f"No exact location found for {callsign}, so the pin is at the {source}. "
+                   "Enter your grid square in the sidebar for an accurate map.")
     return lat, lon, f"{grid or f'{lat:.2f}, {lon:.2f}'} via {source}"
 
 
