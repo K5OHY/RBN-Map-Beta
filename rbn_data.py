@@ -15,6 +15,7 @@ import requests
 
 NODES_URL = "https://www.reversebeacon.net/cont_includes/status.php?t=skt"
 CACHE_FILE = Path(__file__).with_name("spotter_coords.csv")
+REFRESH_MARKER = Path(__file__).with_name(".spotters_refreshed")
 CACHE_MAX_AGE_HOURS = 24
 HEADERS = {"User-Agent": "RBN-Signal-Mapper (personal project)"}
 
@@ -74,8 +75,10 @@ def refresh_skimmer_cache(force=False):
     Returns (updated: bool, message: str). Never raises: on failure the existing
     cache stays in place so the app keeps working offline.
     """
-    if not force and CACHE_FILE.exists():
-        age_h = (time.time() - CACHE_FILE.stat().st_mtime) / 3600
+    # Track freshness with a marker file that git ignores. The CSV's own modified time can't be trusted:
+    # a fresh checkout on a server stamps it "now", which would hide that the committed copy is stale.
+    if not force and CACHE_FILE.exists() and REFRESH_MARKER.exists():
+        age_h = (time.time() - REFRESH_MARKER.stat().st_mtime) / 3600
         if age_h < CACHE_MAX_AGE_HOURS:
             return False, f"Skimmer list is {age_h:.0f}h old (up to date)."
 
@@ -91,6 +94,7 @@ def refresh_skimmer_cache(force=False):
         df = df.sort_values("callsign")
 
     df.to_csv(CACHE_FILE, index=False)
+    REFRESH_MARKER.touch()
     return True, f"Skimmer list refreshed: {len(df)} skimmers."
 
 
