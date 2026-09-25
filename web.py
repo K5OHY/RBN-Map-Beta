@@ -345,7 +345,7 @@ def main():
 
     with st.sidebar:
         st.header("Your signal")
-        callsign = st.text_input("Callsign", value=cfg.get("callsign", ""), placeholder="K5OHY").strip().upper()
+        callsign = st.text_input("Callsign", value=cfg.get("callsign", ""), placeholder="Enter your callsign").strip().upper()
         grid_override = st.text_input(
             "Grid square (optional)", value=cfg.get("grid", ""), placeholder="Looked up from your callsign",
             help="Leave blank to use your callsign's registered address. "
@@ -460,7 +460,9 @@ def main():
     c[3].metric("Best SNR", f"{stats['max_snr']:.0f} dB")
     c[4].metric("Average SNR", f"{stats['avg_snr']:.1f} dB")
     st.caption(f"📍 {ss.callsign} · {label}"
-               + (f" · ⚠️ {len(missing)} skimmer(s) not in location list, skipped" if missing else ""))
+               + (f" · ⚠️ No location for {', '.join(sorted(missing)[:5])}"
+                  f"{f' and {len(missing) - 5} more' if len(missing) > 5 else ''}"
+                  f" (not in RBN's skimmer list), so not shown on the map" if missing else ""))
 
     m = build_map(spots, skimmers, home, label, ss.callsign, show_all, tiles, units, stats["farthest"])
     map_html = m.get_root().render()
