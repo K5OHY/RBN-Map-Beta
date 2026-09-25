@@ -40,7 +40,10 @@ TILE_STYLES = {
     "Satellite": (_ESRI.format("World_Imagery"), _ESRI.format("Reference/World_Boundaries_and_Places")),
     "Street": ("OpenStreetMap", None),
 }
-SNR_CMAP = mcolors.LinearSegmentedColormap.from_list("snr", ["#2ecc71", "#f1c40f", "#e74c3c"])
+# Weak = small green, medium = yellow, strong = large dark red. Typical RBN reports run ~5-35 dB.
+SNR_MIN, SNR_MAX = 5, 35
+SNR_COLORS = ["#22b14c", "#ffd60a", "#8b0000"]
+SNR_CMAP = mcolors.LinearSegmentedColormap.from_list("snr", SNR_COLORS)
 KM_PER_MILE = 1.609344
 MAX_DAYS = 7
 SETTINGS_FILE = Path(__file__).with_name("settings.json")
@@ -131,8 +134,17 @@ def great_circle(start, end, num_points=50):
 
 # -------------------------------------------------------------------------- map
 
+def snr_strength(snr):
+    """0 (weak) .. 1 (strong)"""
+    return float(np.clip((snr - SNR_MIN) / (SNR_MAX - SNR_MIN), 0, 1))
+
+
 def snr_color(snr):
-    return mcolors.to_hex(SNR_CMAP(float(np.clip(snr / 40, 0, 1))))
+    return mcolors.to_hex(SNR_CMAP(snr_strength(snr)))
+
+
+def snr_radius(snr):
+    return 5 + 6 * snr_strength(snr)
 
 
 def build_map(spots, skimmers, home, home_label, callsign, show_all, tiles, units, farthest):
@@ -157,7 +169,7 @@ def build_map(spots, skimmers, home, home_label, callsign, show_all, tiles, unit
     dots = folium.FeatureGroup(name="Spots (sized/coloured by SNR)", show=True)
     bounds = [home]
 
-    for row in spots.itertuples():
+    for row in spots.sort_values("snr").itertuples():  # weakest first so strong dots draw on top
         loc = skimmer_location(row.spotter, skimmers)
         if loc is None:
             continue
@@ -169,8 +181,8 @@ def build_map(spots, skimmers, home, home_label, callsign, show_all, tiles, unit
         folium.PolyLine(path, color=color, weight=2, opacity=0.65).add_to(lines)
         folium.CircleMarker(
             end,
-            radius=float(np.clip(row.snr / 2, 3, 14)),
-            color=snr_color(row.snr), weight=1, fill=True, fill_opacity=0.75,
+            radius=snr_radius(row.snr),
+            color=snr_color(row.snr), weight=1.5, opacity=0.8, fill=True, fill_color=snr_color(row.snr), fill_opacity=0.55,
             popup=folium.Popup(
                 f"<b>{row.spotter}</b><br>{row.band} &middot; {row.freq:.1f} kHz<br>"
                 f"SNR: {row.snr:.0f} dB<br>{row.time:%d %b %H:%M} UTC<br>{distance_km(home, loc) / k:,.0f} {units}",
@@ -204,14 +216,19 @@ def build_map(spots, skimmers, home, home_label, callsign, show_all, tiles, unit
         f'margin-right:6px;vertical-align:middle;border-radius:2px"></span>{b} <span style="opacity:.6">({n})</span></div>'
         for b, n in sorted(bands_present.items(), key=lambda kv: list(BAND_COLORS).index(kv[0]) if kv[0] in BAND_COLORS else 99)
     )
+    snr_key = "".join(
+        f'<div style="text-align:center;width:26px"><div style="height:24px;display:flex;align-items:center;justify-content:center">'
+        f'<span style="display:block;border-radius:50%;border:1.5px solid {snr_color(db)};'
+        f'width:{2 * snr_radius(db):.0f}px;height:{2 * snr_radius(db):.0f}px;background:{snr_color(db)}88"></span></div>'
+        f'<div style="opacity:.75">{db}{"+" if db == SNR_MAX else ""}</div></div>'
+        for db in (5, 12, 20, 28, 35))
     legend = f"""
     <div style="position:fixed;bottom:34px;right:12px;z-index:9999;background:rgba(255,255,255,.92);
       padding:10px 12px;border-radius:8px;box-shadow:0 1px 6px rgba(0,0,0,.3);
       font:12px/1.5 system-ui,sans-serif;color:#222">
       <b>{callsign}</b> &middot; {len(spots)} spots<div style="margin:6px 0 2px;font-weight:600">Band</div>{rows}
-      <div style="margin:8px 0 2px;font-weight:600">SNR</div>
-      <div style="height:8px;width:120px;border-radius:4px;background:linear-gradient(90deg,#2ecc71,#f1c40f,#e74c3c)"></div>
-      <div style="display:flex;justify-content:space-between;width:120px;opacity:.7"><span>0</span><span>40+ dB</span></div>
+      <div style="margin:8px 0 4px;font-weight:600">SNR (dB)</div>
+      <div style="display:flex;justify-content:space-between;width:130px">{snr_key}</div>
     </div>"""
     m.get_root().html.add_child(folium.Element(legend))
     return m
@@ -315,7 +332,11 @@ def main():
     for key in ("raw", "home", "callsign", "file_date"):
         ss.setdefault(key, None)
 
-    cfg = load_settings()
+    # Read saved settings once per session. Re-reading them on every rerun changes each widget's
+    # default, which Streamlit treats as a brand-new widget and resets, swallowing the first click.
+    if "cfg" not in ss:
+        ss.cfg = load_settings()
+    cfg = ss.cfg
 
     def pick(options, key, default=None):
         """Index of the saved choice in `options` (falls back to the first/default)."""
