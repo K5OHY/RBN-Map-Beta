@@ -1,5 +1,6 @@
 import json
 import math
+import re
 import zipfile
 from datetime import datetime, time, timedelta, timezone
 from io import BytesIO
@@ -12,6 +13,7 @@ import pandas as pd
 import requests
 import streamlit as st
 from geographiclib.geodesic import Geodesic
+from matplotlib.figure import Figure
 
 from rbn_data import (
     load_skimmers,
@@ -87,18 +89,34 @@ def download_rbn_day(date, callsign):
     return df
 
 
+# A row copied from the RBN spots page:
+#   K1RA-4  K5OHY  DM81wx  1443 mi  14073.0  CW  CQ  7 dB  25 wpm  1908z 26 Sep  94 seconds ago
+PASTE_ROW_RE = re.compile(
+    r"^\W*(?P<spotter>[A-Z0-9/-]+)\s+(?P<dx>[A-Z0-9/-]+)\s+(?:[A-R]{2}\d{2}\w*\s+)?"
+    r"(?:[\d,.]+\s*(?:mi|km)\s+)?(?P<freq>\d+\.\d+)\s+\S+\s+\S+\s+(?P<snr>-?\d+)\s*dB\b"
+    r".*?(?P<time>\d{4})z\s+(?P<day>\d{1,2})\s+(?P<month>[A-Za-z]{3})",
+    re.IGNORECASE,
+)
+
+
 def parse_pasted_data(text):
-    """Parse rows copied from the RBN spots web page."""
-    rows = []
+    """Parse rows copied from the RBN spots web page (header lines and trailing 'seen' column are ignored)."""
+    year = datetime.now(timezone.utc).year
+    rows, unread = [], []
     for line in filter(None, (l.strip() for l in text.splitlines())):
-        p = line.split()
-        if len(p) < 14:
+        m = PASTE_ROW_RE.match(line)
+        if not m:
+            if "spotter" not in line.lower():  # the copied header row is expected, anything else isn't
+                unread.append(line)
             continue
         try:
-            when = datetime.strptime(" ".join(p[11:14]), "%H%Mz %d %b")
-            rows.append([p[0], p[1], float(p[4]), float(p[7]), when])
+            when = datetime.strptime(f"{year} {m['time']}z {m['day']} {m['month'].title()}", "%Y %H%Mz %d %b")
+            rows.append([m["spotter"].upper(), m["dx"].upper(), float(m["freq"]), float(m["snr"]), when])
         except ValueError:
-            continue
+            unread.append(line)
+    if not rows:
+        raise RuntimeError("Couldn't read any spot rows from the pasted text."
+                           + (f" The first line I couldn't read was: {unread[0][:120]!r}" if unread else ""))
     df = pd.DataFrame(rows, columns=["spotter", "dx", "freq", "snr", "time"])
     df["band"] = df["freq"].apply(get_band)
     return df
@@ -147,16 +165,39 @@ def snr_radius(snr):
     return 5 + 6 * snr_strength(snr)
 
 
-def build_map(spots, skimmers, home, home_label, callsign, show_all, tiles, units, farthest):
-    k = KM_PER_MILE if units == "mi" else 1
+def base_map(home, tiles):
     base, labels = TILE_STYLES[tiles]
     if base == "OpenStreetMap":
-        m = folium.Map(location=home, zoom_start=3, tiles=base, control_scale=True)
-    else:
-        m = folium.Map(location=home, zoom_start=3, tiles=None, control_scale=True)
-        folium.TileLayer(base, attr=_ESRI_ATTR, name=tiles, max_zoom=16).add_to(m)
-        if labels:
-            folium.TileLayer(labels, attr=_ESRI_ATTR, name="Labels", overlay=True, max_zoom=16).add_to(m)
+        return folium.Map(location=home, zoom_start=3, tiles=base, control_scale=True)
+    m = folium.Map(location=home, zoom_start=3, tiles=None, control_scale=True)
+    folium.TileLayer(base, attr=_ESRI_ATTR, name=tiles, max_zoom=16).add_to(m)
+    if labels:
+        folium.TileLayer(labels, attr=_ESRI_ATTR, name="Labels", overlay=True, max_zoom=16).add_to(m)
+    return m
+
+
+def fit_to(m, bounds):
+    """Zoom the map to show every point in `bounds`. A map in a hidden Streamlit tab has zero size when it loads,
+    so Leaflet would fit to nothing and zoom all the way in; fit again the moment the map becomes visible."""
+    m.fit_bounds(bounds, padding=(30, 30))
+    pts = [[float(lat), float(lon)] for lat, lon in bounds]
+    m.get_root().script.add_child(folium.Element(f"""
+      window.addEventListener('load', function () {{
+        var map = {m.get_name()}, el = map.getContainer(), lastWidth = 0;
+        new ResizeObserver(function () {{
+          var w = el.clientWidth;
+          if (w > 0 && lastWidth === 0) {{ map.invalidateSize(); map.fitBounds({pts}, {{padding: [30, 30]}}); }}
+          lastWidth = w;
+        }}).observe(el);
+      }});"""))
+
+
+def build_map(spots, skimmers, home, home_label, callsign, show_all, tiles, units, farthest,
+              title=None, fit_spots=None):
+    """`title` replaces the callsign in the legend; `fit_spots` also frames those spots in the view,
+    so two maps can share the same extent."""
+    k = KM_PER_MILE if units == "mi" else 1
+    m = base_map(home, tiles)
 
     if show_all:
         layer = folium.FeatureGroup(name="All skimmers", show=True)
@@ -192,7 +233,13 @@ def build_map(spots, skimmers, home, home_label, callsign, show_all, tiles, unit
     lines.add_to(m)
     dots.add_to(m)
 
-    far_loc = skimmer_location(farthest, skimmers) if farthest else None
+    if fit_spots is not None:
+        for spotter in fit_spots["spotter"].unique():
+            loc = skimmer_location(spotter, skimmers)
+            if loc:
+                bounds.append(great_circle(home, loc)[-1])
+
+    far_loc =skimmer_location(farthest, skimmers) if farthest else None
     if far_loc:
         far_end = great_circle(home, far_loc)[-1]
         folium.CircleMarker(
@@ -207,7 +254,7 @@ def build_map(spots, skimmers, home, home_label, callsign, show_all, tiles, unit
     ).add_to(m)
 
     if len(bounds) > 1:
-        m.fit_bounds(bounds, padding=(30, 30))
+        fit_to(m, bounds)
     folium.LayerControl(collapsed=True).add_to(m)
 
     bands_present = spots["band"].value_counts()
@@ -226,7 +273,7 @@ def build_map(spots, skimmers, home, home_label, callsign, show_all, tiles, unit
     <div style="position:fixed;bottom:34px;right:12px;z-index:9999;background:rgba(255,255,255,.92);
       padding:10px 12px;border-radius:8px;box-shadow:0 1px 6px rgba(0,0,0,.3);
       font:12px/1.5 system-ui,sans-serif;color:#222">
-      <b>{callsign}</b> &middot; {len(spots)} spots<div style="margin:6px 0 2px;font-weight:600">Band</div>{rows}
+      <b>{title or callsign}</b> &middot; {len(spots)} spots<div style="margin:6px 0 2px;font-weight:600">Band</div>{rows}
       <div style="margin:8px 0 4px;font-weight:600">SNR (dB)</div>
       <div style="display:flex;justify-content:space-between;width:130px">{snr_key}</div>
     </div>"""
@@ -250,6 +297,304 @@ def compute_stats(spots, skimmers, home):
         "max_snr": spots["snr"].max(),
         "avg_snr": spots["snr"].mean(),
     }
+
+
+SECTORS = 16
+COMPASS_16 = ["N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE", "S", "SSW", "SW", "WSW", "W", "WNW", "NW", "NNW"]
+
+
+def bearing_chart(spots, skimmers, home):
+    """Polar bar chart: bar length = number of spots in that direction, colour = average SNR there.
+    Returns (figure, markdown summary) or None if no spot has a known skimmer location."""
+    rows = []
+    for row in spots.itertuples():
+        loc = skimmer_location(row.spotter, skimmers)
+        if loc:
+            bearing = Geodesic.WGS84.Inverse(home[0], home[1], loc[0], loc[1])["azi1"] % 360
+            rows.append((int(((bearing + 180 / SECTORS) % 360) // (360 / SECTORS)), row.snr))
+    if not rows:
+        return None
+
+    df = pd.DataFrame(rows, columns=["sector", "snr"])
+    per = df.groupby("sector")["snr"].agg(["count", "mean"]).reindex(range(SECTORS))
+    per["count"] = per["count"].fillna(0)
+
+    fig = Figure(figsize=(4.4, 4.4))
+    fig.patch.set_alpha(0)
+    ax = fig.add_subplot(projection="polar")
+    ax.set_facecolor("none")
+    ax.set_theta_zero_location("N")
+    ax.set_theta_direction(-1)
+    grey = "#8a8f98"
+    centers = np.radians(np.arange(SECTORS) * 360 / SECTORS)
+    colors = [snr_color(m) if not np.isnan(m) else "#00000000" for m in per["mean"]]
+    ax.bar(centers, per["count"], width=np.radians(360 / SECTORS) * 0.88, color=colors, alpha=0.75,
+           edgecolor=colors, linewidth=1.2)
+    ax.set_xticks(np.radians(np.arange(0, 360, 45)))
+    ax.set_xticklabels(["N", "NE", "E", "SE", "S", "SW", "W", "NW"], color=grey, fontsize=11)
+    ax.tick_params(axis="y", colors=grey, labelsize=8)
+    ax.set_rlabel_position(22.5)
+    ax.grid(color=grey, alpha=0.3)
+    ax.spines["polar"].set_color(grey)
+    ax.spines["polar"].set_alpha(0.3)
+
+    top = int(per["count"].idxmax())
+    best = int(per["mean"].idxmax())
+    summary = (
+        f"**Most spots:** {COMPASS_16[top]} ({int(per['count'][top])} spots)  \n"
+        f"**Strongest on average:** {COMPASS_16[best]} ({per['mean'][best]:.0f} dB)  \n\n"
+        "Bar length is the number of spots in that direction from your station. "
+        "Colour is the average SNR, using the same scale as the map."
+    )
+    return fig, summary
+
+
+# ----------------------------------------------------------------- compare mode
+
+COLOR_A, COLOR_B, COLOR_TIE = "#2563eb", "#f97316", "#8a8f98"
+
+
+def frequency_groups(spots, gap_khz):
+    """Split spots into groups of nearby frequencies: a new group starts wherever the gap between
+    neighbouring spot frequencies exceeds `gap_khz`. Returns [(median_freq, spots)] in frequency order."""
+    ordered = spots.dropna(subset=["freq"]).sort_values("freq")
+    group_id = (ordered["freq"].diff() > gap_khz).cumsum()
+    return [(g["freq"].median(), g) for _, g in ordered.groupby(group_id)]
+
+
+def skimmer_table(spots, skimmers, home):
+    """One row per located skimmer: median SNR, spot count, distance (km) and bearing from `home`."""
+    rows = []
+    for spotter, g in spots.groupby("spotter"):
+        loc = skimmer_location(spotter, skimmers)
+        if loc is None:
+            continue
+        inv = Geodesic.WGS84.Inverse(home[0], home[1], loc[0], loc[1])
+        rows.append((spotter, g["snr"].median(), len(g), inv["s12"] / 1000, inv["azi1"] % 360))
+    return pd.DataFrame(rows, columns=["skimmer", "snr", "spots", "km", "bearing"]).set_index("skimmer")
+
+
+def _themed_axes(fig, polar=False):
+    fig.patch.set_alpha(0)
+    ax = fig.add_subplot(projection="polar") if polar else fig.add_subplot()
+    ax.set_facecolor("none")
+    for spine in ax.spines.values():
+        spine.set_color(COLOR_TIE)
+        spine.set_alpha(0.3)
+    ax.tick_params(colors=COLOR_TIE, labelsize=8)
+    ax.grid(color=COLOR_TIE, alpha=0.3)
+    return ax
+
+
+SECTOR_NAMES = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"]
+DIRECTION_EDGE_DB = 2  # a direction only counts as "stronger" for one frequency past this many dB
+
+
+def compare_snr(shared):
+    """(average A, average B, winner) over the skimmers that heard both. The winner is 'A' or 'B', or None
+    when there are too few skimmers or the difference is within the noise."""
+    n = len(shared)
+    if n == 0:
+        return None, None, None
+    d = shared["delta"]
+    avg_a, avg_b = shared["snr_a"].mean(), shared["snr_b"].mean()
+    if n < 3 or abs(d.mean()) <= 1.96 * d.std(ddof=1) / math.sqrt(n):  # ~95% confidence range
+        return avg_a, avg_b, None
+    return avg_a, avg_b, "A" if d.mean() > 0 else "B"
+
+
+def headline(reach_winner, snr_winner, names):
+    """(streamlit level, message): the overall answer in one sentence."""
+    wins = {"A": [], "B": []}
+    if reach_winner:
+        wins[reach_winner].append("reached more skimmers")
+    if snr_winner:
+        wins[snr_winner].append("had the stronger signal")
+    if wins["A"] and wins["B"]:
+        return "info", f"**Mixed result:** {names['A']} {wins['A'][0]}, but {names['B']} {wins['B'][0]}."
+    for side in "AB":
+        if wins[side]:
+            return "success", f"**{names[side]} is getting out better:** it " + " and ".join(wins[side]) + "."
+    return "info", "**Too close to call.** Neither frequency is clearly ahead."
+
+
+def sector_means(table):
+    """Average per-skimmer SNR in each of the 8 compass directions (NaN where no skimmer heard you)."""
+    if table.empty:
+        return pd.Series(np.nan, index=range(8))
+    sector = ((table["bearing"] + 22.5) % 360 // 45).astype(int)
+    return table.groupby(sector)["snr"].mean().reindex(range(8))
+
+
+def direction_chart(means_a, means_b, name_a, name_b):
+    """Radar chart: distance from the centre = average SNR in that direction, one shape per frequency."""
+    fig = Figure(figsize=(4.6, 4.6))
+    ax = _themed_axes(fig, polar=True)
+    ax.set_theta_zero_location("N")
+    ax.set_theta_direction(-1)
+    angles = np.radians(np.arange(8) * 45)
+    closed = np.append(angles, angles[0])
+    for means, color, name in ((means_a, COLOR_A, name_a), (means_b, COLOR_B, name_b)):
+        r = means.fillna(0).to_numpy()
+        r = np.append(r, r[0])
+        ax.plot(closed, r, color=color, linewidth=2.2, label=name)
+        ax.fill(closed, r, color=color, alpha=0.18)
+    ax.set_xticks(angles)
+    ax.set_xticklabels(SECTOR_NAMES, color=COLOR_TIE, fontsize=12)
+    ax.set_ylim(0, None)
+    ax.set_rlabel_position(22.5)
+    ax.legend(loc="lower center", bbox_to_anchor=(0.5, -0.18), ncol=2, frameon=False, labelcolor=COLOR_TIE)
+    return fig
+
+
+def direction_summary(means_a, means_b, names):
+    """Markdown: which directions each frequency is stronger toward."""
+    both = means_a.notna() & means_b.notna()
+    diff = (means_a - means_b)[both]
+
+    def dirs(mask):
+        return ", ".join(SECTOR_NAMES[i] for i in mask.index[mask])
+
+    lines = []
+    for side, mask, icon in (("A", diff >= DIRECTION_EDGE_DB, "🔵"), ("B", diff <= -DIRECTION_EDGE_DB, "🟠")):
+        if mask.any():
+            lines.append(f"{icon} **{names[side]} is stronger toward:** {dirs(mask)}")
+    for side, mine, other, icon in (("A", means_a, means_b, "🔵"), ("B", means_b, means_a, "🟠")):
+        only = mine.notna() & other.isna()
+        if only.any():
+            lines.append(f"{icon} **Only {names[side]} was heard toward:** {dirs(only)}")
+    if not lines:
+        lines.append("No clear difference by direction.")
+    return "\n\n".join(lines)
+
+
+def best_direction(means):
+    return f"{SECTOR_NAMES[int(means.idxmax())]} ({means.max():.0f} dB)" if means.notna().any() else "—"
+
+
+def head_to_head_table(shared, units):
+    """Styled table of the skimmers that heard both frequencies, with the stronger side's SNR tinted."""
+    k = KM_PER_MILE if units == "mi" else 1
+    dist, col_a, col_b, col_d = f"Distance ({units})", "🔵 A SNR (dB)", "🟠 B SNR (dB)", "Difference A − B (dB)"
+    view = pd.DataFrame({
+        dist: (shared["km_a"] / k).round(0).astype(int),
+        col_a: shared["snr_a"], col_b: shared["snr_b"], col_d: shared["delta"],
+    }).sort_values(dist, ascending=False)
+    view["Stronger"] = np.where(view[col_d] > 0, "A", np.where(view[col_d] < 0, "B", "Tie"))
+    view.index.name = "Skimmer"
+
+    def tint(row):
+        style = [""] * len(row)
+        for side, col, color in (("A", col_a, COLOR_A), ("B", col_b, COLOR_B)):
+            if row["Stronger"] == side:
+                style[view.columns.get_loc(col)] = f"background-color:{color}33;font-weight:600"
+        return style
+    return view.style.apply(tint, axis=1).format({col_a: "{:g}", col_b: "{:g}", col_d: "{:+g}", dist: "{:,}"})
+
+
+def scoreboard_html(name_a, name_b, rows):
+    """HTML table, one row per measure, with the winning cell highlighted.
+    rows: (label, note, (value_a, note_a), (value_b, note_b), winner 'A'/'B'/None)"""
+    def cell(side, value, note, winner):
+        color = COLOR_A if side == "A" else COLOR_B
+        won = winner == side
+        style = f"background:{color}26;border-left:4px solid {color}" if won else "border-left:4px solid transparent"
+        sub = f'<div style="opacity:.6;font-size:.8rem">{note}</div>' if note else ""
+        return (f'<td style="padding:12px 16px;{style}"><span style="font-size:1.5rem;font-weight:{700 if won else 400}">'
+                f'{value}</span>{" &nbsp;✔" if won else ""}{sub}</td>')
+
+    body = "".join(
+        f'<tr style="border-top:1px solid rgba(128,128,128,.25)"><td style="padding:12px 16px">{label}'
+        f'<div style="opacity:.6;font-size:.8rem">{note}</div></td>{cell("A", *a, w)}{cell("B", *b, w)}</tr>'
+        for label, note, a, b, w in rows)
+    return (f'<table style="width:100%;border-collapse:collapse"><tr>'
+            f'<th style="text-align:left;padding:8px 16px"></th>'
+            f'<th style="text-align:left;padding:8px 16px;color:{COLOR_A}">🔵 {name_a}</th>'
+            f'<th style="text-align:left;padding:8px 16px;color:{COLOR_B}">🟠 {name_b}</th></tr>{body}</table>')
+
+
+def compare_view(spots, skimmers, home, label, callsign, file_date, tiles, show_all, units, gap_khz):
+    """Compare mode: split `spots` into frequency groups, pick two, and show which one is getting out better."""
+    groups = frequency_groups(spots, gap_khz)
+    freqs = ", ".join(f"{f:.1f}" for f, _ in groups)
+    if len(groups) < 2:
+        st.warning(f"Found only {len(groups)} frequency group ({freqs or 'none'} kHz). Compare mode needs spots on at "
+                   f"least two frequencies. If your tests were close together, lower **Frequency gap** in the sidebar.")
+        return
+
+    def option_label(i):
+        f, g = groups[i]
+        return f"{f:.1f} kHz · {len(g)} spots · {g['time'].min():%H:%M}–{g['time'].max():%H:%M} UTC"
+
+    top_two = sorted(sorted(range(len(groups)), key=lambda i: -len(groups[i][1]))[:2])
+    pick_a, pick_b = st.columns(2)
+    ia = pick_a.selectbox("🔵 Frequency A", range(len(groups)), index=top_two[0], format_func=option_label)
+    ib = pick_b.selectbox("🟠 Frequency B", range(len(groups)), index=top_two[1], format_func=option_label)
+    if ia == ib:
+        st.warning("Pick two different frequencies to compare.")
+        return
+
+    (fa, spots_a), (fb, spots_b) = groups[ia], groups[ib]
+    names = {"A": f"A ({fa:.1f} kHz)", "B": f"B ({fb:.1f} kHz)"}
+    table_a, table_b = skimmer_table(spots_a, skimmers, home), skimmer_table(spots_b, skimmers, home)
+    shared = table_a.join(table_b, how="inner", lsuffix="_a", rsuffix="_b")
+    shared["delta"] = shared["snr_a"] - shared["snr_b"]
+
+    tab_results, tab_maps = st.tabs(["📊 Results", "🗺️ Side-by-side maps"])
+
+    with tab_results:
+        heard_a, heard_b = set(spots_a["spotter"]), set(spots_b["spotter"])
+        reach_winner = "A" if len(heard_a) > len(heard_b) else "B" if len(heard_b) > len(heard_a) else None
+        avg_a, avg_b, snr_winner = compare_snr(shared)
+        level, message = headline(reach_winner, snr_winner, names)
+        getattr(st, level)(message)
+
+        means_a, means_b = sector_means(table_a), sector_means(table_b)
+        snr_note = f"at the {len(shared)} skimmers that heard both" if len(shared) else "no skimmer heard both"
+        st.markdown(scoreboard_html(names["A"], names["B"], [
+            ("Skimmers that heard you", "more is better",
+             (len(heard_a), f"{len(heard_a - heard_b)} heard only this one"),
+             (len(heard_b), f"{len(heard_b - heard_a)} heard only this one"), reach_winner),
+            ("Average SNR", snr_note,
+             ("—" if avg_a is None else f"{avg_a:.1f} dB", ""),
+             ("—" if avg_b is None else f"{avg_b:.1f} dB", ""), snr_winner),
+            ("Strongest direction", "where your signal was best",
+             (best_direction(means_a), ""), (best_direction(means_b), ""), None),
+        ]), unsafe_allow_html=True)
+        st.caption("Keep tests close together in time: propagation drifts, so a gap of an hour or more can make one "
+                   "frequency look better for reasons that have nothing to do with the antenna.")
+
+        if means_a.notna().any() or means_b.notna().any():
+            st.subheader("Direction")
+            chart_col, text_col = st.columns([2, 3])
+            chart_col.pyplot(direction_chart(means_a, means_b, names["A"], names["B"]), use_container_width=True)
+            text_col.markdown(direction_summary(means_a, means_b, names))
+            text_col.caption("Distance from the centre is the average SNR toward that compass direction. "
+                             "A bigger shape in a direction means a stronger signal that way.")
+
+        if len(shared):
+            wins_a, wins_b = int((shared["delta"] > 0).sum()), int((shared["delta"] < 0).sum())
+            st.subheader("Same skimmer, both frequencies")
+            st.caption(f"{len(shared)} skimmers heard both. 🔵 A was stronger at {wins_a}, 🟠 B at {wins_b}, "
+                       f"tied at {len(shared) - wins_a - wins_b}. Each SNR is the median of that skimmer's spots. "
+                       "Click a column heading to sort.")
+            st.dataframe(head_to_head_table(shared, units), use_container_width=True,
+                         height=min(38 * (len(shared) + 1), 420))
+
+    with tab_maps:
+        st.caption("Both maps use the same view, the same SNR scale and the same dot sizes.")
+        both = pd.concat([spots_a, spots_b])
+        col_a, col_b = st.columns(2)
+        for col, side, freq, group in ((col_a, "A", fa, spots_a), (col_b, "B", fb, spots_b)):
+            html = build_map(group, skimmers, home, label, callsign, show_all, tiles, units,
+                             compute_stats(group, skimmers, home)["farthest"],
+                             title=f"{callsign} · {freq:.1f} kHz", fit_spots=both).get_root().render()
+            with col:
+                st.markdown(f"#### {'🔵' if side == 'A' else '🟠'} {names[side]}")
+                st.components.v1.html(html, height=620)
+                st.download_button(f"⬇️ Download map {side}", html, f"RBN_map_{callsign}_{file_date}_{freq:.1f}kHz.html",
+                                   "text/html", key=f"dl_{side}")
+
 
 
 # -------------------------------------------------------------------------- app
@@ -383,6 +728,15 @@ def main():
         min_snr = st.slider("Minimum SNR (dB)", 0, 40, cfg.get("min_snr", 0))
 
         st.divider()
+        st.header("Compare mode")
+        compare = st.checkbox("Compare two frequencies", value=False,
+                              help="Splits your spots by frequency so you can compare two tests, for example two antennas. "
+                                   "Load spots from a period that includes both tests.")
+        gap_khz = st.slider("Frequency gap (kHz)", 0.1, 5.0, 0.5, 0.1, disabled=not compare,
+                            help="Spots closer together than this count as the same frequency. Skimmers report slightly "
+                                 "different frequencies for the same signal. Lower it if two tests are close together.")
+
+        st.divider()
         st.header("Map")
         styles = list(TILE_STYLES)
         tiles = st.selectbox("Style", styles, index=pick(styles, "tiles"))
@@ -449,6 +803,10 @@ def main():
 
     lat, lon, label = ss.home
     home = (lat, lon)
+    if compare:
+        st.caption(f"📍 {ss.callsign} · {label}")
+        compare_view(spots, skimmers, home, label, ss.callsign, ss.file_date, tiles, show_all, units, gap_khz)
+        return
     stats = compute_stats(spots, skimmers, home)
     missing = {s for s in spots["spotter"].unique() if skimmer_location(s, skimmers) is None}
 
@@ -471,6 +829,16 @@ def main():
     left, right = st.columns([1, 4])
     left.download_button("⬇️ Download map", map_html, f"RBN_map_{ss.callsign}_{ss.file_date}.html",
                          "text/html", use_container_width=True)
+    st.subheader("Direction of your spots")
+    chart_col, text_col = st.columns([2, 3])
+    result = bearing_chart(spots, skimmers, home)
+    if result:
+        fig, summary = result
+        chart_col.pyplot(fig, use_container_width=True)
+        text_col.markdown(summary)
+    else:
+        chart_col.caption("No located skimmers to chart.")
+
     with st.expander("Spot table"):
         st.dataframe(spots.sort_values("time").assign(time=lambda d: d["time"].dt.strftime("%d %b %H:%M")),
                      use_container_width=True, hide_index=True)
