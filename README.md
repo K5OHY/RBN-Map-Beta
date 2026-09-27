@@ -177,46 +177,50 @@ You need [Python 3.9+](https://www.python.org/downloads/) and about a minute.
 
 ### Windows (PowerShell or Windows Terminal)
 
+Set it up once:
+
 ```bash
 git clone https://github.com/K5OHY/RBN_Map.git
 cd RBN_Map
-python -m venv venv
-venv\Scripts\activate
-pip install -r requirements.txt
-streamlit run web.py
+python -m venv .venv
+.venv\Scripts\python -m pip install -r requirements.txt
 ```
 
-If PowerShell refuses to run the activate script, skip that line and call the tools directly instead:
+Then start the app, from the project folder:
 
 ```bash
-venv\Scripts\python -m pip install -r requirements.txt
-venv\Scripts\streamlit run web.py
+.venv\Scripts\streamlit run web.py
 ```
+
+Use exactly that command. Typing plain `streamlit run web.py` fails with "streamlit is not recognized", because the packages are installed inside `.venv` and Windows does not know where to find them unless the environment is activated. Calling `.venv\Scripts\streamlit` directly means you never have to activate anything.
+
+If `python` is not found, try `py -m venv .venv` instead.
 
 ### macOS / Linux
 
 ```bash
 git clone https://github.com/K5OHY/RBN_Map.git
 cd RBN_Map
-python3 -m venv venv
-source venv/bin/activate
-pip install -r requirements.txt
-streamlit run web.py
+python3 -m venv .venv
+.venv/bin/python -m pip install -r requirements.txt
+.venv/bin/streamlit run web.py
 ```
 
+### Every time after that
+
+Open a terminal in the project folder and run the last command again (`.venv\Scripts\streamlit run web.py` on Windows, `.venv/bin/streamlit run web.py` on macOS/Linux).
+
 Streamlit prints a local address and usually opens your browser. If it does not, open http://localhost:8501. Stop the app with Ctrl+C in the terminal.
-
-### Next time
-
-You only need the last two steps: activate the environment and run `streamlit run web.py` from the project folder (or call `venv\Scripts\streamlit run web.py` on Windows without activating).
 
 ### Updating the skimmer list by hand
 
 The app refreshes the skimmer list on its own every 24 hours. To force it right now:
 
 ```bash
-python rbn_to_csv.py
+.venv\Scripts\python rbn_to_csv.py
 ```
+
+(On macOS/Linux: `.venv/bin/python rbn_to_csv.py`.)
 
 ## Troubleshooting
 
