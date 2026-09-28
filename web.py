@@ -152,6 +152,12 @@ def great_circle(start, end, num_points=50):
 
 # -------------------------------------------------------------------------- map
 
+def lon_near(lon, ref_lon):
+    """`lon` shifted by a multiple of 360 to sit within 180 degrees of `ref_lon`. The map repeats sideways, and
+    paths are drawn on the copy of the world nearest the home station, so markers must be placed there too."""
+    return ref_lon + (lon - ref_lon + 180) % 360 - 180
+
+
 def snr_strength(snr):
     """0 (weak) .. 1 (strong)"""
     return float(np.clip((snr - SNR_MIN) / (SNR_MAX - SNR_MIN), 0, 1))
@@ -202,7 +208,7 @@ def build_map(spots, skimmers, home, home_label, callsign, show_all, tiles, unit
     if show_all:
         layer = folium.FeatureGroup(name="All skimmers", show=True)
         for call, (lat, lon) in skimmers.items():
-            folium.CircleMarker((lat, lon), radius=2, color="#555", weight=1, fill=True,
+            folium.CircleMarker((lat, lon_near(lon, home[1])), radius=2, color="#555", weight=1, fill=True,
                                 fill_opacity=0.6, tooltip=call).add_to(layer)
         layer.add_to(m)
 
@@ -513,6 +519,23 @@ def scoreboard_html(name_a, name_b, rows):
             f'<th style="text-align:left;padding:8px 16px;color:{COLOR_B}">🟠 {name_b}</th></tr>{body}</table>')
 
 
+def reach_bar_html(only_a, both, only_b):
+    """One bar split into 'only A | both | only B', each segment as wide as its share of unique skimmers."""
+    def seg(count, color, text_color, label):
+        if not count:
+            return ""
+        return (f'<div title="{label}: {count}" style="flex:{count} 1 0;min-width:2.6rem;background:{color};'
+                f'color:{text_color};padding:10px 0;text-align:center;font-weight:700;font-size:1.1rem">{count}</div>')
+
+    bar = (seg(only_a, COLOR_A, "#fff", "Only A") + seg(both, "#6b7280", "#fff", "Both")
+           + seg(only_b, COLOR_B, "#111", "Only B"))
+    legend = (f'<span style="color:{COLOR_A}">■</span> Only A heard you: <b>{only_a}</b> &nbsp;&nbsp; '
+              f'<span style="color:#6b7280">■</span> Heard both: <b>{both}</b> &nbsp;&nbsp; '
+              f'<span style="color:{COLOR_B}">■</span> Only B heard you: <b>{only_b}</b>')
+    return (f'<div style="display:flex;border-radius:8px;overflow:hidden;margin:6px 0 8px 0">{bar}</div>'
+            f'<div style="font-size:.9rem">{legend}</div>')
+
+
 def compare_view(spots, skimmers, home, label, callsign, file_date, tiles, show_all, units, gap_khz):
     """Compare mode: split `spots` into frequency groups, pick two, and show which one is getting out better."""
     groups = frequency_groups(spots, gap_khz)
@@ -524,7 +547,8 @@ def compare_view(spots, skimmers, home, label, callsign, file_date, tiles, show_
 
     def option_label(i):
         f, g = groups[i]
-        return f"{f:.1f} kHz · {len(g)} spots · {g['time'].min():%H:%M}–{g['time'].max():%H:%M} UTC"
+        return (f"{f:.1f} kHz · {g['spotter'].nunique()} skimmers ({len(g)} spots) · "
+                f"{g['time'].min():%H:%M}–{g['time'].max():%H:%M} UTC")
 
     top_two = sorted(sorted(range(len(groups)), key=lambda i: -len(groups[i][1]))[:2])
     pick_a, pick_b = st.columns(2)
@@ -552,15 +576,20 @@ def compare_view(spots, skimmers, home, label, callsign, file_date, tiles, show_
         means_a, means_b = sector_means(table_a), sector_means(table_b)
         snr_note = f"at the {len(shared)} skimmers that heard both" if len(shared) else "no skimmer heard both"
         st.markdown(scoreboard_html(names["A"], names["B"], [
-            ("Skimmers that heard you", "more is better",
-             (len(heard_a), f"{len(heard_a - heard_b)} heard only this one"),
-             (len(heard_b), f"{len(heard_b - heard_a)} heard only this one"), reach_winner),
+            ("Unique skimmers that heard you", "each skimmer counted once · more is better",
+             (len(heard_a), f"from {len(spots_a)} spots"),
+             (len(heard_b), f"from {len(spots_b)} spots"), reach_winner),
             ("Average SNR", snr_note,
              ("—" if avg_a is None else f"{avg_a:.1f} dB", ""),
              ("—" if avg_b is None else f"{avg_b:.1f} dB", ""), snr_winner),
             ("Strongest direction", "where your signal was best",
              (best_direction(means_a), ""), (best_direction(means_b), ""), None),
         ]), unsafe_allow_html=True)
+        st.markdown("##### Who heard you on each frequency?")
+        st.markdown(reach_bar_html(len(heard_a - heard_b), len(heard_a & heard_b), len(heard_b - heard_a)),
+                    unsafe_allow_html=True)
+        st.caption("Each skimmer is counted once, however many times it spotted you. A *spot* is one report; "
+                   "a skimmer sends a new one every time it decodes your CQ, so spots always outnumber skimmers.")
         st.caption("Keep tests close together in time: propagation drifts, so a gap of an hour or more can make one "
                    "frequency look better for reasons that have nothing to do with the antenna.")
 
