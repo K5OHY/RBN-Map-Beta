@@ -252,6 +252,16 @@ def _stats_line(g):
             f"range {g['snr'].min():.0f}&ndash;{g['snr'].max():.0f} dB")
 
 
+def _single_spot_html(row):
+    """A lone spot has no trend to chart, but it still gets the same colour-coded strength cue as
+    every dot on the map and every point in a multi-spot chart, instead of dropping to bare text."""
+    color = snr_color(row["snr"])
+    return (f'<div style="display:flex;align-items:center;gap:9px;margin:4px 0 2px 0">'
+            f'<span style="display:inline-block;width:15px;height:15px;border-radius:50%;flex:none;'
+            f'background:{color};box-shadow:0 0 0 4px {color}2a"></span>'
+            f'<span><b>{row["snr"]:.0f} dB</b> &middot; {row["time"]:%d %b %H:%M} UTC</span></div>')
+
+
 MAX_DAY_TABS = 12  # beyond this, a row of date pills stops being useful; fall back to the compressed view
 
 
@@ -261,8 +271,7 @@ def _history_block(g, gid_seed):
     prone to a peak label landing on a date divider. Splitting into a same-style tab per day fixes
     both: each day's tab gets the full chart width to itself, at only that day's own time scale."""
     if len(g) == 1:
-        best = g.iloc[0]
-        return f"SNR: {best['snr']:.0f} dB &middot; {best['time']:%d %b %H:%M} UTC"
+        return _single_spot_html(g.iloc[0])
 
     days = sorted(g["time"].dt.date.unique())
     if len(days) == 1 or len(days) > MAX_DAY_TABS:
@@ -275,9 +284,11 @@ def _history_block(g, gid_seed):
         inputs.append(f'<input type="radio" name="{gid}" id="{gid}_{i}" style="display:none"'
                       + (" checked>" if i == 0 else ">"))
         tabs.append(f'<label for="{gid}_{i}" id="{gid}_tab{i}" class="{gid}_tab">{label} ({len(dg)})</label>')
-        chart = spot_history_svg(dg, f"{gid_seed}{i}") if len(dg) > 1 else \
-            f"SNR: {dg['snr'].iloc[0]:.0f} dB &middot; {dg['time'].iloc[0]:%d %b %H:%M} UTC"
-        panels.append(f'<div id="{gid}_panel{i}">{chart}{_stats_line(dg)}</div>')
+        if len(dg) > 1:
+            panel_content = spot_history_svg(dg, f"{gid_seed}{i}") + _stats_line(dg)
+        else:
+            panel_content = _single_spot_html(dg.iloc[0])
+        panels.append(f'<div id="{gid}_panel{i}">{panel_content}</div>')
         rules.append(f'#{gid}_{i}:checked ~ #{gid}_tab{i} {{background:#8888}}')
         rules += [f'#{gid}_{i}:checked ~ #{gid}_panel{j} {{display:none}}' for j in range(len(options)) if j != i]
     style = (f'<style>.{gid}_tab {{display:inline-block;padding:2px 7px;margin:0 3px 6px 0;'
