@@ -1225,15 +1225,15 @@ GHOST_MAX, GHOST_MIN_TYPICAL = 2, 16  # see _without_ghost_cycles
 DATA_LAG_MINUTES = 5  # measured: reports for a slot are complete ~3 min after it ends, ~5 min after it starts
 
 
-@st.cache_data(show_spinner=False, ttl=300)
 def load_wspr(tx_call, start, end):
-    """WSPR spots from wspr.live, remembered for five minutes so a rerun doesn't query again."""
+    """WSPR spots from wspr.live. Not cached: it only runs when you click Load spots, and then you want what is there
+    now, including a test you have only just sent."""
     return fetch_wspr_spots(tx_call, start, end)
 
 
-@st.cache_data(show_spinner=False, ttl=300)
+@st.cache_data(show_spinner=False, ttl=60)
 def load_listening(band, start, end):
-    """Which receivers were decoding on `band` in each slot, remembered for five minutes."""
+    """Which receivers were decoding on `band` in each slot. Remembered for a minute because the screen redraws often."""
     return fetch_listening(band, start, end)
 
 
@@ -1247,7 +1247,7 @@ def main():
     skimmers, refresh_msg = skimmer_data()
 
     ss = st.session_state
-    for key in ("raw", "home", "callsign", "file_date", "kind", "locs", "tx_call", "notice"):
+    for key in ("raw", "home", "callsign", "file_date", "kind", "locs", "tx_call", "notice", "loaded_at"):
         ss.setdefault(key, None)
     # Read saved settings once per session. Re-reading them on every rerun changes each widget's
     # default, which Streamlit treats as a brand-new widget and resets, swallowing the first click.
@@ -1416,6 +1416,7 @@ def main():
             ss.raw, ss.callsign = df, callsign
             ss.kind, ss.locs, ss.tx_call = ("WSPR" if source == WSPR_SOURCE else "RBN"), locs, tx_call
             ss.notice = notice
+            ss.loaded_at = datetime.now(timezone.utc)
             if source == WSPR_SOURCE:
                 st.rerun()  # redraw the sidebar so the time window follows the spots just loaded
         except Exception as e:
@@ -1450,6 +1451,9 @@ def main():
     who = ss.callsign
     if ss.notice:
         st.warning(ss.notice)
+    if wspr and ss.loaded_at is not None:
+        st.caption(f"🕒 Loaded at {ss.loaded_at:%H:%M} UTC. The newest transmission in it is at "
+                   f"{ss.raw['time'].max():%H:%M} UTC. Sent something since? Click **Load spots** again.")
     if compare:
         st.caption(f"📍 {who} · {label}")
         compare_view(spots, locs, home, label, ss.callsign, ss.file_date, tiles, show_all and not wspr, units,
