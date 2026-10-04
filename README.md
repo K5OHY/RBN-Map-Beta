@@ -82,7 +82,7 @@ Use this to test with WSPR beacons instead of CQ calls. WSPR sends a short, auto
 
 1. Choose **WSPR (wspr.live)** under *Where are the spots from?*
 2. Pick the **Period** and **Date (UTC)**, exactly as for RBN (WSPR can also load today), and click **Load spots**. The app looks for WSPR spots from the callsign you entered at the top, so use the callsign your WSPR transmitter sends.
-3. Use the **UTC time window** slider under Filters to narrow things to your test. After loading, the slider covers just the span of the spots you loaded and opens on the latest 30 minutes, with one-minute steps.
+3. The **Band** filter is yours to set, and the app never changes it for you: leave it on *All* to see every band, or pick one. With **Compare mode** off, the map shows all the spots you loaded, and the **UTC time window** slider (which covers the span of the spots you loaded) narrows it. With Compare mode on (the default for WSPR), you pick the band under Filters and your test's cycles on the page, as described below. Compare one band at a time.
 
 Spots come from the public [wspr.live](https://wspr.live/) database, which mirrors wsprnet.org. **Reports take about 5 minutes to arrive in full** after a transmission starts (about 3 after it ends): one that is only a minute or two old may show just a handful of receivers. The app still uses them, marks them *may be incomplete*, and tells you when to click **Load spots** again to refresh the result. Because each WSPR spot carries the receiver's own location and the transmit power, no skimmer list is needed, and the app can correct for a power difference between two tests.
 
@@ -174,7 +174,7 @@ You can give each side a name ("Dipole", "40m loop") under *Name your antennas* 
 2. Let the transmitter send in every slot. On a ZachTek Desktop, turn off the pause between band cycles, and leave *High precision 6 char locator* off, because that option sends the information in two separate packets, which makes it hard to say which antenna sent which.
 3. Switch after the RF stops (the transmit light goes off) and before the next transmission starts: A, B, and perhaps another round of A, B, then stop. Only the cycles of your test matter; the app doesn't assume the switching goes on all day. Write down the time and which antenna was on for the first transmission. **A whole test can be under 10 minutes**, even one 2-minute transmission on each antenna, but a quick test can be swung by fading; 6 to 8 cycles per antenna (about 20 minutes) gives a result you can rely on, and repeating it on another day is better still.
 4. **Wait about 5 minutes** after your last cycle starts for the reports to arrive, choose **WSPR (wspr.live)**, pick the date, and click **Load spots**.
-5. Pick the band, then drag the **UTC time window** so it covers just your first cycle to your last. The antenna list shows only those cycles.
+5. Under **Your test**, choose how many transmissions your test had (every 2-minute cycle counts: one on each antenna is 2, two rounds of A then B is 4). It starts on the latest cycles, so a test you have just run needs no other clicks. For an earlier test, change **Starting at** to the time of its first transmission.
 6. Check the **Order** choice matches what you did, fix any row that doesn't (or clear a row to leave it out), and read the result.
 
 **With RBN:**
@@ -272,6 +272,7 @@ The app refreshes the skimmer list on its own every 24 hours. To force it right 
 | A warning that the pin is at the centre of a country | The lookups found nothing more precise. Enter your grid square for an accurate map. |
 | "No location for ..." under the stats | Those skimmers are not in the RBN node list, so they are counted but not drawn on the map. |
 | Compare mode says it found only one frequency group | Your spots are on one frequency, or the **Frequency gap** is too wide and merged your tests. Lower the gap in the sidebar. |
+| A few WSPR cycles show only one or two receivers while the rest show dozens | Often one receiver with a wrong clock, reporting your signal under the next time slot. The app leaves any cycle heard by 2 or fewer receivers out automatically, when typical cycles are heard by 16 or more, and tells you how many it left out. On a weak band, where every cycle has few reports, nothing is left out. If one of your antennas really is almost dead it would look the same, so check your switch and SWR. |
 | Compare mode says no skimmer heard both frequencies | There is nothing to compare like for like. Compare the skimmer counts and directions instead, or try again with longer tests. |
 | Downloading is slow | A day of RBN data is a large file, and each day in a range is a separate download. Results are cached for an hour. |
 

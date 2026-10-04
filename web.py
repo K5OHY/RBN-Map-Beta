@@ -844,41 +844,79 @@ def _separate_by_windows(spots, all_spots):
             "default": {"A": f"A ({wa[0]:%H:%M}–{wa[1]:%H:%M})", "B": f"B ({wb[0]:%H:%M}–{wb[1]:%H:%M})"}}
 
 
+def _without_ghost_cycles(spots):
+    """Throw out cycles that only one or two receivers reported when ordinary cycles are heard by many more. They are
+    nearly always one receiver with a wrong clock reporting your transmission under the next time slot, so they are
+    not real transmissions. On a weak band, where every cycle has few reports, nothing is thrown out."""
+    heard = spots.groupby("time")["spotter"].nunique()
+    typical = heard[heard > GHOST_MAX].median()
+    if pd.isna(typical) or typical < GHOST_MIN_TYPICAL:
+        return spots
+    ghosts = heard[heard <= GHOST_MAX].index
+    if len(ghosts) == 0:
+        return spots
+    st.caption(f"Left out {len(ghosts)} cycle{'s' if len(ghosts) > 1 else ''} that {GHOST_MAX} or fewer receivers heard, "
+               f"when typical cycles were heard by about {typical:.0f}. A cycle that thin says little about an antenna, and "
+               "it is often one receiver with a wrong clock reporting your signal under the wrong time slot. "
+               "(If one antenna really is almost dead it would look the same, so check your switch.)")
+    return spots[~spots["time"].isin(ghosts)]
+
+
 def _separate_by_log(spots):
-    """WSPR antenna test the way N4REE keeps it: a log with the UTC time of each transmission and the antenna that
-    was connected. The app lists the transmissions it found with a first guess (the antenna alternating down the
-    list); the user corrects any row, or clears a row to leave it out. Works for a single A/B pair up to a long run."""
-    stamps = [pd.Timestamp(t) for t in np.sort(spots["time"].unique())]
-    if len(stamps) < 2:
+    """WSPR antenna test the way N4REE keeps it: each transmission is logged with the antenna that was connected. The
+    user says how many cycles the test had and where it started (it opens on the latest cycles, which is where a test
+    just run will be); the app lists those cycles with a first guess (the antenna alternating down the list), and the
+    user corrects any row or clears it to leave it out."""
+    spots = _without_ghost_cycles(spots)
+    all_stamps = [pd.Timestamp(t) for t in np.sort(spots["time"].unique())]
+    if len(all_stamps) < 2:
         st.warning("Only one transmission was found. An antenna test needs at least two, one on each antenna. Spots "
-                   "take a few minutes to show up after you transmit, so try again shortly, or look back further.")
+                   "take a few minutes to show up after you transmit, so try again shortly, or pick another day.")
         return None
     if spots["band"].nunique() > 1:
         st.warning(f"These spots cover {spots['band'].nunique()} bands. Test one band at a time: pick it under "
                    "**Filters \u2192 Band** in the sidebar.")
-    st.markdown("**Which antenna was connected for each transmission?**")
-    st.caption("These are the transmissions inside your **UTC time window** (sidebar). Narrow the window to just "
-               "your test, from your first cycle to your last. The antenna changes after every cycle; fix any row to "
-               "match your notes, or clear a row to leave it out.")
-    if len(stamps) > 30:
-        st.warning(f"That's {len(stamps)} transmissions. Your test is probably shorter: narrow the **UTC time window** "
-                   "in the sidebar to just the cycles you ran.")
+    st.markdown("**Your test**")
+    top = st.columns([4, 2, 3])
+    counts = [n for n in (2, 3, 4, 6, 8) if n <= len(all_stamps)]
+    n_cycles = top[0].segmented_control(
+        "Transmissions in your test", counts, default=counts[0], key="test_cycles",
+        help="Count every 2-minute transmission, on either antenna: one on each antenna is 2, two rounds of A then B is 4.")
+    n_cycles = n_cycles if n_cycles in counts else counts[0]
+    multi_day = all_stamps[0].date() != all_stamps[-1].date()
+    fmt = (lambda t: f"{t:%d %b %H:%M}") if multi_day else (lambda t: f"{t:%H:%M}")
+    LATEST = "Latest"
+    start_choice = top[1].selectbox(
+        "Starting at (UTC)", [LATEST] + [fmt(t) for t in reversed(all_stamps[:-1])], key="test_start",
+        help="Leave on Latest for a test you have just run. To use an earlier test, pick the time of its first "
+             "transmission.")
     patterns = {"A, B, A, B \u2026": "ABAB", "B, A, B, A \u2026": "BABA", "A, B, B, A \u2026": "ABBA"}
-    order = st.radio("Order", list(patterns), horizontal=True, label_visibility="collapsed",
-                     help="Which antenna was connected for the first transmission, and the order after that. "
-                          "A, B, B, A balances which antenna goes first in each pair.")
+    order = top[2].radio("Order", list(patterns), key="test_order",
+                         help="Which antenna was connected for the first transmission, and the order after that. "
+                              "A, B, B, A balances which antenna goes first in each pair.")
     pattern = patterns[order]
-    multi_day = stamps[0].date() != stamps[-1].date()
+    if start_choice == LATEST:
+        first = len(all_stamps) - n_cycles
+    else:
+        first = next(i for i, t in enumerate(all_stamps) if fmt(t) == start_choice)
+    stamps = all_stamps[first:first + n_cycles]
+    if len(stamps) < n_cycles:
+        st.caption(f"Only {len(stamps)} transmissions are available from that start.")
+    if len(stamps) < 2:
+        st.warning("Pick an earlier start, or fewer transmissions.")
+        return None
+    st.caption("Which antenna was connected for each transmission? The antenna changes after every cycle. Fix any "
+               "row to match your notes, or clear a row to leave it out.")
     heard = spots.groupby("time")["spotter"].nunique()
     right_now = pd.Timestamp(datetime.now(timezone.utc).replace(tzinfo=None))
     arriving = [(right_now - t).total_seconds() / 60 < DATA_LAG_MINUTES for t in stamps]
-    table = pd.DataFrame({"UTC time": [f"{t:%d %b %H:%M}" if multi_day else f"{t:%H:%M}" for t in stamps],
+    gaps = [0.0] + [(b - a).total_seconds() / 60 for a, b in zip(stamps, stamps[1:])]
+    table = pd.DataFrame({"UTC time": [fmt(t) for t in stamps],
                           "Receivers that heard it": [int(heard[t]) for t in stamps],
                           "Antenna": default_labels(stamps, pattern),
                           "Status": [("\u23f3 may be incomplete" if late else
                                       (f"\u26a0 {gap:.0f} min after the row above" if gap > 2.5 else ""))
-                                     for late, gap in zip(arriving, [0.0] + [(b - a).total_seconds() / 60
-                                                                              for a, b in zip(stamps, stamps[1:])])]})
+                                     for late, gap in zip(arriving, gaps)]})
     edited = st.data_editor(
         table, key=f"antenna_log_{pattern}_{len(stamps)}_{stamps[0]:%d%H%M}", hide_index=True, width="stretch",
         disabled=["UTC time", "Receivers that heard it", "Status"], height=min(35 * (len(table) + 1) + 3, 420),
@@ -896,7 +934,8 @@ def _separate_by_log(spots):
     if "A" not in labels.values() or "B" not in labels.values():
         st.warning("Mark at least one transmission as A and one as B.")
         return None
-    spots_a, spots_b = split_by_labels(spots, labels)
+    in_test = spots[spots["time"].isin(list(labels))]
+    spots_a, spots_b = split_by_labels(in_test, labels)
     return {"a": spots_a, "b": spots_b, "time_based": True, "alternating": True, "labeled": True,
             "default": {"A": "A", "B": "B"}}
 
@@ -1182,6 +1221,7 @@ RBN_SOURCES = ["Download by date", "Paste from RBN site"]
 WSPR_SOURCE = "WSPR (wspr.live)"
 # wspr.live fills a slot in over several minutes: about 1 receiver at 2 minutes old, half by 3-4, complete by 6-8 (measured).
 # A transmission younger than this is left out of a comparison, since a half-filled slot makes its antenna look worse.
+GHOST_MAX, GHOST_MIN_TYPICAL = 2, 16  # see _without_ghost_cycles
 DATA_LAG_MINUTES = 5  # measured: reports for a slot are complete ~3 min after it ends, ~5 min after it starts
 
 
@@ -1272,25 +1312,22 @@ def main():
         st.divider()
         st.header("Filters")
         bands = ["All"] + list(BAND_COLORS)
-        pending = ss.pop("pending_band", None)  # set by a WSPR load; applied here, before the widget exists
-        if pending in bands:
-            ss.band_choice = pending
         ss.setdefault("band_choice", bands[pick(bands, "band")])
         band_choice = st.selectbox("Band", bands, key="band_choice")
         lo_t, hi_t = time(0, 0), time(23, 59)
-        open_t = lo_t  # where the left handle starts
         if kind == "WSPR" and ss.raw is not None and not ss.raw.empty:
-            # A WSPR test is minutes long, so the slider covers just the span of the spots loaded rather than all day,
-            # and opens on the latest 30 minutes of it, which is where a test you have just run will be.
+            # The slider covers just the span of the spots loaded rather than all day, and starts out showing all of it.
             tod = ss.raw["time"].dt.floor("min").dt.time
             if tod.min() < tod.max():
                 lo_t, hi_t = tod.min(), tod.max()
-                open_t = max(lo_t, (datetime.combine(datetime(2000, 1, 1), hi_t) - timedelta(minutes=30)).time())
-        start_t, end_t = st.slider(
-            "UTC time window", min_value=lo_t, max_value=hi_t, value=(open_t, hi_t), step=timedelta(minutes=1),
-            format="HH:mm",
-            help=("Narrow this to just your test, from your first cycle to your last. It follows the spots you loaded."
-                  if kind == "WSPR" else None))
+        if kind == "WSPR" and ss.get(f"compare_{kind}", True):
+            start_t, end_t = time.min, time.max  # comparing: you pick your test's cycles on the page instead
+        else:
+            start_t, end_t = st.slider(
+                "UTC time window", min_value=lo_t, max_value=hi_t, value=(lo_t, hi_t), step=timedelta(minutes=1),
+                format="HH:mm",
+                help=("Only show spots between these times. It follows the spots you loaded."
+                      if kind == "WSPR" else None))
         min_snr = -100 if kind == "WSPR" else st.slider("Minimum SNR (dB)", 0, 40, cfg.get("min_snr", 0))
 
         st.divider()
@@ -1380,9 +1417,7 @@ def main():
             ss.kind, ss.locs, ss.tx_call = ("WSPR" if source == WSPR_SOURCE else "RBN"), locs, tx_call
             ss.notice = notice
             if source == WSPR_SOURCE:
-                if not df.empty:  # a test you have just run is on the band of the newest spots
-                    ss.pending_band = df.sort_values("time")["band"].iloc[-1]
-                st.rerun()  # redraw the sidebar so the band and time window follow the spots just loaded
+                st.rerun()  # redraw the sidebar so the time window follows the spots just loaded
         except Exception as e:
             ss.raw = None
             st.error(str(e))
