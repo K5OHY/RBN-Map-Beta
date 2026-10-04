@@ -1615,13 +1615,16 @@ def main():
     map_html = m.get_root().render()
     st.iframe(map_html, height=720)
 
+    # The PDF is built when the button is clicked, outside this script run, where st.session_state is not available,
+    # so everything it needs is read here and captured.
+    pdf_call, pdf_date, pdf_kind = ss.callsign, ss.file_date, ss.kind
     left, middle, right = st.columns([1, 1, 3])
     left.download_button("⬇️ Download map", map_html, f"RBN_map_{ss.callsign}_{ss.file_date}.html",
                          "text/html", width="stretch")
     middle.download_button("\u2B07\ufe0f Download report (PDF)", width="stretch", mime="application/pdf",
-                           data=lambda: single_report_pdf(spots, locs, home, label, ss.callsign, ss.file_date, ss.kind, noun,
+                           data=lambda: single_report_pdf(spots, locs, home, label, pdf_call, pdf_date, pdf_kind, noun,
                                                           units, scale),
-                           file_name=f"RBN_report_{ss.callsign}_{ss.file_date}.pdf")
+                           file_name=f"RBN_report_{pdf_call}_{pdf_date}.pdf")
     st.subheader("Direction of your spots")
     chart_col, text_col = st.columns([2, 3])
     result = bearing_chart(spots, locs, home, scale)
