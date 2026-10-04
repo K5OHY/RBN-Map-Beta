@@ -156,7 +156,7 @@ Tick **Compare two antennas or tests** in the sidebar, then choose how the app s
 
 ### Ways to tell A from B
 
-**WSPR: the antenna log.** After you load your spots, the app lists every transmission it found (the UTC time, how many receivers heard it) with an **Antenna** dropdown beside each, like the time-slot sheet N4REE keeps for his tests. It fills the antenna in for you, alternating down the list; use the **Order** choice for *A, B, A, B*, *B, A, B, A* or *A, B, B, A* (which balances which antenna goes first in each pair). Change any row to match your notes, or clear a row to leave it out, for example a transmission from before the test began. That is all there is to it, and it works for a test of a single A/B pair as well as a long one.
+**WSPR: the antenna log.** After you load your spots, the app lists every transmission it found (the UTC time, how many receivers heard it) with an **Antenna** dropdown beside each, like the time-slot sheet N4REE keeps for his tests. It fills the antenna in for you, alternating down the list; use the **Order** choice for *A, B, A, B* or *A, B, B, A* (which balances which antenna goes first in each pair). Every test starts on A; if one really started on B, change the Antenna cells. Change any row to match your notes, or clear a row to leave it out, for example a transmission from before the test began. That is all there is to it, and it works for a test of a single A/B pair as well as a long one.
 
 **RBN** (choose one in the sidebar):
 

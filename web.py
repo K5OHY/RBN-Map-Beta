@@ -19,6 +19,8 @@ from matplotlib.ticker import FuncFormatter
 from compare_stats import (
     DIRECTION_EDGE_DB,
     SECTOR_NAMES,
+    EQUAL_DB,
+    SLOT_NOISE_DB,
     alternating_exposure,
     analyze,
     build_verdict,
@@ -983,11 +985,13 @@ def _separate_by_log(spots):
                    "**Filters \u2192 Band** in the sidebar.")
     st.markdown("**Your test**")
     top = st.columns([4, 2, 3])
-    counts = [n for n in (2, 3, 4, 6, 8) if n <= len(all_stamps)]
-    n_cycles = top[0].segmented_control(
-        "Transmissions in your test", counts, default=counts[0], key="test_cycles",
-        help="Count every 2-minute transmission, on either antenna: one on each antenna is 2, two rounds of A then B is 4.")
-    n_cycles = n_cycles if n_cycles in counts else counts[0]
+    n_cycles = int(top[0].number_input(
+        "Transmissions in your test", min_value=2, max_value=max(2, min(len(all_stamps), 80)), value=2, step=2,
+        key="test_cycles",
+        help="Count every 2-minute transmission, on either antenna: A then B is 2, A B B A is 4, A B B A twice is 8. "
+             "More is steadier: 8 or more (4 pairs) is a solid test, 12 to 16 for differences under 1 dB. "
+             "Use whole rounds (a multiple of 2, or of 4 for A B B A): an odd count leaves one transmission without a partner."))
+    n_cycles = min(n_cycles, len(all_stamps))
     multi_day = all_stamps[0].date() != all_stamps[-1].date()
     fmt = (lambda t: f"{t:%d %b %H:%M}") if multi_day else (lambda t: f"{t:%H:%M}")
     LATEST = "Latest"
@@ -995,10 +999,11 @@ def _separate_by_log(spots):
         "Starting at (UTC)", [LATEST] + [fmt(t) for t in reversed(all_stamps[:-1])], key="test_start",
         help="Leave on Latest for a test you have just run. To use an earlier test, pick the time of its first "
              "transmission.")
-    patterns = {"A, B, A, B \u2026": "ABAB", "B, A, B, A \u2026": "BABA", "A, B, B, A \u2026": "ABBA"}
+    patterns = {"A, B, A, B \u2026": "ABAB", "A, B, B, A \u2026": "ABBA"}  # every test starts on A
     order = top[2].radio("Order", list(patterns), key="test_order",
-                         help="Which antenna was connected for the first transmission, and the order after that. "
-                              "A, B, B, A balances which antenna goes first in each pair.")
+                         help="The order the antennas were connected, starting with A. A, B, B, A balances which "
+                              "antenna goes first in each pair. If a test really started on B, change the Antenna "
+                              "cells below.")
     pattern = patterns[order]
     if start_choice == LATEST:
         first = len(all_stamps) - n_cycles
@@ -1010,6 +1015,16 @@ def _separate_by_log(spots):
     if len(stamps) < 2:
         st.warning("Pick an earlier start, or fewer transmissions.")
         return None
+    if len(stamps) % 2:
+        st.caption("⚠ An odd number of transmissions leaves one without a partner on the other antenna. It is left out "
+                   "of the A/B comparison (it still shows on the maps), so an even count is better.")
+    pairs = max(len(stamps) // 2, 1)
+    smallest = 2.8 * SLOT_NOISE_DB / np.sqrt(pairs)  # 80 % chance of seeing a difference this big, from slot-to-slot fading
+    st.caption(f"{len(stamps)} transmissions is about {pairs} pair{'s' if pairs != 1 else ''} of A and B: enough to "
+               + (f"reliably show a difference of roughly {smallest:.1f} dB or more. More pairs show smaller differences."
+                  if smallest > EQUAL_DB else
+                  f"show differences down to about {EQUAL_DB:g} dB. Anything smaller counts as equal, so more pairs "
+                  "won't change the answer much."))
     st.caption("Which antenna was connected for each transmission? The antenna changes after every cycle. Fix any "
                "row to match your notes, or clear a row to leave it out.")
     heard = spots.groupby("time")["spotter"].nunique()
