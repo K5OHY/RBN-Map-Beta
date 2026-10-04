@@ -97,7 +97,40 @@ def paired_shared(spots_a, spots_b, locs, home, offset=0.0):
     return per[cols], round_means
 
 
+def _one_per_site(shared):
+    """Skimmers at the same place (K9TRV and K9TRV-2, or one site's several antennas) see nearly the same sky, so they
+    are not independent witnesses, and counting each one separately makes a result look more certain than it is. Rows at
+    the same distance and bearing are averaged into one, labelled with how many were merged."""
+    if len(shared) < 2:
+        return shared
+    site = pd.Series(pd.factorize(pd.Series(list(zip(shared["km_a"].round(1), shared["bearing_a"].round(1))),
+                                            index=shared.index))[0], index=shared.index)
+    if site.nunique() == len(shared):
+        return shared
+    parts = []
+    for _, members in site.groupby(site):
+        idx = list(members.index)
+        row = shared.loc[idx].mean(numeric_only=True)
+        row.name = idx[0] + (f" (+{len(idx) - 1})" if len(idx) > 1 else "")
+        parts.append(row)
+    out = pd.DataFrame(parts)
+    out.index.name = shared.index.name
+    return out
+
+
 # ------------------------------------------------------------------ small statistics
+
+def _t_two_sided_p(t, df, steps=4000):
+    """Two-sided p-value of a t statistic (Simpson's rule on the Student-t density; no SciPy needed)."""
+    t = abs(t)
+    if t == 0:
+        return 1.0
+    pdf = lambda x: (math.gamma((df + 1) / 2) / (math.sqrt(df * math.pi) * math.gamma(df / 2))  # noqa: E731
+                     * (1 + x * x / df) ** (-(df + 1) / 2))
+    h = t / steps
+    total = pdf(0) + pdf(t) + sum((4 if i % 2 else 2) * pdf(i * h) for i in range(1, steps))
+    return max(0.0, min(1.0, 1 - 2 * total * h / 3))
+
 
 def mcnemar_exact(n_a, n_b):
     """Two-sided exact p-value for 'are n_a and n_b just a fair coin split of n_a + n_b?'."""
@@ -273,6 +306,9 @@ def analyze(spots_a, spots_b, locs, home, power_a=None, power_b=None, normalize=
         shared = ta.join(tb, how="inner", lsuffix="_a", rsuffix="_b")
         shared["delta"] = shared["snr_a"] - shared["snr_b"]
 
+    shared_all = shared  # every skimmer that heard both, for display; the result counts each site once
+    shared = _one_per_site(shared_all)
+
     heard_a, heard_b = set(spots_a["spotter"]), set(spots_b["spotter"])
     only_a, only_b, both = len(heard_a - heard_b), len(heard_b - heard_a), len(heard_a & heard_b)
     reach_rounds = None
@@ -297,9 +333,19 @@ def analyze(spots_a, spots_b, locs, home, power_a=None, power_b=None, normalize=
     n = len(d)
     lo, hi = bootstrap_mean_ci(d) if n >= 2 else (math.nan, math.nan)
     mean = float(d.mean()) if n else math.nan
+    sd = float(d.std(ddof=1)) if n >= 2 else math.nan
+    if not paired and 2 <= n < 40:
+        # with only a few stations the bootstrap range comes out too narrow; use the t interval instead
+        t_value = 1.96 + 2.4 / (n - 1) + 3.0 / (n - 1) ** 2
+        lo, hi = mean - t_value * sd / math.sqrt(n), mean + t_value * sd / math.sqrt(n)
     if paired and n >= 2:
         lo, hi = widen_for_fading(lo, hi, mean, round_means)
     wins_a, wins_b = int((d > 0).sum()), int((d < 0).sum())
+    p_ahead = math.nan  # how likely it is that the side the average favours really is ahead
+    if n >= 2 and hi > lo:
+        t_crit = 1.96 + 2.4 / (n - 1) + 3.0 / (n - 1) ** 2
+        se = (hi - lo) / (2 * t_crit)
+        p_ahead = 1 - _t_two_sided_p(abs(mean) / se, n - 1) / 2 if se > 0 else 1.0
     if n < MIN_SHARED:
         strength_call = "insufficient"
     elif (lo > 0 or hi < 0) and abs(mean) >= EQUAL_DB:
@@ -320,12 +366,12 @@ def analyze(spots_a, spots_b, locs, home, power_a=None, power_b=None, normalize=
             dx_call = "A" if far_a["km"] > far_b["km"] else "B"
 
     return {
-        "ta": ta, "tb": tb, "shared": shared,
+        "ta": ta, "tb": tb, "shared": shared, "shared_all": shared_all,
         "reach": {"a": len(heard_a), "b": len(heard_b), "only_a": only_a, "only_b": only_b, "both": both,
                   "p": reach_p, "call": reach_call, "rounds": reach_rounds, "spots_a": len(spots_a), "spots_b": len(spots_b),
                   "spots_all_a": n_all_a, "spots_all_b": n_all_b},
         "equalized": equalized,
-        "strength": {"n": n, "mean": mean, "median": float(np.median(d)) if n else math.nan, "lo": lo, "hi": hi,
+        "strength": {"n": n, "mean": mean, "sd": sd, "p_ahead": p_ahead, "median": float(np.median(d)) if n else math.nan, "lo": lo, "hi": hi,
                      "wins_a": wins_a, "wins_b": wins_b, "ties": n - wins_a - wins_b,
                      "p_sign": mcnemar_exact(wins_a, wins_b), "call": strength_call, "lean": lean},
         "dx": {"a": far_a, "b": far_b, "call": dx_call},
@@ -473,6 +519,13 @@ def _straddle_text(names, s):
             f"{names['B']} ahead by {-s['lo']:.1f} dB")
 
 
+def _lead_text(names, v):
+    """'Loop ahead by 1.4 dB' for a signed A-minus-B value, so the sign never has to be decoded."""
+    if abs(v) < 0.05:
+        return "no difference"
+    return f"{names['A'] if v > 0 else names['B']} ahead by {abs(v):.1f} dB"
+
+
 def _plural(n, word):
     return f"{n:,} {word}{'' if n == 1 else 's'}"
 
@@ -586,9 +639,9 @@ def build_verdict(an, names, exposure=None, rounds=None, receiver_word="receiver
                     f"{s['n']} {receiver_word}s that heard both (95% range {lo:.1f} to {hi:.1f} dB).")
         elif sc == "equal":
             lean = f" {names[s['lean']]} is very slightly ahead, too little to matter." if s["lean"] else ""
-            body = (f"**Equal strength:** at the {s['n']} shared {receiver_word}s, A minus B averages "
-                    f"{s['mean']:+.1f} dB (95% range {s['lo']:+.1f} to {s['hi']:+.1f} dB), inside ±{EQUAL_DB:g} dB."
-                    f"{lean}")
+            body = (f"**Equal strength:** at the {s['n']} shared {receiver_word}s the average difference is only "
+                    f"{abs(s['mean']):.1f} dB, and the 95% range runs from {_lead_text(names, s['lo'])} to "
+                    f"{_lead_text(names, s['hi'])}, inside ±{EQUAL_DB:g} dB.{lean}")
         elif sc == "inconclusive":
             if s["lo"] > 0 or s["hi"] < 0:
                 side = "A" if s["mean"] > 0 else "B"
@@ -600,9 +653,13 @@ def build_verdict(an, names, exposure=None, rounds=None, receiver_word="receiver
                 body = (f"**Strength is inconclusive:** at the {s['n']} shared {receiver_word}s, "
                         f"{_straddle_text(names, s)}.")
         else:
-            body = (f"**Strength:** only {s['n']} {receiver_word}(s) heard both ({s['mean']:+.1f} dB, A minus B); "
+            body = (f"**Strength:** only {s['n']} {receiver_word}(s) heard both ({_lead_text(names, s['mean'])}); "
                     f"too few to judge.")
-        points.append(("\U0001F4F6", body + f" A was stronger at {s['wins_a']}, B at {s['wins_b']}, "
+        chance = ""
+        if sc == "inconclusive" and not math.isnan(s["p_ahead"]) and s["p_ahead"] >= 0.7:
+            chance = (f" The chance that {names['A' if s['mean'] > 0 else 'B']} really is ahead is about "
+                      f"{s['p_ahead']:.0%}: better than a coin flip, but short of the 95% needed to call it.")
+        points.append(("\U0001F4F6", body + chance + f" A was stronger at {s['wins_a']}, B at {s['wins_b']}, "
                        f"tied at {s['ties']}."))
     else:
         points.append(("\U0001F4F6", f"**Strength:** no {receiver_word} heard both, so strength can't be compared directly."))
@@ -668,6 +725,15 @@ def build_verdict(an, names, exposure=None, rounds=None, receiver_word="receiver
                        f"{names[eq['side']]}'s spots were randomly cut down to {eq['fraction']:.0%} of its time before comparing.")
     if 0 < s["n"] < 10:
         caveats.append(f"Only {recv(s['n'])} heard both sides, so treat the strength result as a hint.")
+    if sc == "inconclusive" and not an["paired"] and s["n"] >= 3 and not math.isnan(s["sd"]):
+        smallest = 2.8 * s["sd"] / math.sqrt(s["n"])  # 80 % chance of seeing a difference this big at 95 % confidence
+        need = math.ceil((2.8 * s["sd"] / 2.0) ** 2)
+        if need > s["n"]:
+            caveats.append(
+                f"This is a question of how much data there is, not of the antennas being equal. With the scatter between "
+                f"{receiver_word}s here (about {s['sd']:.1f} dB), {s['n']} {receiver_word}s that heard both can only reliably "
+                f"show a difference of about {smallest:.1f} dB or more. To see a 2 dB difference you would need about {need}. "
+                f"More transmissions on each side steady each {receiver_word}'s reading and get you there.")
     if sequential:
         caveats.append("A and B ran one after the other. Which stations can hear you changes through the day, so the "
                        "difference may come from the time rather than the antenna. For a result you can pin on the "

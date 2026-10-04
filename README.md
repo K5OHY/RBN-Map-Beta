@@ -198,6 +198,12 @@ The results are in four tabs:
 - **Receiver by receiver.** A scatter plot and table of every station that heard both sides. Dots above the dashed line are where B was stronger.
 - **Maps.** The map for A next to the map for B, with the same view, SNR colours and dot sizes. Each map has its own download button.
 
+### Reports you can keep
+
+Both views have a **Download report (PDF)** button. In Compare mode it sits under the verdict and produces the verdict, the scoreboard, who heard you on each side, the direction and distance charts and tables, the station-by-station comparison and, for longer tests, the timeline. For a single antenna (Compare mode off) it sits next to *Download map* and produces the key numbers, the direction chart, a by-band table and the stations that heard you, farthest first. The PDF is drawn by the app itself, so there is nothing extra to install.
+
+In the stronger-by columns and tables, a difference is always shown as which side was ahead and by how much (for example *B +2.0 dB*), never as a signed A-minus-B number, because a negative number reads like "worse" even when it is a win for B. Skimmers at the same place (K9TRV and K9TRV-2, or one site's several antennas) are averaged into one before the result is worked out, because they hear nearly the same signal and would otherwise count as extra witnesses.
+
 ### How the verdict is decided
 
 - **Reach** counts the different stations that heard each side. For RBN, only the stations that heard just one side decide it, and an exact sign test says whether the imbalance is more than chance. For WSPR tests it is judged one pair of transmissions at a time (did A or B reach more receivers in each pair?), because fading on your own end raises or lowers the chance of every receiver at once, and counting receivers as if they were independent would flag differences that are only fading. Fewer than 6 decisive pairs can't be called.
@@ -213,6 +219,11 @@ The sidebar filters (band, time window, minimum SNR) apply before the spots are 
 ## Run it locally
 
 You need [Python 3.9+](https://www.python.org/downloads/) and about a minute.
+
+**When the answer is "too close to call".** That means the data can't separate the two, which is not the same as "equal". If one side is ahead on average, the verdict says how likely it is that it really is ahead (for example about 88%: better than a coin flip, short of the 95% needed to call it). For RBN tests it also says how much data it would take: with the scatter between skimmers in your test, how small a difference your skimmer count could reliably show, and how many skimmers would be needed to see 2 dB. Sending more CQs on each side is what helps, because each skimmer's reading steadies. With fewer than 40 stations heard on both sides the range is widened to allow for the small sample.
+
+**Two frequencies sent close together.** If A and B were sent within about 10 minutes of each other, they saw the same band conditions, so the "one after the other" warning is left out.
+
 
 ### Windows (PowerShell or Windows Terminal)
 
@@ -281,6 +292,7 @@ The app refreshes the skimmer list on its own every 24 hours. To force it right 
 | File | Purpose |
 | --- | --- |
 | `web.py` | The Streamlit app: interface, maps, charts, compare mode |
+| `report_pdf.py` | Lays out the PDF reports (verdict, scoreboard, charts, tables) |
 | `compare_stats.py` | The A/B comparison maths and the plain-English verdict, shared by RBN and WSPR |
 | `rbn_data.py` | Skimmer list refresh, callsign location lookup, grid-square conversion |
 | `wspr_data.py` | Fetches and tidies WSPR spots from wspr.live |

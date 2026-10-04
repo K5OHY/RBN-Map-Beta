@@ -29,11 +29,14 @@ from compare_stats import (
     eligible_receivers,
     locate as skimmer_location,
     median_power_dbm,
+    receiver_table,
+    _lead_text,
     round_consistency,
     split_alternating,
     split_by_labels,
     split_windows,
 )
+from report_pdf import build_pdf
 from rbn_data import (
     get_band,
     load_skimmers,
@@ -580,6 +583,8 @@ def direction_chart(means_a, means_b, name_a, name_b):
     angles = np.radians(np.arange(8) * 45)
     closed = np.append(angles, angles[0])
     for means, color, name in ((means_a, COLOR_A, name_a), (means_b, COLOR_B, name_b)):
+        if not means.notna().any():
+            continue
         r = (means - base).fillna(0).to_numpy()
         r = np.append(r, r[0])
         ax.plot(closed, r, color=color, linewidth=2.2, label=name)
@@ -600,12 +605,14 @@ def best_direction(means):
 def head_to_head_table(shared, units):
     """Styled table of the skimmers that heard both frequencies, with the stronger side's SNR tinted."""
     k = KM_PER_MILE if units == "mi" else 1
-    dist, col_a, col_b, col_d = f"Distance ({units})", "🔵 A SNR (dB)", "🟠 B SNR (dB)", "Difference A − B (dB)"
+    dist, col_a, col_b, col_d = f"Distance ({units})", "🔵 A SNR (dB)", "🟠 B SNR (dB)", "Stronger by (dB)"
     view = pd.DataFrame({
         dist: (shared["km_a"] / k).round(0).astype(int),
-        col_a: shared["snr_a"], col_b: shared["snr_b"], col_d: shared["delta"],
+        col_a: shared["snr_a"], col_b: shared["snr_b"], col_d: shared["delta"].abs(),  # the size of the lead, never a sign
     }).sort_values(dist, ascending=False)
-    view["Stronger"] = np.where(view[col_d] > 0, "A", np.where(view[col_d] < 0, "B", "Tie"))
+    view["Stronger"] = np.where(shared["delta"].reindex(view.index) > 0, "A",
+                                np.where(shared["delta"].reindex(view.index) < 0, "B", "Tie"))
+    view = view[[dist, col_a, col_b, "Stronger", col_d]]
     view.index.name = "Skimmer"
 
     def tint(row):
@@ -614,7 +621,7 @@ def head_to_head_table(shared, units):
             if row["Stronger"] == side:
                 style[view.columns.get_loc(col)] = f"background-color:{color}33;font-weight:600"
         return style
-    return view.style.apply(tint, axis=1).format({col_a: "{:g}", col_b: "{:g}", col_d: "{:+g}", dist: "{:,}"})
+    return view.style.apply(tint, axis=1).format({col_a: "{:g}", col_b: "{:g}", col_d: "{:g}", dist: "{:,}"})
 
 
 def scoreboard_html(name_a, name_b, rows):
@@ -757,7 +764,8 @@ def breakdown_table(df, names, first_col, noun):
     view = pd.DataFrame({
         first_col: df["label"],
         names["A"]: df["a"], names["B"]: df["b"], "Both": df["shared"],
-        "A − B (dB)": df["delta"].map(lambda v: "–" if pd.isna(v) else f"{v:+.1f}"),
+        "Stronger by (dB)": df["delta"].map(lambda v: "–" if pd.isna(v) or abs(v) < 0.05
+                                            else f"{'A' if v > 0 else 'B'} +{abs(v):.1f}"),
         "Better": better,
     })
 
@@ -783,6 +791,103 @@ def verdict_card_html(v):
             f'margin:4px 0 16px 0"><div style="font-size:1.3rem;line-height:1.45">{_bold(v["headline"])}</div>'
             f'<ul style="list-style:none;padding:0;margin:12px 0 0 0;font-size:.95rem">{points}</ul>'
             f'<div style="font-size:.85rem;opacity:.8;margin-top:8px">{caveats}</div></div>')
+
+
+def _pretty_date(file_date):
+    """'20261004' -> '2026-10-04', '20261004-20261006' -> '2026-10-04 to 2026-10-06'."""
+    parts = [f"{d[:4]}-{d[4:6]}-{d[6:]}" if len(d) == 8 and d.isdigit() else d for d in str(file_date).split("-")]
+    return " to ".join(parts)
+
+
+def _breakdown_rows(df, names):
+    """Rows for the distance / direction tables in a report: label, A count, B count, both, who by how much, better."""
+    rows = []
+    for _, row in df.iterrows():
+        lead = "–" if pd.isna(row["delta"]) or abs(row["delta"]) < 0.05 else f"{'A' if row['delta'] > 0 else 'B'} +{abs(row['delta']):.1f} dB"
+        better = names.get(row["call"], "–") if row["call"] else "–"
+        rows.append([row["label"], str(int(row["a"])), str(int(row["b"])), str(int(row["shared"])), lead, better])
+    return rows
+
+
+def compare_report_pdf(ctx):
+    """A/B comparison as a PDF: the verdict, scoreboard, who heard you, direction and distance, receiver by receiver."""
+    names, an, verdict, noun, units = ctx["names"], ctx["an"], ctx["verdict"], ctx["noun"], ctx["units"]
+    colors = {"A": COLOR_A, "B": COLOR_B, None: COLOR_TIE}
+    r, s_ = an["reach"], an["strength"]
+    sub = [f"{ctx['callsign']} · {ctx['label']}", f"{ctx['source']} · {ctx['bands']} · {_pretty_date(ctx['file_date'])}", ctx["test"]]
+    if names["A"] != "A" or names["B"] != "B":
+        sub.append(f"A = {names['A']}    B = {names['B']}")
+    blocks = [("heading", "Result"), ("verdict", verdict, colors),
+              ("heading", "Scoreboard"), ("scoreboard", names, ctx["score_rows"], colors),
+              ("heading", f"Who heard you on each {'side' if ctx['time_based'] else 'frequency'}"),
+              ("bar", [r["only_a"], r["both"], r["only_b"]], [f"Only {names['A']}", "Heard both", f"Only {names['B']}"],
+               [COLOR_A, "#6b7280", COLOR_B]),
+              ("note", f"Each {noun} is counted once, however many times it spotted you.")]
+    cols = ["", "A", "B", "Both", "Stronger by", "Better"]
+    widths = [0.26, 0.09, 0.09, 0.09, 0.2, 0.27]
+    if ctx["means_a"].notna().any() or ctx["means_b"].notna().any():
+        blocks += [("heading", "Direction"), ("figure", direction_chart(ctx["means_a"], ctx["means_b"], names["A"], names["B"]), 3.5),
+                   ("note", "Distance from the centre is the average SNR toward that direction."),
+                   ("table", ["Direction"] + cols[1:], _breakdown_rows(an["direction"], names), widths)]
+    if len(an["distance"]) and an["distance"][["a", "b"]].to_numpy().sum():
+        blocks += [("heading", "Distance"), ("figure", distance_chart(an["distance"], names), 4.0),
+                   ("table", ["Distance"] + cols[1:], _breakdown_rows(an["distance"], names), widths),
+                   ("note", "Longer paths usually mean a lower take-off angle.")]
+    if s_["n"]:
+        every = an["shared_all"]
+        k = KM_PER_MILE if units == "mi" else 1
+        order = every.sort_values("km_a", ascending=False)
+        rows = [[i, f"{row.km_a / k:,.0f}", f"{row.snr_a:g}", f"{row.snr_b:g}",
+                 "A" if row.delta > 0 else "B" if row.delta < 0 else "Tie", f"{abs(row.delta):g}"]
+                for i, row in zip(order.index, order.itertuples())]
+        blocks += [("heading", f"{noun.capitalize()} by {noun}"), ("figure", paired_scatter(an["shared"], names), 3.8),
+                   ("note", f"{len(every)} {noun}s heard both sides, shown farthest first (up to 40). Each SNR is the "
+                            "median of that station's spots."),
+                   ("table", [noun.capitalize(), f"Distance ({units})", "A SNR", "B SNR", "Stronger", "By (dB)"],
+                    rows[:40], [0.28, 0.2, 0.13, 0.13, 0.13, 0.13])]
+    if ctx["timeline"] is not None:
+        blocks += [("heading", "Timeline"), ("figure", timeline_chart(*ctx["timeline"], names), 3.0)]
+    meta = {"title": "Antenna comparison report", "callsign": ctx["callsign"], "subtitle": sub}
+    return build_pdf(meta, blocks)
+
+
+def single_report_pdf(spots, locs, home, label, callsign, file_date, kind, noun, units, scale):
+    """One antenna / one set of spots as a PDF: key numbers, direction, by band, the stations heard."""
+    k = KM_PER_MILE if units == "mi" else 1
+    stats = compute_stats(spots, locs, home)
+    bands = ", ".join(sorted(spots["band"].unique(), key=lambda b: list(BAND_COLORS).index(b) if b in BAND_COLORS else 99))
+    sub = [f"{callsign} · {label}",
+           f"{'WSPR (wspr.live)' if kind == 'WSPR' else 'Reverse Beacon Network'} · {bands} · {_pretty_date(file_date)}"]
+    blocks = [("heading", "Summary"),
+              ("metrics", [("Spots", f"{stats['spots']:,}"), (f"{noun.capitalize()}s", f"{stats['skimmers']:,}"),
+                           (f"Farthest ({units})", f"{stats['max_km'] / k:,.0f}"), ("Best SNR", f"{stats['max_snr']:.0f} dB"),
+                           ("Average SNR", f"{stats['avg_snr']:.1f} dB")]),
+              ("paragraph", f"Farthest {noun}: {stats['farthest']}." if stats["farthest"] else "")]
+    result = bearing_chart(spots, locs, home, scale)
+    if result:
+        fig, summary = result
+        blocks += [("heading", "Direction of your spots"), ("figure", fig, 4.4), ("paragraph", summary)]
+    table = receiver_table(spots, locs, home)
+    band_rows = []
+    for band, g in spots.groupby("band"):
+        t = receiver_table(g, locs, home)
+        band_rows.append([band, f"{len(g):,}", f"{g['spotter'].nunique():,}",
+                          f"{t['km'].max() / k:,.0f}" if len(t) else "–", f"{g['snr'].max():.0f}", f"{g['snr'].mean():.1f}"])
+    blocks += [("heading", "By band"),
+               ("table", ["Band", "Spots", f"{noun.capitalize()}s", f"Farthest ({units})", "Best SNR", "Average SNR"],
+                band_rows, [0.15, 0.15, 0.18, 0.22, 0.15, 0.15])]
+    if len(table):
+        best = spots.groupby("spotter")["snr"].max()
+        on = spots.groupby("spotter")["band"].agg(lambda b: ", ".join(sorted(set(b))))
+        order = table.sort_values("km", ascending=False)
+        rows = [[i, f"{row.km / k:,.0f}", on.get(i, ""), str(int(row.spots)), f"{best[i]:g}", f"{row.snr:g}"]
+                for i, row in zip(order.index, order.itertuples())]
+        blocks += [("heading", f"{noun.capitalize()}s that heard you, farthest first"),
+                   ("note", f"Showing up to 60 of {len(rows)}."),
+                   ("table", [noun.capitalize(), f"Distance ({units})", "Bands", "Spots", "Best SNR", "Median SNR"],
+                    rows[:60], [0.24, 0.18, 0.2, 0.12, 0.13, 0.13])]
+    meta = {"title": "Signal report", "callsign": callsign, "subtitle": sub}
+    return build_pdf(meta, blocks)
 
 
 def _name_inputs():
@@ -1045,10 +1150,23 @@ def compare_view(spots, locs, home, label, callsign, file_date, tiles, show_all,
     if sep.get("labeled"):  # a log of mostly unpaired transmissions (A A A B B B) is a one-after-the-other test
         transmissions = map_a["time"].nunique() + map_b["time"].nunique()
         sequential = transmissions > 0 and 2 * n_pairs < 0.5 * transmissions
+    close_in_time = None
+    if sequential and not sep.get("labeled"):
+        # Two frequencies or two windows sent within a few minutes of each other saw the same band conditions, so the
+        # warning that the time of day could explain the difference does not apply.
+        all_times = pd.concat([map_a["time"], map_b["time"]])
+        span_minutes = (all_times.max() - all_times.min()).total_seconds() / 60
+        if span_minutes <= SIMULTANEOUS_MINUTES:
+            sequential, close_in_time = False, span_minutes
     verdict = build_verdict(an, names, exposure=sep.get("exposure") if sep.get("time_based") else None,
                             rounds=rounds, receiver_word=noun, sequential=sequential,
                             n_pairs=n_pairs if sep.get("alternating") else None)
 
+    if close_in_time is not None:
+        verdict["caveats"].append(
+            "A and B were sent within " + (f"{close_in_time:.0f} minute{'s' if round(close_in_time) != 1 else ''}"
+                                           if close_in_time >= 1 else "a minute") +
+            " of each other, so they saw the same band conditions and the time of day is not a concern here.")
     if listening_note and listening_note["kept"] < listening_note["total"]:
         verdict["caveats"].append(
             f"Only receivers that were listening during both sides' transmissions are counted ({listening_note['kept']} "
@@ -1062,13 +1180,12 @@ def compare_view(spots, locs, home, label, callsign, file_date, tiles, show_all,
         ["\U0001F4CA Result", "\U0001F9ED Direction & distance", "\U0001F4CB Receiver by receiver", "\U0001F5FA️ Maps"])
 
     with tab_result:
-        st.markdown(verdict_card_html(verdict), unsafe_allow_html=True)
         snr_note = f"at the {s_['n']} {noun}s that heard both" if s_["n"] else f"no {noun} heard both"
         avg_a = f"{an['shared']['snr_a'].mean():.1f} dB" if s_["n"] else "—"
         avg_b = f"{an['shared']['snr_b'].mean():.1f} dB" if s_["n"] else "—"
         far = lambda d: (f"{d['km'] / k:,.0f} {units}", d["who"]) if d else ("—", "")  # noqa: E731
         typical = lambda t: (f"{t['km'].median() / k:,.0f} {units}", "") if len(t) else ("—", "")  # noqa: E731
-        st.markdown(scoreboard_html(names["A"], names["B"], [
+        score_rows = [
             (f"Unique {noun}s that heard you", ("equal time on the air, " if an["equalized"] else "") + ("listening during both, " if listening_note else "") + "each one counted once · more is better",
              (r["a"], f"from {r['spots_a']:,} spots"), (r["b"], f"from {r['spots_b']:,} spots"),
              r["call"] if r["call"] in ("A", "B") else None),
@@ -1077,7 +1194,21 @@ def compare_view(spots, locs, home, label, callsign, file_date, tiles, show_all,
             ("Typical distance", "half the stations were closer than this", typical(an["ta"]), typical(an["tb"]), None),
             ("Strongest direction", "where your signal was best",
              (best_direction(means_a), ""), (best_direction(means_b), ""), None),
-        ]), unsafe_allow_html=True)
+        ]
+        st.markdown(verdict_card_html(verdict), unsafe_allow_html=True)
+        n_a, n_b = map_a["time"].nunique(), map_b["time"].nunique()
+        pdf_ctx = dict(
+            names=names, an=an, verdict=verdict, noun=noun, units=units, score_rows=score_rows, callsign=callsign, label=label,
+            file_date=file_date, source="WSPR (wspr.live)" if kind == "WSPR" else "Reverse Beacon Network",
+            bands=", ".join(sorted(set(map_a["band"]) | set(map_b["band"]))),
+            test=(f"Test: {n_a} transmission{'s' if n_a != 1 else ''} on A, {n_b} on B" if sep.get("labeled")
+                  else "Test: A and B separated by " + ("frequency" if not sep.get("time_based") else "time")),
+            time_based=bool(sep.get("time_based")), means_a=means_a, means_b=means_b,
+            timeline=(map_a, map_b) if sep.get("time_based") and n_a + n_b >= 8 else None)
+        st.download_button("\u2B07\ufe0f Download report (PDF)", data=lambda: compare_report_pdf(pdf_ctx),
+                           file_name=f"RBN_compare_{callsign}_{file_date}.pdf", mime="application/pdf",
+                           help="The verdict, scoreboard and every chart and table, as a PDF you can keep or share.")
+        st.markdown(scoreboard_html(names["A"], names["B"], score_rows), unsafe_allow_html=True)
 
         st.markdown(f"##### Who heard you on each {'side' if sep.get('time_based') else 'frequency'}?")
         st.markdown(reach_bar_html(r["only_a"], r["both"], r["only_b"]), unsafe_allow_html=True)
@@ -1092,12 +1223,13 @@ def compare_view(spots, locs, home, label, callsign, file_date, tiles, show_all,
                        "propagation moved around more than the antennas differ.")
             if rounds is not None and len(rounds) >= 3:
                 if len(rounds) <= 12:
-                    st.caption("Difference in each round (A minus B, dB): "
-                               + " \u00b7 ".join(f"{d:+.1f}" for d in rounds["delta"]))
+                    st.caption("Who was stronger in each round, and by how much (dB): "
+                               + " \u00b7 ".join("equal" if abs(d) < 0.05 else f"{'A' if d > 0 else 'B'} +{abs(d):.1f}"
+                                                 for d in rounds["delta"]))
                 else:
                     st.caption(f"{len(rounds)} rounds (one A transmission and the B one after it). A was stronger in "
                                f"{int((rounds['delta'] > 0).sum())}, B in {int((rounds['delta'] < 0).sum())}; the typical "
-                               f"round (A minus B) was {rounds['delta'].median():+.1f} dB.")
+                               f"round: {_lead_text(names, float(rounds['delta'].median()))}.")
 
     with tab_where:
         if means_a.notna().any() or means_b.notna().any():
@@ -1107,7 +1239,7 @@ def compare_view(spots, locs, home, label, callsign, file_date, tiles, show_all,
             table_col.dataframe(breakdown_table(an["direction"], names, "Direction", noun), width="stretch", hide_index=True,
                                 height=35 * (len(an["direction"]) + 1) + 3)
             table_col.caption("Distance from the centre in the chart is the average SNR toward that direction. In the "
-                              "table, “A − B” is measured at the stations that heard both, and a side is "
+                              "table, “Stronger by” is measured at the stations that heard both, and a side is "
                               f"“better” past {DIRECTION_EDGE_DB:g} dB.")
         if len(an["distance"]) and an["distance"][["a", "b"]].to_numpy().sum():
             st.subheader("Distance")
@@ -1124,11 +1256,14 @@ def compare_view(spots, locs, home, label, callsign, file_date, tiles, show_all,
         if s_["n"]:
             chart_col, table_col = st.columns([1, 1])
             chart_col.pyplot(paired_scatter(an["shared"], names), width="stretch")
-            table_col.caption(f"{s_['n']} {noun}s heard both. \U0001F535 A was stronger at {s_['wins_a']}, \U0001F7E0 B at "
-                              f"{s_['wins_b']}, tied at {s_['ties']}. Each SNR is the median of that {noun}'s spots. "
-                              "Click a column heading to sort.")
-            table_col.dataframe(head_to_head_table(an["shared"], units), width="stretch",
-                                height=min(38 * (s_["n"] + 1), 420))
+            every = an["shared_all"]
+            same_place = (f" ({len(every)} {noun}s; ones at the same place are averaged into one for the result)"
+                          if len(every) != s_["n"] else "")
+            table_col.caption(f"{s_['n']} {noun}s heard both{same_place}. \U0001F535 A was stronger at {s_['wins_a']}, "
+                              f"\U0001F7E0 B at {s_['wins_b']}, tied at {s_['ties']}. Each SNR is the median of that {noun}'s "
+                              "spots. Click a column heading to sort.")
+            table_col.dataframe(head_to_head_table(every, units), width="stretch",
+                                height=min(38 * (len(every) + 1), 420))
         else:
             st.info(f"No {noun} heard both sides, so there is nothing to compare receiver by receiver.")
 
@@ -1222,6 +1357,7 @@ WSPR_SOURCE = "WSPR (wspr.live)"
 # wspr.live fills a slot in over several minutes: about 1 receiver at 2 minutes old, half by 3-4, complete by 6-8 (measured).
 # A transmission younger than this is left out of a comparison, since a half-filled slot makes its antenna look worse.
 GHOST_MAX, GHOST_MIN_TYPICAL = 2, 16  # see _without_ghost_cycles
+SIMULTANEOUS_MINUTES = 10  # A and B sent within this many minutes of each other count as the same conditions
 DATA_LAG_MINUTES = 5  # measured: reports for a slot are complete ~3 min after it ends, ~5 min after it starts
 
 
@@ -1479,9 +1615,13 @@ def main():
     map_html = m.get_root().render()
     st.iframe(map_html, height=720)
 
-    left, right = st.columns([1, 4])
+    left, middle, right = st.columns([1, 1, 3])
     left.download_button("⬇️ Download map", map_html, f"RBN_map_{ss.callsign}_{ss.file_date}.html",
                          "text/html", width="stretch")
+    middle.download_button("\u2B07\ufe0f Download report (PDF)", width="stretch", mime="application/pdf",
+                           data=lambda: single_report_pdf(spots, locs, home, label, ss.callsign, ss.file_date, ss.kind, noun,
+                                                          units, scale),
+                           file_name=f"RBN_report_{ss.callsign}_{ss.file_date}.pdf")
     st.subheader("Direction of your spots")
     chart_col, text_col = st.columns([2, 3])
     result = bearing_chart(spots, locs, home, scale)
