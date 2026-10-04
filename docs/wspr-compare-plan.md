@@ -1,6 +1,6 @@
 # Plan: WSPR-based antenna comparison
 
-Status: **not started** — brainstormed and scoped 2026-09-29, not on any timeline.
+Status: **built in beta** (2026-10-02) and tested against live wspr.live data. This document is the original plan; what actually shipped is `wspr_data.py`, `compare_stats.py` and the compare-mode changes in `web.py`. Differences from the plan: A and B can also be told apart by *alternating blocks* (not only time windows), the analysis is shared with RBN, and a sequential test is now described as winning "this test" rather than being declared the better antenna.
 
 ## The idea
 

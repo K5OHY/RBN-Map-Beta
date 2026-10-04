@@ -1,5 +1,4 @@
 import json
-import math
 import re
 import zipfile
 from datetime import datetime, time, timedelta, timezone
@@ -8,19 +7,41 @@ from pathlib import Path
 
 import folium
 import matplotlib.colors as mcolors
+import matplotlib.dates as mdates
 import numpy as np
 import pandas as pd
 import requests
 import streamlit as st
 from geographiclib.geodesic import Geodesic
 from matplotlib.figure import Figure
+from matplotlib.ticker import FuncFormatter
 
+from compare_stats import (
+    DIRECTION_EDGE_DB,
+    SECTOR_NAMES,
+    alternating_exposure,
+    analyze,
+    build_verdict,
+    count_pairs,
+    default_labels,
+    db_from_watts,
+    default_windows,
+    eligible_receivers,
+    locate as skimmer_location,
+    median_power_dbm,
+    round_consistency,
+    split_alternating,
+    split_by_labels,
+    split_windows,
+)
 from rbn_data import (
+    get_band,
     load_skimmers,
     lookup_callsign_location,
     maidenhead_to_latlon,
     refresh_skimmer_cache,
 )
+from wspr_data import WsprError, clean_callsign, fetch_listening, fetch_wspr_spots, receiver_locations
 
 # Same colours the RBN website uses for each band.
 BAND_COLORS = {
@@ -28,11 +49,6 @@ BAND_COLORS = {
     "30m": "#ff0000", "20m": "#800080", "17m": "#0000ff", "15m": "#444444",
     "12m": "#00ffff", "10m": "#ff00ff", "6m": "#ffc0cb",
 }
-BAND_RANGES_KHZ = [
-    ("160m", 1800, 2000), ("80m", 3500, 4000), ("60m", 5300, 5500), ("40m", 7000, 7300),
-    ("30m", 10100, 10150), ("20m", 14000, 14350), ("17m", 18068, 18168), ("15m", 21000, 21450),
-    ("12m", 24890, 24990), ("10m", 28000, 29700), ("6m", 50000, 54000),
-]
 # Key-free basemaps: (base tiles, optional labels overlay). Esri "Canvas" is the closest match to CARTO's look.
 _ESRI = "https://server.arcgisonline.com/ArcGIS/rest/services/{}/MapServer/tile/{{z}}/{{y}}/{{x}}"
 _ESRI_ATTR = "Tiles &copy; Esri"
@@ -42,8 +58,10 @@ TILE_STYLES = {
     "Satellite": (_ESRI.format("World_Imagery"), _ESRI.format("Reference/World_Boundaries_and_Places")),
     "Street": ("OpenStreetMap", None),
 }
-# Weak = small green, medium = yellow, strong = large dark red. Typical RBN reports run ~5-35 dB.
-SNR_MIN, SNR_MAX = 5, 35
+# Weak = small green, medium = yellow, strong = large dark red. What counts as weak or strong depends on the
+# source: RBN CW reports typically run ~5-35 dB, while WSPR decodes far below the noise, roughly -28 to +2 dB.
+RBN_SNR_SCALE = (5, 35)
+WSPR_SNR_SCALE = (-28, 2)
 SNR_COLORS = ["#22b14c", "#ffd60a", "#8b0000"]
 SNR_CMAP = mcolors.LinearSegmentedColormap.from_list("snr", SNR_COLORS)
 KM_PER_MILE = 1.609344
@@ -52,17 +70,6 @@ SETTINGS_FILE = Path(__file__).with_name("settings.json")
 
 
 # ----------------------------------------------------------------- data loading
-
-def get_band(freq):
-    try:
-        freq = float(freq)
-    except (TypeError, ValueError):
-        return "unknown"
-    for name, lo, hi in BAND_RANGES_KHZ:
-        if lo <= freq <= hi:
-            return name
-    return "unknown"
-
 
 @st.cache_data(show_spinner=False, ttl=3600)
 def download_rbn_day(date, callsign):
@@ -122,11 +129,6 @@ def parse_pasted_data(text):
     return df
 
 
-def skimmer_location(spotter, skimmers):
-    """Look up a spotter, tolerating the '-#' suffix used in RBN history files."""
-    return skimmers.get(spotter) or skimmers.get(spotter.split("-")[0])
-
-
 # --------------------------------------------------------------------- geometry
 
 def distance_km(a, b):
@@ -158,20 +160,21 @@ def lon_near(lon, ref_lon):
     return ref_lon + (lon - ref_lon + 180) % 360 - 180
 
 
-def snr_strength(snr):
+def snr_strength(snr, scale=RBN_SNR_SCALE):
     """0 (weak) .. 1 (strong)"""
-    return float(np.clip((snr - SNR_MIN) / (SNR_MAX - SNR_MIN), 0, 1))
+    lo, hi = scale
+    return float(np.clip((snr - lo) / (hi - lo), 0, 1))
 
 
-def snr_color(snr):
-    return mcolors.to_hex(SNR_CMAP(snr_strength(snr)))
+def snr_color(snr, scale=RBN_SNR_SCALE):
+    return mcolors.to_hex(SNR_CMAP(snr_strength(snr, scale)))
 
 
-def snr_radius(snr):
-    return 5 + 6 * snr_strength(snr)
+def snr_radius(snr, scale=RBN_SNR_SCALE):
+    return 5 + 6 * snr_strength(snr, scale)
 
 
-def spot_history_svg(g, gid_seed, w=240, h=100):
+def spot_history_svg(g, gid_seed, w=240, h=100, scale=RBN_SNR_SCALE):
     """Small SNR-over-time chart for one skimmer's repeat spots: a shaded line, its own vertical
     scale (so a narrow swing still fills the chart), coloured on the map's absolute SNR scale so it
     reads as an extension of the dots, with the best spot highlighted. Points are spaced by actual
@@ -193,7 +196,7 @@ def spot_history_svg(g, gid_seed, w=240, h=100):
         xs = [pad_l + ((row.time - g["time"].iloc[0]).total_seconds() / span_s) * plot_w for row in g.itertuples()]
     ys = [pad_t + plot_h - ((row.snr - lo) / span) * plot_h * 0.82 - plot_h * 0.09 for row in g.itertuples()]
     peak_i = int(g["snr"].values.argmax())
-    peak_color = snr_color(hi)
+    peak_color = snr_color(hi, scale)
 
     day_breaks = []
     if multi_day:
@@ -223,7 +226,7 @@ def spot_history_svg(g, gid_seed, w=240, h=100):
 
     points, labels = [], []
     for i, (x, y, row) in enumerate(zip(xs, ys, g.itertuples())):
-        color, is_peak = snr_color(row.snr), i == peak_i
+        color, is_peak = snr_color(row.snr, scale), i == peak_i
         r = 5.5 if is_peak else 3.4
         glow = f'<circle cx="{x:.1f}" cy="{y:.1f}" r="{r + 4}" fill="{color}" opacity="0.25"/>' if is_peak else ""
         points.append(f'{glow}<circle cx="{x:.1f}" cy="{y:.1f}" r="{r:.1f}" fill="{color}" stroke="#fff" '
@@ -252,10 +255,10 @@ def _stats_line(g):
             f"range {g['snr'].min():.0f}&ndash;{g['snr'].max():.0f} dB")
 
 
-def _single_spot_html(row):
+def _single_spot_html(row, scale=RBN_SNR_SCALE):
     """A lone spot has no trend to chart, but it still gets the same colour-coded strength cue as
     every dot on the map and every point in a multi-spot chart, instead of dropping to bare text."""
-    color = snr_color(row["snr"])
+    color = snr_color(row["snr"], scale)
     return (f'<div style="display:flex;align-items:center;gap:9px;margin:4px 0 2px 0">'
             f'<span style="display:inline-block;width:15px;height:15px;border-radius:50%;flex:none;'
             f'background:{color};box-shadow:0 0 0 4px {color}2a"></span>'
@@ -265,17 +268,17 @@ def _single_spot_html(row):
 MAX_DAY_TABS = 12  # beyond this, a row of date pills stops being useful; fall back to the compressed view
 
 
-def _history_block(g, gid_seed):
+def _history_block(g, gid_seed, scale=RBN_SNR_SCALE):
     """Chart plus stats for one skimmer's (band's) spots. A burst of close-together spots inside a
     test spanning many days used to get compressed to a sliver on one shared axis - unreadable, and
     prone to a peak label landing on a date divider. Splitting into a same-style tab per day fixes
     both: each day's tab gets the full chart width to itself, at only that day's own time scale."""
     if len(g) == 1:
-        return _single_spot_html(g.iloc[0])
+        return _single_spot_html(g.iloc[0], scale)
 
     days = sorted(g["time"].dt.date.unique())
     if len(days) == 1 or len(days) > MAX_DAY_TABS:
-        return spot_history_svg(g, gid_seed) + _stats_line(g)
+        return spot_history_svg(g, gid_seed, scale=scale) + _stats_line(g)
 
     gid = "daytabs_" + re.sub(r"[^A-Za-z0-9]", "", gid_seed)
     options = [("All", g)] + [(f"{d:%d %b}", g[g["time"].dt.date == d]) for d in days]
@@ -285,9 +288,9 @@ def _history_block(g, gid_seed):
                       + (" checked>" if i == 0 else ">"))
         tabs.append(f'<label for="{gid}_{i}" id="{gid}_tab{i}" class="{gid}_tab">{label} ({len(dg)})</label>')
         if len(dg) > 1:
-            panel_content = spot_history_svg(dg, f"{gid_seed}{i}") + _stats_line(dg)
+            panel_content = spot_history_svg(dg, f"{gid_seed}{i}", scale=scale) + _stats_line(dg)
         else:
-            panel_content = _single_spot_html(dg.iloc[0])
+            panel_content = _single_spot_html(dg.iloc[0], scale)
         panels.append(f'<div id="{gid}_panel{i}">{panel_content}</div>')
         rules.append(f'#{gid}_{i}:checked ~ #{gid}_tab{i} {{background:#8888}}')
         rules += [f'#{gid}_{i}:checked ~ #{gid}_panel{j} {{display:none}}' for j in range(len(options)) if j != i]
@@ -297,16 +300,16 @@ def _history_block(g, gid_seed):
     return style + "".join(inputs) + '<div style="line-height:2.1">' + "".join(tabs) + "</div>" + "".join(panels)
 
 
-def _band_panel_html(spotter, band, g, gid_seed):
+def _band_panel_html(spotter, band, g, gid_seed, scale=RBN_SNR_SCALE):
     """One band's worth of content for a popup: frequency range, then the (possibly day-tabbed) history."""
     best = g.loc[g["snr"].idxmax()]
     freq_label = (f"{best['freq']:.1f} kHz" if g["freq"].nunique() == 1
                   else f"{g['freq'].min():.1f}&ndash;{g['freq'].max():.1f} kHz")
     sub = f'<div style="opacity:.7;font-size:12px;margin:2px 0 6px 0">{band} &middot; {freq_label}</div>'
-    return sub + _history_block(g, f"{gid_seed}{band}")
+    return sub + _history_block(g, f"{gid_seed}{band}", scale)
 
 
-def spot_popup_html(spotter, g, dist, units):
+def spot_popup_html(spotter, g, dist, units, scale=RBN_SNR_SCALE):
     """Popup for one skimmer, across every band it heard this session on. A single band renders
     directly; more than one gets small tab pills (pure CSS radio trick, no JS) so switching bands
     doesn't need a second marker fighting for the same map coordinate.
@@ -318,7 +321,7 @@ def spot_popup_html(spotter, g, dist, units):
     header = f"<b>{spotter}</b><br>{dist:,.0f} {units}"
     bands = sorted(g["band"].unique(), key=lambda b: -len(g[g["band"] == b]))  # busiest band first
     if len(bands) == 1:
-        return header + "<br>" + _band_panel_html(spotter, bands[0], g, spotter)
+        return header + "<br>" + _band_panel_html(spotter, bands[0], g, spotter, scale)
 
     gid = "bandtabs_" + re.sub(r"[^A-Za-z0-9]", "", spotter)
     base_style = (f'<style>.{gid}_tab {{display:inline-block;padding:3px 9px;margin:0 4px 6px 0;'
@@ -329,7 +332,7 @@ def spot_popup_html(spotter, g, dist, units):
         inputs.append(f'<input type="radio" name="{gid}" id="{gid}_{i}" style="display:none"'
                       + (" checked>" if i == 0 else ">"))
         tabs.append(f'<label for="{gid}_{i}" id="{gid}_tab{i}" class="{gid}_tab">{band} ({len(bg)})</label>')
-        panels.append(f'<div id="{gid}_panel{i}">{_band_panel_html(spotter, band, bg, spotter)}</div>')
+        panels.append(f'<div id="{gid}_panel{i}">{_band_panel_html(spotter, band, bg, spotter, scale)}</div>')
         rules.append(f'#{gid}_{i}:checked ~ #{gid}_tab{i} {{background:{BAND_COLORS.get(band, "#3388ff")}55}}')
         rules += [f'#{gid}_{i}:checked ~ #{gid}_panel{j} {{display:none}}' for j in range(len(bands)) if j != i]
     style = base_style + "".join(rules) + "</style>"
@@ -364,21 +367,22 @@ def fit_to(m, bounds):
 
 
 def build_map(spots, skimmers, home, home_label, callsign, show_all, tiles, units, farthest,
-              title=None, fit_spots=None):
+              title=None, fit_spots=None, scale=RBN_SNR_SCALE, noun="skimmer"):
     """`title` replaces the callsign in the legend; `fit_spots` also frames those spots in the view,
-    so two maps can share the same extent."""
+    so two maps can share the same extent. `scale` is the (weak, strong) SNR range the colours span;
+    `noun` is what the stations that heard you are called (skimmer for RBN, receiver for WSPR)."""
     k = KM_PER_MILE if units == "mi" else 1
     m = base_map(home, tiles)
 
     if show_all:
-        layer = folium.FeatureGroup(name="All skimmers", show=True)
+        layer = folium.FeatureGroup(name=f"All {noun}s", show=True)
         for call, (lat, lon) in skimmers.items():
             folium.CircleMarker((lat, lon_near(lon, home[1])), radius=2, color="#555", weight=1, fill=True,
                                 fill_opacity=0.6, tooltip=call).add_to(layer)
         layer.add_to(m)
 
     lines = folium.FeatureGroup(name="Paths", show=True)
-    dots = folium.FeatureGroup(name="Skimmers (sized/coloured by best SNR)", show=True)
+    dots = folium.FeatureGroup(name=f"{noun.capitalize()}s (sized/coloured by best SNR)", show=True)
     bounds = [home]
 
     # One path per skimmer per band it reached on (so each band it hit still gets its own colour)...
@@ -404,9 +408,10 @@ def build_map(spots, skimmers, home, home_label, callsign, show_all, tiles, unit
 
         folium.CircleMarker(
             end,
-            radius=snr_radius(best_snr),
-            color=snr_color(best_snr), weight=1.5, opacity=0.8, fill=True, fill_color=snr_color(best_snr), fill_opacity=0.55,
-            popup=folium.Popup(spot_popup_html(spotter, g, distance_km(home, loc) / k, units), max_width=290),
+            radius=snr_radius(best_snr, scale),
+            color=snr_color(best_snr, scale), weight=1.5, opacity=0.8, fill=True,
+            fill_color=snr_color(best_snr, scale), fill_opacity=0.55,
+            popup=folium.Popup(spot_popup_html(spotter, g, distance_km(home, loc) / k, units, scale), max_width=290),
         ).add_to(dots)
 
     lines.add_to(m)
@@ -444,10 +449,11 @@ def build_map(spots, skimmers, home, home_label, callsign, show_all, tiles, unit
     )
     snr_key = "".join(
         f'<div style="text-align:center;width:26px"><div style="height:24px;display:flex;align-items:center;justify-content:center">'
-        f'<span style="display:block;border-radius:50%;border:1.5px solid {snr_color(db)};'
-        f'width:{2 * snr_radius(db):.0f}px;height:{2 * snr_radius(db):.0f}px;background:{snr_color(db)}88"></span></div>'
-        f'<div style="opacity:.75">{db}{"+" if db == SNR_MAX else ""}</div></div>'
-        for db in (5, 12, 20, 28, 35))
+        f'<span style="display:block;border-radius:50%;border:1.5px solid {snr_color(db, scale)};'
+        f'width:{2 * snr_radius(db, scale):.0f}px;height:{2 * snr_radius(db, scale):.0f}px;'
+        f'background:{snr_color(db, scale)}88"></span></div>'
+        f'<div style="opacity:.75">{db}{"+" if db == scale[1] else ""}</div></div>'
+        for db in (int(round(x)) for x in np.linspace(scale[0], scale[1], 5)))
     legend = f"""
     <div style="position:fixed;bottom:34px;right:12px;z-index:9999;background:rgba(255,255,255,.92);
       padding:10px 12px;border-radius:8px;box-shadow:0 1px 6px rgba(0,0,0,.3);
@@ -482,7 +488,7 @@ SECTORS = 16
 COMPASS_16 = ["N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE", "S", "SSW", "SW", "WSW", "W", "WNW", "NW", "NNW"]
 
 
-def bearing_chart(spots, skimmers, home):
+def bearing_chart(spots, skimmers, home, scale=RBN_SNR_SCALE):
     """Polar bar chart: bar length = number of spots in that direction, colour = average SNR there.
     Returns (figure, markdown summary) or None if no spot has a known skimmer location."""
     rows = []
@@ -506,7 +512,7 @@ def bearing_chart(spots, skimmers, home):
     ax.set_theta_direction(-1)
     grey = "#8a8f98"
     centers = np.radians(np.arange(SECTORS) * 360 / SECTORS)
-    colors = [snr_color(m) if not np.isnan(m) else "#00000000" for m in per["mean"]]
+    colors = [snr_color(m, scale) if not np.isnan(m) else "#00000000" for m in per["mean"]]
     ax.bar(centers, per["count"], width=np.radians(360 / SECTORS) * 0.88, color=colors, alpha=0.75,
            edgecolor=colors, linewidth=1.2)
     ax.set_xticks(np.radians(np.arange(0, 360, 45)))
@@ -530,6 +536,12 @@ def bearing_chart(spots, skimmers, home):
 
 # ----------------------------------------------------------------- compare mode
 
+# The ways compare mode can tell the A side from the B side (these are the labels people see).
+SPLIT_FREQ = "Two frequencies"
+SPLIT_LOG = "Antenna log"
+SPLIT_TIMED = "Swap every few minutes"
+SPLIT_SEQ = "One after the other"
+
 COLOR_A, COLOR_B, COLOR_TIE = "#2563eb", "#f97316", "#8a8f98"
 
 
@@ -541,60 +553,11 @@ def frequency_groups(spots, gap_khz):
     return [(g["freq"].median(), g) for _, g in ordered.groupby(group_id)]
 
 
-def skimmer_table(spots, skimmers, home):
-    """One row per located skimmer: median SNR, spot count, distance (km) and bearing from `home`."""
-    rows = []
-    for spotter, g in spots.groupby("spotter"):
-        loc = skimmer_location(spotter, skimmers)
-        if loc is None:
-            continue
-        inv = Geodesic.WGS84.Inverse(home[0], home[1], loc[0], loc[1])
-        rows.append((spotter, g["snr"].median(), len(g), inv["s12"] / 1000, inv["azi1"] % 360))
-    return pd.DataFrame(rows, columns=["skimmer", "snr", "spots", "km", "bearing"]).set_index("skimmer")
-
-
 def _themed_axes(fig, polar=False):
     fig.patch.set_alpha(0)
     ax = fig.add_subplot(projection="polar") if polar else fig.add_subplot()
-    ax.set_facecolor("none")
-    for spine in ax.spines.values():
-        spine.set_color(COLOR_TIE)
-        spine.set_alpha(0.3)
-    ax.tick_params(colors=COLOR_TIE, labelsize=8)
-    ax.grid(color=COLOR_TIE, alpha=0.3)
+    _style_axes(ax)
     return ax
-
-
-SECTOR_NAMES = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"]
-DIRECTION_EDGE_DB = 2  # a direction only counts as "stronger" for one frequency past this many dB
-
-
-def compare_snr(shared):
-    """(average A, average B, winner) over the skimmers that heard both. The winner is 'A' or 'B', or None
-    when there are too few skimmers or the difference is within the noise."""
-    n = len(shared)
-    if n == 0:
-        return None, None, None
-    d = shared["delta"]
-    avg_a, avg_b = shared["snr_a"].mean(), shared["snr_b"].mean()
-    if n < 3 or abs(d.mean()) <= 1.96 * d.std(ddof=1) / math.sqrt(n):  # ~95% confidence range
-        return avg_a, avg_b, None
-    return avg_a, avg_b, "A" if d.mean() > 0 else "B"
-
-
-def headline(reach_winner, snr_winner, names):
-    """(streamlit level, message): the overall answer in one sentence."""
-    wins = {"A": [], "B": []}
-    if reach_winner:
-        wins[reach_winner].append("reached more skimmers")
-    if snr_winner:
-        wins[snr_winner].append("had the stronger signal")
-    if wins["A"] and wins["B"]:
-        return "info", f"**Mixed result:** {names['A']} {wins['A'][0]}, but {names['B']} {wins['B'][0]}."
-    for side in "AB":
-        if wins[side]:
-            return "success", f"**{names[side]} is getting out better:** it " + " and ".join(wins[side]) + "."
-    return "info", "**Too close to call.** Neither frequency is clearly ahead."
 
 
 def sector_means(table):
@@ -606,45 +569,28 @@ def sector_means(table):
 
 
 def direction_chart(means_a, means_b, name_a, name_b):
-    """Radar chart: distance from the centre = average SNR in that direction, one shape per frequency."""
+    """Radar chart: distance from the centre = average SNR in that direction, one shape per frequency.
+    The centre is the weakest SNR (not 0 dB), so WSPR's negative values plot too; ring labels show real dB."""
     fig = Figure(figsize=(4.6, 4.6))
     ax = _themed_axes(fig, polar=True)
     ax.set_theta_zero_location("N")
     ax.set_theta_direction(-1)
+    seen = pd.concat([means_a, means_b]).dropna()
+    base = min(0.0, float(np.floor(seen.min())) - 2) if len(seen) else 0.0
     angles = np.radians(np.arange(8) * 45)
     closed = np.append(angles, angles[0])
     for means, color, name in ((means_a, COLOR_A, name_a), (means_b, COLOR_B, name_b)):
-        r = means.fillna(0).to_numpy()
+        r = (means - base).fillna(0).to_numpy()
         r = np.append(r, r[0])
         ax.plot(closed, r, color=color, linewidth=2.2, label=name)
         ax.fill(closed, r, color=color, alpha=0.18)
     ax.set_xticks(angles)
     ax.set_xticklabels(SECTOR_NAMES, color=COLOR_TIE, fontsize=12)
     ax.set_ylim(0, None)
+    ax.yaxis.set_major_formatter(FuncFormatter(lambda v, _: f"{v + base:.0f}"))
     ax.set_rlabel_position(22.5)
     ax.legend(loc="lower center", bbox_to_anchor=(0.5, -0.18), ncol=2, frameon=False, labelcolor=COLOR_TIE)
     return fig
-
-
-def direction_summary(means_a, means_b, names):
-    """Markdown: which directions each frequency is stronger toward."""
-    both = means_a.notna() & means_b.notna()
-    diff = (means_a - means_b)[both]
-
-    def dirs(mask):
-        return ", ".join(SECTOR_NAMES[i] for i in mask.index[mask])
-
-    lines = []
-    for side, mask, icon in (("A", diff >= DIRECTION_EDGE_DB, "🔵"), ("B", diff <= -DIRECTION_EDGE_DB, "🟠")):
-        if mask.any():
-            lines.append(f"{icon} **{names[side]} is stronger toward:** {dirs(mask)}")
-    for side, mine, other, icon in (("A", means_a, means_b, "🔵"), ("B", means_b, means_a, "🟠")):
-        only = mine.notna() & other.isna()
-        if only.any():
-            lines.append(f"{icon} **Only {names[side]} was heard toward:** {dirs(only)}")
-    if not lines:
-        lines.append("No clear difference by direction.")
-    return "\n\n".join(lines)
 
 
 def best_direction(means):
@@ -709,14 +655,152 @@ def reach_bar_html(only_a, both, only_b):
             f'<div style="font-size:.9rem">{legend}</div>')
 
 
-def compare_view(spots, skimmers, home, label, callsign, file_date, tiles, show_all, units, gap_khz):
-    """Compare mode: split `spots` into frequency groups, pick two, and show which one is getting out better."""
+def _style_axes(ax):
+    ax.set_facecolor("none")
+    for spine in ax.spines.values():
+        spine.set_color(COLOR_TIE)
+        spine.set_alpha(0.3)
+    ax.tick_params(colors=COLOR_TIE, labelsize=8)
+    ax.grid(color=COLOR_TIE, alpha=0.3)
+
+
+def distance_chart(dist, names):
+    """One row per distance range. Bars grow left where A is stronger and right where B is stronger, from a centre
+    line that means 'equal'; the receiver counts sit at the right. Long paths usually mean low take-off angles."""
+    rows = dist[(dist["a"] > 0) | (dist["b"] > 0)].reset_index(drop=True)
+    short = {k: (v if len(v) <= 10 else k) for k, v in names.items()}  # long names would collide with the bars
+    n_rows = max(len(rows), 1)
+    fig = Figure(figsize=(6.4, 0.62 * n_rows + 1.5))
+    fig.patch.set_alpha(0)
+    ax = fig.add_subplot()
+    _style_axes(ax)
+    ax.grid(axis="y", visible=False)
+    ax.tick_params(axis="y", labelsize=9, length=0)
+    delta = rows["delta"].to_numpy(dtype=float) if len(rows) else np.array([])
+    reach = float(np.nanmax(np.abs(delta))) if len(delta) and np.isfinite(delta).any() else 1.0
+    reach = max(reach * 1.45, 3.0)
+    y = np.arange(len(rows))
+    for i, row in rows.iterrows():
+        d, n = row["delta"], int(row["shared"])
+        if pd.isna(d) or n == 0:
+            ax.text(0, i, "no receiver heard both", ha="center", va="center", fontsize=8, color=COLOR_TIE, alpha=0.7)
+            continue
+        color = COLOR_A if d > 0 else COLOR_B if d < 0 else COLOR_TIE
+        ax.barh(i, -d, height=0.56, color=color, alpha=0.9 if n >= 3 else 0.3, edgecolor="none")
+        label = f"{abs(d):.1f} dB" if d else "equal"
+        ax.annotate(label, (-d, i), xytext=(6 if -d >= 0 else -6, 0), textcoords="offset points",
+                    ha="left" if -d >= 0 else "right", va="center", fontsize=8, color=COLOR_TIE)
+    ax.axvline(0, color=COLOR_TIE, linewidth=1.2)
+    ax.set_xlim(-reach, reach)
+    ax.set_ylim(len(rows) - 0.5, -0.5)  # nearest range on top
+    ax.set_yticks(y)
+    ax.set_yticklabels(rows["label"] if len(rows) else [])
+    ax.xaxis.set_major_formatter(FuncFormatter(lambda v, _: f"{abs(v):g}"))
+    ax.set_xlabel("dB stronger", fontsize=8, color=COLOR_TIE)
+    # B is drawn to the right, so a positive A - B (A stronger) points left
+    ax.text(0.0, 1.04, f"◀  {short['A']} stronger", transform=ax.transAxes, ha="left", va="bottom",
+            fontsize=9, color=COLOR_A, fontweight="bold")
+    ax.text(1.0, 1.04, f"{short['B']} stronger  ▶", transform=ax.transAxes, ha="right", va="bottom",
+            fontsize=9, color=COLOR_B, fontweight="bold")
+    for i, row in rows.iterrows():
+        ax.text(1.03, i, f"heard by {short['A']} {int(row['a'])} · {short['B']} {int(row['b'])}\n{int(row['shared'])} heard both",
+                transform=ax.get_yaxis_transform(), ha="left", va="center", fontsize=7.5, color=COLOR_TIE)
+    fig.subplots_adjust(left=0.2, right=0.66, top=0.86, bottom=0.18)
+    return fig
+
+
+def paired_scatter(shared, names):
+    """One dot per receiver that heard both: A's SNR across, B's up. Above the dashed line B was stronger."""
+    fig = Figure(figsize=(4.4, 4.4))
+    fig.patch.set_alpha(0)
+    ax = fig.add_subplot()
+    _style_axes(ax)
+    lo = float(min(shared["snr_a"].min(), shared["snr_b"].min())) - 2
+    hi = float(max(shared["snr_a"].max(), shared["snr_b"].max())) + 2
+    ax.plot([lo, hi], [lo, hi], color=COLOR_TIE, linestyle="--", linewidth=1)
+    colors = np.where(shared["delta"] > 0, COLOR_A, np.where(shared["delta"] < 0, COLOR_B, COLOR_TIE))
+    ax.scatter(shared["snr_a"], shared["snr_b"], c=colors, s=26, alpha=0.75, linewidths=0)
+    ax.set_xlim(lo, hi)
+    ax.set_ylim(lo, hi)
+    ax.set_aspect("equal")
+    ax.set_xlabel(f"{names['A']} SNR (dB)", color=COLOR_A, fontsize=9)
+    ax.set_ylabel(f"{names['B']} SNR (dB)", color=COLOR_B, fontsize=9)
+    ax.text(0.04, 0.95, f"{names['B']} stronger", transform=ax.transAxes, color=COLOR_B, fontsize=8, va="top")
+    ax.text(0.96, 0.05, f"{names['A']} stronger", transform=ax.transAxes, color=COLOR_A, fontsize=8, ha="right")
+    return fig
+
+
+def timeline_chart(spots_a, spots_b, names):
+    """SNR of every spot over time, with each transmission's median as a dot: shows when each side was
+    connected and whether conditions drifted while you tested."""
+    fig = Figure(figsize=(9.5, 2.9))
+    fig.patch.set_alpha(0)
+    ax = fig.add_subplot()
+    _style_axes(ax)
+    for spots, color, name in ((spots_a, COLOR_A, names["A"]), (spots_b, COLOR_B, names["B"])):
+        if spots.empty:
+            continue
+        ax.scatter(spots["time"], spots["snr"], s=5, color=color, alpha=0.18, linewidths=0)
+        med = spots.groupby("time")["snr"].median()
+        ax.plot(med.index, med.to_numpy(), linestyle="none", marker="o", markersize=4, color=color, label=name)
+    ax.set_ylabel("SNR (dB)", color=COLOR_TIE, fontsize=8)
+    ax.xaxis.set_major_formatter(mdates.DateFormatter("%d %b %H:%M"))
+    ax.legend(frameon=False, fontsize=8, labelcolor=COLOR_TIE, ncol=2, loc="upper right")
+    fig.autofmt_xdate(rotation=0, ha="center")
+    return fig
+
+
+def breakdown_table(df, names, first_col, noun):
+    """Styled distance / direction table: receivers per side, those that heard both, the SNR gap, and who is better."""
+    better = df["call"].map({"A": names["A"], "B": names["B"]}).fillna("–")
+    better = better + np.where(df["basis"] == "more receivers", f" (more {noun}s)", "")
+    view = pd.DataFrame({
+        first_col: df["label"],
+        names["A"]: df["a"], names["B"]: df["b"], "Both": df["shared"],
+        "A − B (dB)": df["delta"].map(lambda v: "–" if pd.isna(v) else f"{v:+.1f}"),
+        "Better": better,
+    })
+
+    def tint(row):
+        color = {"A": COLOR_A, "B": COLOR_B}.get(df.loc[row.name, "call"])
+        style = [""] * len(row)
+        if color:
+            style[list(row.index).index("Better")] = f"background-color:{color}33;font-weight:600"
+        return style
+    return view.style.apply(tint, axis=1)
+
+
+def _bold(text):
+    return re.sub(r"\*\*(.+?)\*\*", r"<b>\1</b>", text)
+
+
+def verdict_card_html(v):
+    """The overall answer in a card tinted for the winner (blue = A, orange = B, grey = neither)."""
+    color = {"A": COLOR_A, "B": COLOR_B}.get(v["winner"], COLOR_TIE)
+    points = "".join(f'<li style="margin:7px 0">{icon} {_bold(text)}</li>' for icon, text in v["points"])
+    caveats = "".join(f'<div style="margin-top:6px">⚠️ {_bold(c)}</div>' for c in v["caveats"])
+    return (f'<div style="border-left:6px solid {color};background:{color}1c;border-radius:10px;padding:16px 22px;'
+            f'margin:4px 0 16px 0"><div style="font-size:1.3rem;line-height:1.45">{_bold(v["headline"])}</div>'
+            f'<ul style="list-style:none;padding:0;margin:12px 0 0 0;font-size:.95rem">{points}</ul>'
+            f'<div style="font-size:.85rem;opacity:.8;margin-top:8px">{caveats}</div></div>')
+
+
+def _name_inputs():
+    """Optional names for the two sides, used everywhere in the results."""
+    with st.expander("Name your antennas (optional)"):
+        c1, c2 = st.columns(2)
+        return (c1.text_input("\U0001F535 Name for A", placeholder="e.g. Dipole", key="cmp_name_a").strip(),
+                c2.text_input("\U0001F7E0 Name for B", placeholder="e.g. 40m loop", key="cmp_name_b").strip())
+
+
+def _separate_by_frequency(spots, gap_khz):
+    """{'a', 'b', 'default'} chosen from frequency groups, or None if that can't be done."""
     groups = frequency_groups(spots, gap_khz)
     freqs = ", ".join(f"{f:.1f}" for f, _ in groups)
     if len(groups) < 2:
         st.warning(f"Found only {len(groups)} frequency group ({freqs or 'none'} kHz). Compare mode needs spots on at "
                    f"least two frequencies. If your tests were close together, lower **Frequency gap** in the sidebar.")
-        return
+        return None
 
     def option_label(i):
         f, g = groups[i]
@@ -725,78 +809,306 @@ def compare_view(spots, skimmers, home, label, callsign, file_date, tiles, show_
 
     top_two = sorted(sorted(range(len(groups)), key=lambda i: -len(groups[i][1]))[:2])
     pick_a, pick_b = st.columns(2)
-    ia = pick_a.selectbox("🔵 Frequency A", range(len(groups)), index=top_two[0], format_func=option_label)
-    ib = pick_b.selectbox("🟠 Frequency B", range(len(groups)), index=top_two[1], format_func=option_label)
+    ia = pick_a.selectbox("\U0001F535 Frequency A", range(len(groups)), index=top_two[0], format_func=option_label)
+    ib = pick_b.selectbox("\U0001F7E0 Frequency B", range(len(groups)), index=top_two[1], format_func=option_label)
     if ia == ib:
         st.warning("Pick two different frequencies to compare.")
-        return
-
+        return None
     (fa, spots_a), (fb, spots_b) = groups[ia], groups[ib]
-    names = {"A": f"A ({fa:.1f} kHz)", "B": f"B ({fb:.1f} kHz)"}
-    table_a, table_b = skimmer_table(spots_a, skimmers, home), skimmer_table(spots_b, skimmers, home)
-    shared = table_a.join(table_b, how="inner", lsuffix="_a", rsuffix="_b")
-    shared["delta"] = shared["snr_a"] - shared["snr_b"]
+    return {"a": spots_a, "b": spots_b, "default": {"A": f"A ({fa:.1f} kHz)", "B": f"B ({fb:.1f} kHz)"}}
 
-    tab_results, tab_maps = st.tabs(["📊 Results", "🗺️ Side-by-side maps"])
 
-    with tab_results:
-        heard_a, heard_b = set(spots_a["spotter"]), set(spots_b["spotter"])
-        reach_winner = "A" if len(heard_a) > len(heard_b) else "B" if len(heard_b) > len(heard_a) else None
-        avg_a, avg_b, snr_winner = compare_snr(shared)
-        level, message = headline(reach_winner, snr_winner, names)
-        getattr(st, level)(message)
+def _time_bounds(all_spots):
+    first = all_spots["time"].min().floor("min")
+    return first.to_pydatetime(), (all_spots["time"].max().ceil("min") + pd.Timedelta(minutes=2)).to_pydatetime()
 
-        means_a, means_b = sector_means(table_a), sector_means(table_b)
-        snr_note = f"at the {len(shared)} skimmers that heard both" if len(shared) else "no skimmer heard both"
+
+def _separate_by_windows(spots, all_spots):
+    tmin, tmax = _time_bounds(all_spots)
+    if tmax <= tmin:
+        st.warning("These spots all fall in one moment, so there is no time to split them by.")
+        return None
+    (a0, a1), (b0, b1) = default_windows(all_spots)
+    st.caption("Drag the handles to the times each antenna was connected. The defaults split at the longest quiet "
+               "gap, or down the middle if there isn't one.")
+    c1, c2 = st.columns(2)
+    kw = dict(min_value=tmin, max_value=tmax, step=timedelta(minutes=2), format="MM/DD HH:mm")
+    wa = c1.slider("\U0001F535 When A was connected (UTC)", value=(a0.to_pydatetime(), a1.to_pydatetime()), **kw)
+    wb = c2.slider("\U0001F7E0 When B was connected (UTC)", value=(b0.to_pydatetime(), b1.to_pydatetime()), **kw)
+    if wa[0] < wb[1] and wb[0] < wa[1]:
+        st.warning("The two windows overlap, so some spots would count for both. Move one so they don't.")
+        return None
+    spots_a, spots_b = split_windows(spots, [pd.Timestamp(t) for t in wa], [pd.Timestamp(t) for t in wb])
+    return {"a": spots_a, "b": spots_b, "time_based": True,
+            "exposure": ((wa[1] - wa[0]).total_seconds() / 60, (wb[1] - wb[0]).total_seconds() / 60),
+            "default": {"A": f"A ({wa[0]:%H:%M}–{wa[1]:%H:%M})", "B": f"B ({wb[0]:%H:%M}–{wb[1]:%H:%M})"}}
+
+
+def _separate_by_log(spots):
+    """WSPR antenna test the way N4REE keeps it: a log with the UTC time of each transmission and the antenna that
+    was connected. The app lists the transmissions it found with a first guess (the antenna alternating down the
+    list); the user corrects any row, or clears a row to leave it out. Works for a single A/B pair up to a long run."""
+    stamps = [pd.Timestamp(t) for t in np.sort(spots["time"].unique())]
+    if len(stamps) < 2:
+        st.warning("Only one transmission was found. An antenna test needs at least two, one on each antenna. Spots "
+                   "take a few minutes to show up after you transmit, so try again shortly, or look back further.")
+        return None
+    if spots["band"].nunique() > 1:
+        st.warning(f"These spots cover {spots['band'].nunique()} bands. Test one band at a time: pick it under "
+                   "**Filters \u2192 Band** in the sidebar.")
+    st.markdown("**Which antenna was connected for each transmission?**")
+    st.caption("These are the transmissions inside your **UTC time window** (sidebar). Narrow the window to just "
+               "your test, from your first cycle to your last. The antenna changes after every cycle; fix any row to "
+               "match your notes, or clear a row to leave it out.")
+    if len(stamps) > 30:
+        st.warning(f"That's {len(stamps)} transmissions. Your test is probably shorter: narrow the **UTC time window** "
+                   "in the sidebar to just the cycles you ran.")
+    patterns = {"A, B, A, B \u2026": "ABAB", "B, A, B, A \u2026": "BABA", "A, B, B, A \u2026": "ABBA"}
+    order = st.radio("Order", list(patterns), horizontal=True, label_visibility="collapsed",
+                     help="Which antenna was connected for the first transmission, and the order after that. "
+                          "A, B, B, A balances which antenna goes first in each pair.")
+    pattern = patterns[order]
+    multi_day = stamps[0].date() != stamps[-1].date()
+    heard = spots.groupby("time")["spotter"].nunique()
+    right_now = pd.Timestamp(datetime.now(timezone.utc).replace(tzinfo=None))
+    arriving = [(right_now - t).total_seconds() / 60 < DATA_LAG_MINUTES for t in stamps]
+    table = pd.DataFrame({"UTC time": [f"{t:%d %b %H:%M}" if multi_day else f"{t:%H:%M}" for t in stamps],
+                          "Receivers that heard it": [int(heard[t]) for t in stamps],
+                          "Antenna": default_labels(stamps, pattern),
+                          "Status": [("\u23f3 still arriving" if late else
+                                      (f"\u26a0 {gap:.0f} min after the row above" if gap > 2.5 else ""))
+                                     for late, gap in zip(arriving, [0.0] + [(b - a).total_seconds() / 60
+                                                                              for a, b in zip(stamps, stamps[1:])])]})
+    edited = st.data_editor(
+        table, key=f"antenna_log_{pattern}_{len(stamps)}_{stamps[0]:%d%H%M}", hide_index=True, width="stretch",
+        disabled=["UTC time", "Receivers that heard it", "Status"], height=min(35 * (len(table) + 1) + 3, 420),
+        column_config={"Antenna": st.column_config.SelectboxColumn("Antenna", options=["A", "B"],
+                                                                   help="A, B, or empty to leave this one out.")})
+    marked = {t: lab for t, lab in zip(stamps, edited["Antenna"]) if lab in ("A", "B")}
+    late = [t for t, wait in zip(stamps, arriving) if wait and t in marked]
+    labels = {t: lab for t, lab in marked.items() if t not in late}
+    if late:
+        ready_at = max(late) + pd.Timedelta(minutes=DATA_LAG_MINUTES)
+        st.warning(f"{len(late)} of your newest transmissions (from {late[0]:%H:%M} UTC) are only minutes old, and wspr.live "
+                   f"is still receiving reports for them. That usually takes 6\u20138 minutes. They are left out for now: "
+                   f"click **Load spots** again at about {ready_at:%H:%M} UTC to include them.")
+    if "A" not in labels.values() or "B" not in labels.values():
+        if not late:
+            st.warning("Mark at least one transmission as A and one as B.")
+        return None
+    spots_a, spots_b = split_by_labels(spots, labels)
+    return {"a": spots_a, "b": spots_b, "time_based": True, "alternating": True, "labeled": True,
+            "default": {"A": "A", "B": "B"}}
+
+
+def _separate_timed(spots, all_spots):
+    """The antenna changes on a timer: A for N minutes, then B for N minutes, and so on."""
+    tmin, tmax = _time_bounds(all_spots)
+    if tmax <= tmin:
+        st.warning("These spots all fall in one moment, so there is no time to split them by.")
+        return None
+    st.caption("Change antenna on a timer, for example every 10 minutes. Propagation drifts over an hour, but "
+               "both antennas share every drift this way.")
+    c1, c2, c3 = st.columns([2, 1, 1])
+    start = c1.slider("First block starts (UTC)", min_value=tmin, max_value=tmax, value=tmin,
+                      step=timedelta(minutes=2), format="MM/DD HH:mm")
+    block = c2.number_input("Minutes per block", min_value=2, max_value=720, value=20, step=2,
+                            help="How long each antenna stays connected before you change.")
+    guard = c3.number_input("Ignore after change (min)", min_value=0, max_value=max(0, int(block) - 2),
+                            value=2 if block >= 6 else 0, step=1,
+                            help="Spots in the first minutes of each block are dropped, in case the change was still "
+                                 "happening. Leave at 0 for very short blocks.")
+    a_first = st.radio("Which antenna was connected first?", ["A", "B"], horizontal=True) == "A"
+    t0 = pd.Timestamp(start)
+    spots_a, spots_b = split_alternating(spots, t0, block, guard, a_first)
+    n_blocks = max(0, int(np.ceil((pd.Timestamp(tmax) - t0).total_seconds() / 60 / block)))
+    st.caption(f"{n_blocks} blocks of {block} min, about {n_blocks // 2} full rounds of A then B.")
+    return {"a": spots_a, "b": spots_b, "time_based": True, "alternating": True,
+            "exposure": alternating_exposure(t0, pd.Timestamp(tmax), block, guard, a_first),
+            "default": {"A": "A", "B": "B"}}
+
+
+def compare_view(spots, locs, home, label, callsign, file_date, tiles, show_all, units, split, gap_khz,
+                 scale, noun, kind, all_spots):
+    """Compare mode: separate `spots` into an A side and a B side (by frequency, time window, timed blocks,
+    or every other transmission), then say which one is getting out better, by how much, and in which directions."""
+    name_a, name_b = _name_inputs()
+    if split == SPLIT_FREQ:
+        sep = _separate_by_frequency(spots, gap_khz)
+    elif split == SPLIT_SEQ:
+        sep = _separate_by_windows(spots, all_spots)
+    elif split == SPLIT_LOG:
+        sep = _separate_by_log(spots)
+    else:
+        sep = _separate_timed(spots, all_spots)
+    if sep is None:
+        return
+    spots_a, spots_b = sep["a"], sep["b"]
+    if spots_a.empty or spots_b.empty:
+        st.warning("One side has no spots. Adjust the selection above, or the filters in the sidebar.")
+        return
+    if kind == "WSPR" and sep.get("time_based"):
+        # For WSPR the time on the air that matters is the transmissions that actually happened (2 minutes each), not
+        # the scheduled minutes: a transmitter that picks its slots at random can put far more of them on one side.
+        n_a, n_b = spots_a["time"].nunique(), spots_b["time"].nunique()
+        sep["exposure"] = (2.0 * n_a, 2.0 * n_b) if abs(n_a - n_b) > 1 else None
+    map_a, map_b = spots_a, spots_b  # the maps and timeline show everything that was heard
+    listening_note = None
+    if kind == "WSPR" and sep.get("time_based"):
+        bands = set(spots_a["band"]) | set(spots_b["band"])
+        if len(bands) == 1:
+            times = pd.concat([spots_a["time"], spots_b["time"]])
+            try:
+                with st.spinner("Checking which receivers were listening\u2026"):
+                    listening, _ = load_listening(next(iter(bands)), times.min().to_pydatetime(),
+                                                  (times.max() + pd.Timedelta(minutes=2)).to_pydatetime())
+                eligible = eligible_receivers(spots_a, spots_b, listening)
+                heard = set(spots_a["spotter"]) | set(spots_b["spotter"])
+                listening_note = {"kept": len(heard & eligible), "total": len(heard)}
+                spots_a = spots_a[spots_a["spotter"].isin(eligible)]
+                spots_b = spots_b[spots_b["spotter"].isin(eligible)]
+            except WsprError as exc:
+                st.warning(f"Couldn't check which receivers were listening ({exc}). Receivers that only listen in some "
+                           "time slots may make one side look like it reached more.")
+            if spots_a.empty or spots_b.empty:
+                st.warning("No receiver was listening during both sides' transmissions, so there is nothing fair to "
+                           "compare. Try a longer test.")
+                return
+    names = {"A": name_a or sep["default"]["A"], "B": name_b or sep["default"]["B"]}
+    if names["A"] == names["B"]:  # the names become table headings, so they have to differ
+        names = {"A": names["A"] + " (A)", "B": names["B"] + " (B)"}
+
+    # ---- power: WSPR sends it with every spot; for RBN you can say what you ran
+    with st.expander("Power", expanded=False):
+        if kind == "WSPR":
+            pa, pb = median_power_dbm(spots_a), median_power_dbm(spots_b)
+            watts = lambda dbm: 10 ** ((dbm - 30) / 10)  # noqa: E731
+            st.caption(f"Transmit power from the spots: {names['A']} {pa:.0f} dBm ({watts(pa):.2g} W), "
+                       f"{names['B']} {pb:.0f} dBm ({watts(pb):.2g} W).")
+            normalize = st.checkbox("Correct for any power difference (recommended)", value=True,
+                                    help="If the two tests used different power, B's SNR is shifted to A's power so the "
+                                         "antennas are compared, not the transmitters.")
+        else:
+            st.caption("Optional. If the two tests ran at different power, enter both so the comparison is about "
+                       "the antennas, not the transmitters. Leave at 0 if you don't know or they were equal.")
+            c1, c2 = st.columns(2)
+            watts_a = c1.number_input(f"Power for {names['A']} (watts)", min_value=0.0, value=0.0, step=5.0)
+            watts_b = c2.number_input(f"Power for {names['B']} (watts)", min_value=0.0, value=0.0, step=5.0)
+            pa, pb = db_from_watts(watts_a), db_from_watts(watts_b)
+            normalize = True
+
+    an = analyze(spots_a, spots_b, locs, home, pa, pb, normalize, units, exposure=sep.get("exposure"))
+    rounds = None
+    if sep.get("alternating") and "round" in spots_a:
+        rounds = round_consistency(spots_a, spots_b, locs, home, an["power"]["offset"])
+    n_pairs = count_pairs(map_a, map_b)
+    sequential = not sep.get("alternating")
+    if sep.get("labeled"):  # a log of mostly unpaired transmissions (A A A B B B) is a one-after-the-other test
+        transmissions = map_a["time"].nunique() + map_b["time"].nunique()
+        sequential = transmissions > 0 and 2 * n_pairs < 0.5 * transmissions
+    verdict = build_verdict(an, names, exposure=sep.get("exposure") if sep.get("time_based") else None,
+                            rounds=rounds, receiver_word=noun, sequential=sequential,
+                            n_pairs=n_pairs if sep.get("alternating") else None)
+
+    if listening_note and listening_note["kept"] < listening_note["total"]:
+        verdict["caveats"].append(
+            f"Only receivers that were listening during both sides' transmissions are counted ({listening_note['kept']} "
+            f"of {listening_note['total']}). Many WSPR receivers hop between bands and only listen in some time slots, "
+            "which would otherwise look like one side reaching more.")
+
+    r, s_, dx = an["reach"], an["strength"], an["dx"]
+    k = KM_PER_MILE if units == "mi" else 1
+    means_a, means_b = sector_means(an["ta"]), sector_means(an["tb"])
+    tab_result, tab_where, tab_each, tab_maps = st.tabs(
+        ["\U0001F4CA Result", "\U0001F9ED Direction & distance", "\U0001F4CB Receiver by receiver", "\U0001F5FA️ Maps"])
+
+    with tab_result:
+        st.markdown(verdict_card_html(verdict), unsafe_allow_html=True)
+        snr_note = f"at the {s_['n']} {noun}s that heard both" if s_["n"] else f"no {noun} heard both"
+        avg_a = f"{an['shared']['snr_a'].mean():.1f} dB" if s_["n"] else "—"
+        avg_b = f"{an['shared']['snr_b'].mean():.1f} dB" if s_["n"] else "—"
+        far = lambda d: (f"{d['km'] / k:,.0f} {units}", d["who"]) if d else ("—", "")  # noqa: E731
+        typical = lambda t: (f"{t['km'].median() / k:,.0f} {units}", "") if len(t) else ("—", "")  # noqa: E731
         st.markdown(scoreboard_html(names["A"], names["B"], [
-            ("Unique skimmers that heard you", "each skimmer counted once · more is better",
-             (len(heard_a), f"from {len(spots_a)} spots"),
-             (len(heard_b), f"from {len(spots_b)} spots"), reach_winner),
-            ("Average SNR", snr_note,
-             ("—" if avg_a is None else f"{avg_a:.1f} dB", ""),
-             ("—" if avg_b is None else f"{avg_b:.1f} dB", ""), snr_winner),
+            (f"Unique {noun}s that heard you", ("equal time on the air, " if an["equalized"] else "") + ("listening during both, " if listening_note else "") + "each one counted once · more is better",
+             (r["a"], f"from {r['spots_a']:,} spots"), (r["b"], f"from {r['spots_b']:,} spots"),
+             r["call"] if r["call"] in ("A", "B") else None),
+            ("Average SNR", snr_note, (avg_a, ""), (avg_b, ""), s_["call"] if s_["call"] in ("A", "B") else None),
+            (f"Farthest {noun}", "your longest path", far(dx["a"]), far(dx["b"]), dx["call"]),
+            ("Typical distance", "half the stations were closer than this", typical(an["ta"]), typical(an["tb"]), None),
             ("Strongest direction", "where your signal was best",
              (best_direction(means_a), ""), (best_direction(means_b), ""), None),
         ]), unsafe_allow_html=True)
-        st.markdown("##### Who heard you on each frequency?")
-        st.markdown(reach_bar_html(len(heard_a - heard_b), len(heard_a & heard_b), len(heard_b - heard_a)),
-                    unsafe_allow_html=True)
-        st.caption("Each skimmer is counted once, however many times it spotted you. A *spot* is one report; "
-                   "a skimmer sends a new one every time it decodes your CQ, so spots always outnumber skimmers.")
-        st.caption("Keep tests close together in time: propagation drifts, so a gap of an hour or more can make one "
-                   "frequency look better for reasons that have nothing to do with the antenna.")
 
+        st.markdown(f"##### Who heard you on each {'side' if sep.get('time_based') else 'frequency'}?")
+        st.markdown(reach_bar_html(r["only_a"], r["both"], r["only_b"]), unsafe_allow_html=True)
+        st.caption(f"Each {noun} is counted once, however many times it spotted you. A *spot* is one report, so "
+                   "spots always outnumber stations.")
+
+        if sep.get("time_based") and map_a["time"].nunique() + map_b["time"].nunique() >= 8:
+            st.subheader("Timeline")
+            st.pyplot(timeline_chart(map_a, map_b, names), width="stretch")
+            st.caption("Each faint dot is one spot; the solid dots are the median of each transmission. "
+                       "If one colour sits above the other throughout, that's a real difference; if they swap places, "
+                       "propagation moved around more than the antennas differ.")
+            if rounds is not None and len(rounds) >= 3:
+                if len(rounds) <= 12:
+                    st.caption("Difference in each round (A minus B, dB): "
+                               + " \u00b7 ".join(f"{d:+.1f}" for d in rounds["delta"]))
+                else:
+                    st.caption(f"{len(rounds)} rounds (one A transmission and the B one after it). A was stronger in "
+                               f"{int((rounds['delta'] > 0).sum())}, B in {int((rounds['delta'] < 0).sum())}; the typical "
+                               f"round (A minus B) was {rounds['delta'].median():+.1f} dB.")
+
+    with tab_where:
         if means_a.notna().any() or means_b.notna().any():
             st.subheader("Direction")
-            chart_col, text_col = st.columns([2, 3])
-            chart_col.pyplot(direction_chart(means_a, means_b, names["A"], names["B"]), use_container_width=True)
-            text_col.markdown(direction_summary(means_a, means_b, names))
-            text_col.caption("Distance from the centre is the average SNR toward that compass direction. "
-                             "A bigger shape in a direction means a stronger signal that way.")
+            chart_col, table_col = st.columns([1, 1])
+            chart_col.pyplot(direction_chart(means_a, means_b, names["A"], names["B"]), width="stretch")
+            table_col.dataframe(breakdown_table(an["direction"], names, "Direction", noun), width="stretch", hide_index=True,
+                                height=35 * (len(an["direction"]) + 1) + 3)
+            table_col.caption("Distance from the centre in the chart is the average SNR toward that direction. In the "
+                              "table, “A − B” is measured at the stations that heard both, and a side is "
+                              f"“better” past {DIRECTION_EDGE_DB:g} dB.")
+        if len(an["distance"]) and an["distance"][["a", "b"]].to_numpy().sum():
+            st.subheader("Distance")
+            chart_col, table_col = st.columns([1, 1])
+            chart_col.pyplot(distance_chart(an["distance"], names), width="stretch")
+            table_col.dataframe(breakdown_table(an["distance"], names, "Distance", noun), width="stretch", hide_index=True,
+                                height=35 * (len(an["distance"]) + 1) + 3)
+            table_col.caption("Bars show how much stronger one side was at the stations that heard both; a faded bar "
+                              "means fewer than 3 stations, so don't lean on it. "
+                              "Longer paths usually mean a lower take-off angle. If one antenna wins close in and the "
+                              "other wins far out, that's the signature of high-angle versus low-angle performance.")
 
-        if len(shared):
-            wins_a, wins_b = int((shared["delta"] > 0).sum()), int((shared["delta"] < 0).sum())
-            st.subheader("Same skimmer, both frequencies")
-            st.caption(f"{len(shared)} skimmers heard both. 🔵 A was stronger at {wins_a}, 🟠 B at {wins_b}, "
-                       f"tied at {len(shared) - wins_a - wins_b}. Each SNR is the median of that skimmer's spots. "
-                       "Click a column heading to sort.")
-            st.dataframe(head_to_head_table(shared, units), use_container_width=True,
-                         height=min(38 * (len(shared) + 1), 420))
+    with tab_each:
+        if s_["n"]:
+            chart_col, table_col = st.columns([1, 1])
+            chart_col.pyplot(paired_scatter(an["shared"], names), width="stretch")
+            table_col.caption(f"{s_['n']} {noun}s heard both. \U0001F535 A was stronger at {s_['wins_a']}, \U0001F7E0 B at "
+                              f"{s_['wins_b']}, tied at {s_['ties']}. Each SNR is the median of that {noun}'s spots. "
+                              "Click a column heading to sort.")
+            table_col.dataframe(head_to_head_table(an["shared"], units), width="stretch",
+                                height=min(38 * (s_["n"] + 1), 420))
+        else:
+            st.info(f"No {noun} heard both sides, so there is nothing to compare receiver by receiver.")
 
     with tab_maps:
         st.caption("Both maps use the same view, the same SNR scale and the same dot sizes.")
-        both = pd.concat([spots_a, spots_b])
+        both = pd.concat([map_a, map_b])
         col_a, col_b = st.columns(2)
-        for col, side, freq, group in ((col_a, "A", fa, spots_a), (col_b, "B", fb, spots_b)):
-            html = build_map(group, skimmers, home, label, callsign, show_all, tiles, units,
-                             compute_stats(group, skimmers, home)["farthest"],
-                             title=f"{callsign} · {freq:.1f} kHz", fit_spots=both).get_root().render()
+        for col, side, group in ((col_a, "A", map_a), (col_b, "B", map_b)):
+            html = build_map(group, locs, home, label, callsign, show_all, tiles, units,
+                             compute_stats(group, locs, home)["farthest"],
+                             title=f"{callsign} · {names[side]}", fit_spots=both, scale=scale, noun=noun
+                             ).get_root().render()
+            icon = "\U0001F535" if side == "A" else "\U0001F7E0"
+            slug = re.sub(r"[^A-Za-z0-9]+", "_", names[side]).strip("_")
             with col:
-                st.markdown(f"#### {'🔵' if side == 'A' else '🟠'} {names[side]}")
-                st.components.v1.html(html, height=620)
-                st.download_button(f"⬇️ Download map {side}", html, f"RBN_map_{callsign}_{file_date}_{freq:.1f}kHz.html",
-                                   "text/html", key=f"dl_{side}")
-
+                st.markdown(f"#### {icon} {names[side]}")
+                st.iframe(html, height=620)
+                st.download_button(f"⬇️ Download map {side}", html,
+                                   f"RBN_map_{callsign}_{file_date}_{slug}.html", "text/html", key=f"dl_{side}")
 
 
 # -------------------------------------------------------------------------- app
@@ -866,19 +1178,37 @@ def save_settings(settings):
         pass  # read-only install; settings just won't be remembered
 
 
+RBN_SOURCES = ["Download by date", "Paste from RBN site"]
+WSPR_SOURCE = "WSPR (wspr.live)"
+# wspr.live fills a slot in over several minutes: about 1 receiver at 2 minutes old, half by 3-4, complete by 6-8 (measured).
+# A transmission younger than this is left out of a comparison, since a half-filled slot makes its antenna look worse.
+DATA_LAG_MINUTES = 8
+
+
+@st.cache_data(show_spinner=False, ttl=300)
+def load_wspr(tx_call, start, end):
+    """WSPR spots from wspr.live, remembered for five minutes so a rerun doesn't query again."""
+    return fetch_wspr_spots(tx_call, start, end)
+
+
+@st.cache_data(show_spinner=False, ttl=300)
+def load_listening(band, start, end):
+    """Which receivers were decoding on `band` in each slot, remembered for five minutes."""
+    return fetch_listening(band, start, end)
+
+
 def main():
     st.set_page_config(layout="wide", page_title="RBN Signal Mapper", page_icon="📡")
     st.markdown(CSS, unsafe_allow_html=True)
     st.title("📡 RBN Signal Mapper")
-    st.markdown('<p class="subtitle">Map the Reverse Beacon Network stations that spotted your CQ, and how strong your signal was.</p>',
-                unsafe_allow_html=True)
+    st.markdown('<p class="subtitle">Map the Reverse Beacon Network and WSPR stations that heard you, see how strong '
+                'your signal was, and compare antennas.</p>', unsafe_allow_html=True)
 
     skimmers, refresh_msg = skimmer_data()
 
     ss = st.session_state
-    for key in ("raw", "home", "callsign", "file_date"):
+    for key in ("raw", "home", "callsign", "file_date", "kind", "locs", "tx_call", "notice"):
         ss.setdefault(key, None)
-
     # Read saved settings once per session. Re-reading them on every rerun changes each widget's
     # default, which Streamlit treats as a brand-new widget and resets, swallowing the first click.
     if "cfg" not in ss:
@@ -898,59 +1228,102 @@ def main():
             help="Leave blank to use your callsign's registered address. "
                  "Enter a grid if you were portable or operating from elsewhere, or if the lookup fails.")
 
-        sources = ["Download by date", "Paste from RBN site"]
-        source = st.radio("Where are the spots from?", sources, index=pick(sources, "source"), horizontal=True)
-        if source == "Download by date":
-            yesterday = (datetime.now(timezone.utc) - timedelta(days=1)).date()
+        sources = RBN_SOURCES + [WSPR_SOURCE]
+        source = st.radio("Where are the spots from?", sources, index=pick(sources, "source"),
+                          help="RBN: stations that decoded your CW/RTTY CQ. WSPR: stations that decoded your WSPR "
+                               "beacon, handy for antenna tests because the power is fixed and known.")
+        wspr_start, wspr_end = None, None
+        pasted, days, span = "", [], cfg.get("span")
+        if source in ("Download by date", WSPR_SOURCE):
+            # RBN publishes a day's file once the UTC day is over; WSPR spots are there up to a few minutes ago
+            last_day = (datetime.now(timezone.utc) - timedelta(days=0 if source == WSPR_SOURCE else 1)).date()
             span = st.radio("Period", ["Single day", "Date range"], horizontal=True,
                             index=pick(["Single day", "Date range"], "span"))
             if span == "Single day":
-                days = [st.date_input("Date (UTC)", value=yesterday, max_value=yesterday)]
+                days = [st.date_input("Date (UTC)", value=last_day, max_value=last_day)]
             else:
-                first = st.date_input("From (UTC)", value=yesterday - timedelta(days=MAX_DAYS - 1), max_value=yesterday)
-                last = st.date_input("To (UTC)", value=yesterday, max_value=yesterday,
-                                     help=f"Up to {MAX_DAYS} days. Each day is a separate download.")
+                first = st.date_input("From (UTC)", value=last_day - timedelta(days=MAX_DAYS - 1), max_value=last_day)
+                last = st.date_input("To (UTC)", value=last_day, max_value=last_day,
+                                     help=f"Up to {MAX_DAYS} days." + (" Each day is a separate download."
+                                                                      if source != WSPR_SOURCE else ""))
                 days = [first + timedelta(n) for n in range((last - first).days + 1)] if last >= first else []
                 if last < first:
                     st.caption("⚠️ 'To' must be on or after 'From'.")
                 elif len(days) > MAX_DAYS:
                     st.caption(f"⚠️ That's {len(days)} days; the limit is {MAX_DAYS}.")
-            pasted = ""
-        else:
+            if source == WSPR_SOURCE:
+                st.caption("Uses your callsign above as the WSPR transmitter. Reports take 6\u20138 minutes to arrive "
+                           "in full, so for a test you have just run, wait a few minutes before loading.")
+                if days:
+                    wspr_start = datetime.combine(days[0], time(0, 0))
+                    wspr_end = min(datetime.combine(days[-1], time(23, 59, 59)),
+                                   datetime.now(timezone.utc).replace(tzinfo=None, second=0, microsecond=0))
+        elif source == "Paste from RBN site":
             pasted = st.text_area("Paste spot rows here", height=150)
-            days = []
 
-        load = st.button("Load spots", type="primary", use_container_width=True)
+        load = st.button("Load spots", type="primary", width="stretch")
+
+        # What the screen shows follows the data that is loaded, not the radio button, until you load again.
+        kind = ss.kind if ss.raw is not None else ("WSPR" if source == WSPR_SOURCE else "RBN")
 
         st.divider()
         st.header("Filters")
         bands = ["All"] + list(BAND_COLORS)
         band_choice = st.selectbox("Band", bands, index=pick(bands, "band"))
-        start_t, end_t = st.slider("UTC time window", value=(time(0, 0), time(23, 59)), format="HH:mm")
-        min_snr = st.slider("Minimum SNR (dB)", 0, 40, cfg.get("min_snr", 0))
+        lo_t, hi_t = time(0, 0), time(23, 59)
+        open_t = lo_t  # where the left handle starts
+        if kind == "WSPR" and ss.raw is not None and not ss.raw.empty:
+            # A WSPR test is minutes long, so the slider covers just the span of the spots loaded rather than all day,
+            # and opens on the latest 30 minutes of it, which is where a test you have just run will be.
+            tod = ss.raw["time"].dt.floor("min").dt.time
+            if tod.min() < tod.max():
+                lo_t, hi_t = tod.min(), tod.max()
+                open_t = max(lo_t, (datetime.combine(datetime(2000, 1, 1), hi_t) - timedelta(minutes=30)).time())
+        start_t, end_t = st.slider(
+            "UTC time window", min_value=lo_t, max_value=hi_t, value=(open_t, hi_t), step=timedelta(minutes=1),
+            format="HH:mm",
+            help=("Narrow this to just your test, from your first cycle to your last. It follows the spots you loaded."
+                  if kind == "WSPR" else None))
+        min_snr = -100 if kind == "WSPR" else st.slider("Minimum SNR (dB)", 0, 40, cfg.get("min_snr", 0))
 
         st.divider()
         st.header("Compare mode")
-        compare = st.checkbox("Compare two frequencies", value=False,
-                              help="Splits your spots by frequency so you can compare two tests, for example two antennas. "
-                                   "Load spots from a period that includes both tests.")
-        gap_khz = st.slider("Frequency gap (kHz)", 0.1, 5.0, 0.5, 0.1, disabled=not compare,
-                            help="Spots closer together than this count as the same frequency. Skimmers report slightly "
-                                 "different frequencies for the same signal. Lower it if two tests are close together.")
+        compare = st.checkbox("Compare two antennas or tests", value=(kind == "WSPR"), key=f"compare_{kind}",
+                              help="Splits your spots into an A side and a B side, for example two antennas, "
+                                   "two power levels or two test transmissions, and says which is getting out better.")
+        if kind == "WSPR":
+            split, gap_khz = SPLIT_LOG, 0.5  # WSPR needs no choices here: you mark the antenna on each transmission
+        else:
+            split = st.radio("Tell A and B apart by", [SPLIT_FREQ, SPLIT_SEQ, SPLIT_TIMED], key=f"split_{kind}",
+                             disabled=not compare,
+                             help="How did you change between the two antennas or tests?\n\n"
+                                  "**Two frequencies**: you sent on two different frequencies.\n\n"
+                                  "**One after the other**: one antenna for a while, then the other.\n\n"
+                                  "**Swap every few minutes**: you change on a timer.\n\n"
+                                  "Switching often is fairest, because both antennas then share the same changing conditions.")
+            gap_khz = st.slider("Frequency gap (kHz)", 0.1, 5.0, 0.5, 0.1,
+                                disabled=not (compare and split == SPLIT_FREQ),
+                                help="Spots closer together than this count as the same frequency. Skimmers report slightly "
+                                     "different frequencies for the same signal. Lower it if two tests are close together.")
 
         st.divider()
         st.header("Map")
         styles = list(TILE_STYLES)
         tiles = st.selectbox("Style", styles, index=pick(styles, "tiles"))
-        show_all = st.checkbox("Show all skimmers", value=cfg.get("show_all", False),
-                               help="Adds a small grey dot for every RBN skimmer, including ones that didn't hear you.")
+        show_all = st.checkbox("Show all skimmers", value=cfg.get("show_all", False) and kind == "RBN",
+                               disabled=kind == "WSPR",
+                               help="Adds a small grey dot for every RBN skimmer, including ones that didn't hear you. "
+                                    "(Not available for WSPR, which has no list of every receiver.)")
         unit_opts = ["mi", "km"]
         units = st.radio("Distance units", unit_opts, index=pick(unit_opts, "units"), horizontal=True)
 
         st.caption(f"🛰️ {refresh_msg}")
 
-    save_settings({"callsign": callsign, "grid": grid_override, "source": source, "span": span if source == sources[0] else cfg.get("span"), "band": band_choice,
-                   "min_snr": min_snr, "tiles": tiles, "show_all": show_all, "units": units})
+    save_settings({"callsign": callsign, "grid": grid_override, "source": source, "span": span, "band": band_choice,
+                   "min_snr": cfg.get("min_snr", 0) if kind == "WSPR" else min_snr,
+                   "min_snr_wspr": cfg.get("min_snr_wspr", -30),
+                   "tiles": tiles, "show_all": show_all if kind == "RBN" else cfg.get("show_all", False),
+                   "units": units})
 
     if load:
         try:
@@ -959,7 +1332,20 @@ def main():
             if len(days) > MAX_DAYS:
                 raise RuntimeError(f"Please pick {MAX_DAYS} days or fewer.")
             ss.home = resolve_home(callsign, grid_override, skimmers)
-            if source == "Paste from RBN site":
+            locs, tx_call = None, None
+            ss.notice = None
+            notice = None
+            if source == WSPR_SOURCE:
+                if not days:
+                    raise RuntimeError("The 'To' date must be on or after the 'From' date.")
+                tx_call = clean_callsign(callsign)
+                with st.spinner(f"Asking wspr.live for {tx_call}'s WSPR spots…"):
+                    df, truncated = load_wspr(tx_call, wspr_start, wspr_end)
+                if truncated:
+                    notice = "That much hit the spot limit, so the oldest spots are missing. Pick fewer days."
+                locs = receiver_locations(df) if not df.empty else {}
+                ss.file_date = f"{days[0]:%Y%m%d}" + (f"-{days[-1]:%Y%m%d}" if len(days) > 1 else "")
+            elif source == "Paste from RBN site":
                 if not pasted.strip():
                     raise RuntimeError("Paste some RBN spot rows, or switch to 'Download by date'.")
                 df = parse_pasted_data(pasted)
@@ -984,6 +1370,10 @@ def main():
                 df = pd.concat(frames, ignore_index=True)
                 ss.file_date = f"{days[0]:%Y%m%d}" + (f"-{days[-1]:%Y%m%d}" if len(days) > 1 else "")
             ss.raw, ss.callsign = df, callsign
+            ss.kind, ss.locs, ss.tx_call = ("WSPR" if source == WSPR_SOURCE else "RBN"), locs, tx_call
+            ss.notice = notice
+            if source == WSPR_SOURCE:
+                st.rerun()  # redraw the sidebar so the time window follows the spots just loaded
         except Exception as e:
             ss.raw = None
             st.error(str(e))
@@ -991,10 +1381,18 @@ def main():
         st.info("👈 Enter your callsign and click **Load spots**. "
                 "The map is centered on your callsign's registered location unless you enter a grid square.")
         return
+    wspr = ss.kind == "WSPR"
     if ss.raw.empty:
-        st.warning(f"RBN has no spots of {ss.callsign} for that date. Check the callsign, or try another day.")
+        if wspr:
+            st.warning(f"wspr.live has no WSPR spots from {ss.tx_call} in that time range. The callsign has to match what "
+                       "your transmitter sends, and spots can take a few minutes to show up. Try a wider range.")
+        else:
+            st.warning(f"RBN has no spots of {ss.callsign} for that date. Check the callsign, or try another day.")
         return
 
+    locs = ss.locs if wspr else skimmers
+    scale = WSPR_SNR_SCALE if wspr else RBN_SNR_SCALE
+    noun = "receiver" if wspr else "skimmer"
     spots = ss.raw
     spots = spots[(spots["time"].dt.time >= start_t) & (spots["time"].dt.time <= end_t) & (spots["snr"] >= min_snr)]
     if band_choice != "All":
@@ -1005,45 +1403,50 @@ def main():
 
     lat, lon, label = ss.home
     home = (lat, lon)
+    who = ss.callsign
+    if ss.notice:
+        st.warning(ss.notice)
     if compare:
-        st.caption(f"📍 {ss.callsign} · {label}")
-        compare_view(spots, skimmers, home, label, ss.callsign, ss.file_date, tiles, show_all, units, gap_khz)
+        st.caption(f"📍 {who} · {label}")
+        compare_view(spots, locs, home, label, ss.callsign, ss.file_date, tiles, show_all and not wspr, units,
+                     split, gap_khz, scale, noun, ss.kind, ss.raw)
         return
-    stats = compute_stats(spots, skimmers, home)
-    missing = {s for s in spots["spotter"].unique() if skimmer_location(s, skimmers) is None}
+    stats = compute_stats(spots, locs, home)
+    missing = {s for s in spots["spotter"].unique() if skimmer_location(s, locs) is None}
 
     k = KM_PER_MILE if units == "mi" else 1
     c = st.columns(5)
     c[0].metric("Spots", f"{stats['spots']:,}")
-    c[1].metric("Skimmers", f"{stats['skimmers']:,}")
+    c[1].metric(f"{noun.capitalize()}s", f"{stats['skimmers']:,}")
     c[2].metric(f"Farthest ({units})", f"{stats['max_km'] / k:,.0f}", help=stats["farthest"])
     c[3].metric("Best SNR", f"{stats['max_snr']:.0f} dB")
     c[4].metric("Average SNR", f"{stats['avg_snr']:.1f} dB")
-    st.caption(f"📍 {ss.callsign} · {label}"
+    st.caption(f"📍 {who} · {label}"
                + (f" · ⚠️ No location for {', '.join(sorted(missing)[:5])}"
                   f"{f' and {len(missing) - 5} more' if len(missing) > 5 else ''}"
                   f" (not in RBN's skimmer list), so not shown on the map" if missing else ""))
 
-    m = build_map(spots, skimmers, home, label, ss.callsign, show_all, tiles, units, stats["farthest"])
+    m = build_map(spots, locs, home, label, ss.callsign, show_all and not wspr, tiles, units, stats["farthest"],
+                  scale=scale, noun=noun)
     map_html = m.get_root().render()
-    st.components.v1.html(map_html, height=720)
+    st.iframe(map_html, height=720)
 
     left, right = st.columns([1, 4])
     left.download_button("⬇️ Download map", map_html, f"RBN_map_{ss.callsign}_{ss.file_date}.html",
-                         "text/html", use_container_width=True)
+                         "text/html", width="stretch")
     st.subheader("Direction of your spots")
     chart_col, text_col = st.columns([2, 3])
-    result = bearing_chart(spots, skimmers, home)
+    result = bearing_chart(spots, locs, home, scale)
     if result:
         fig, summary = result
-        chart_col.pyplot(fig, use_container_width=True)
+        chart_col.pyplot(fig, width="stretch")
         text_col.markdown(summary)
     else:
-        chart_col.caption("No located skimmers to chart.")
+        chart_col.caption(f"No located {noun}s to chart.")
 
     with st.expander("Spot table"):
         st.dataframe(spots.sort_values("time").assign(time=lambda d: d["time"].dt.strftime("%d %b %H:%M")),
-                     use_container_width=True, hide_index=True)
+                     width="stretch", hide_index=True)
 
 
 if __name__ == "__main__":

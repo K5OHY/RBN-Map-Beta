@@ -19,6 +19,24 @@ REFRESH_MARKER = Path(__file__).with_name(".spotters_refreshed")
 CACHE_MAX_AGE_HOURS = 24
 HEADERS = {"User-Agent": "RBN-Signal-Mapper (personal project)"}
 
+BAND_RANGES_KHZ = [
+    ("160m", 1800, 2000), ("80m", 3500, 4000), ("60m", 5300, 5500), ("40m", 7000, 7300),
+    ("30m", 10100, 10150), ("20m", 14000, 14350), ("17m", 18068, 18168), ("15m", 21000, 21450),
+    ("12m", 24890, 24990), ("10m", 28000, 29700), ("6m", 50000, 54000),
+]
+
+
+def get_band(freq):
+    """Amateur band name for a frequency in kHz ('unknown' if it isn't in a supported band)."""
+    try:
+        freq = float(freq)
+    except (TypeError, ValueError):
+        return "unknown"
+    for name, lo, hi in BAND_RANGES_KHZ:
+        if lo <= freq <= hi:
+            return name
+    return "unknown"
+
 GRID_RE = re.compile(r"^[A-R]{2}\d{2}([A-X]{2}(\d{2})?)?$", re.IGNORECASE)
 ROW_RE = re.compile(
     r"<tr class=\"([^\"]*)\">\s*<td><a[^>]*>\s*(\S+)\s*</a>.*?<td>([^<]*)</td>",
