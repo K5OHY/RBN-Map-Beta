@@ -4,7 +4,7 @@ Map the [Reverse Beacon Network](https://www.reversebeacon.net/) stations that s
 
 Enter a callsign and load your spots, and the app draws a path from your station to every station that heard you. Paths are coloured by band, and the dots are sized and coloured by SNR. Click a dot to see every spot from that station as a small chart. A **compare mode** sets two tests side by side (two antennas, two power levels, two frequencies) and tells you which one is getting out better, by how much, and in which directions.
 
-**Use it online, nothing to install: [rbnmap.streamlit.app](https://rbnmap.streamlit.app/)**
+**Try the beta online, nothing to install: [rbn-map-beta.streamlit.app](https://rbn-map-beta.streamlit.app/)** (the stable version is at [rbnmap.streamlit.app](https://rbnmap.streamlit.app/))
 
 ![RBN Signal Mapper Screenshot](images/Screenshot.png)
 
@@ -22,7 +22,7 @@ Enter a callsign and load your spots, and the app draws a path from your station
 
 ## Quick start
 
-1. Open [rbnmap.streamlit.app](https://rbnmap.streamlit.app/) (or [run it locally](#run-it-locally)).
+1. Open [rbn-map-beta.streamlit.app](https://rbn-map-beta.streamlit.app/) (or [run it locally](#run-it-locally)).
 2. Type your **callsign** in the sidebar.
 3. Choose where the spots come from: **Download by date** for a past day, or **Paste from RBN site** for spots from the last few minutes or hours.
 4. Click **Load spots**.
@@ -30,7 +30,7 @@ Enter a callsign and load your spots, and the app draws a path from your station
 
 ## Using the website
 
-The hosted app at [rbnmap.streamlit.app](https://rbnmap.streamlit.app/) is the same app you can run yourself. Everything is in the sidebar on the left, and the results appear on the right.
+The hosted beta at [rbn-map-beta.streamlit.app](https://rbn-map-beta.streamlit.app/) is the same app you can run yourself. Everything is in the sidebar on the left, and the results appear on the right.
 
 1. **Callsign.** Your callsign, for example `K5OHY`. The map is centred on your registered location.
 2. **Grid square (optional).** Leave it blank to use your callsign's registered address. Enter a 4, 6 or 8 character grid (for example `EM10` or `EM10ci`) if you were portable, or if the lookup could not find you.
@@ -84,7 +84,7 @@ Use this to test with WSPR beacons instead of CQ calls. WSPR sends a short, auto
 2. Pick the **Period** and **Date (UTC)**, exactly as for RBN (WSPR can also load today), and click **Load spots**. The app looks for WSPR spots from the callsign you entered at the top, so use the callsign your WSPR transmitter sends.
 3. Use the **UTC time window** slider under Filters to narrow things to your test. After loading, the slider covers just the span of the spots you loaded and opens on the latest 30 minutes, with one-minute steps.
 
-Spots come from the public [wspr.live](https://wspr.live/) database, which mirrors wsprnet.org. **Reports take 6 to 8 minutes to arrive in full** after you transmit: a transmission that is only a few minutes old may show just a handful of receivers. The app marks those as *still arriving*, leaves them out for now, and tells you when to click **Load spots** again. Because each WSPR spot carries the receiver's own location and the transmit power, no skimmer list is needed, and the app can correct for a power difference between two tests.
+Spots come from the public [wspr.live](https://wspr.live/) database, which mirrors wsprnet.org. **Reports take about 5 minutes to arrive in full** after a transmission starts (about 3 after it ends): one that is only a minute or two old may show just a handful of receivers. The app still uses them, marks them *may be incomplete*, and tells you when to click **Load spots** again to refresh the result. Because each WSPR spot carries the receiver's own location and the transmit power, no skimmer list is needed, and the app can correct for a power difference between two tests.
 
 Things that differ from RBN:
 
@@ -173,7 +173,7 @@ You can give each side a name ("Dipole", "40m loop") under *Name your antennas* 
 1. Connect the transmitter to an A/B coax switch with one antenna on each output, both matched on the test band. Test one band at a time, with the same power, callsign and location throughout.
 2. Let the transmitter send in every slot. On a ZachTek Desktop, turn off the pause between band cycles, and leave *High precision 6 char locator* off, because that option sends the information in two separate packets, which makes it hard to say which antenna sent which.
 3. Switch after the RF stops (the transmit light goes off) and before the next transmission starts: A, B, and perhaps another round of A, B, then stop. Only the cycles of your test matter; the app doesn't assume the switching goes on all day. Write down the time and which antenna was on for the first transmission. **A whole test can be under 10 minutes**, even one 2-minute transmission on each antenna, but a quick test can be swung by fading; 6 to 8 cycles per antenna (about 20 minutes) gives a result you can rely on, and repeating it on another day is better still.
-4. **Wait 8 minutes or so** for the reports to arrive, choose **WSPR (wspr.live)**, pick the date, and click **Load spots**.
+4. **Wait about 5 minutes** after your last cycle starts for the reports to arrive, choose **WSPR (wspr.live)**, pick the date, and click **Load spots**.
 5. Pick the band, then drag the **UTC time window** so it covers just your first cycle to your last. The antenna list shows only those cycles.
 6. Check the **Order** choice matches what you did, fix any row that doesn't (or clear a row to leave it out), and read the result.
 

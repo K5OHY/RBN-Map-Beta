@@ -875,7 +875,7 @@ def _separate_by_log(spots):
     table = pd.DataFrame({"UTC time": [f"{t:%d %b %H:%M}" if multi_day else f"{t:%H:%M}" for t in stamps],
                           "Receivers that heard it": [int(heard[t]) for t in stamps],
                           "Antenna": default_labels(stamps, pattern),
-                          "Status": [("\u23f3 still arriving" if late else
+                          "Status": [("\u23f3 may be incomplete" if late else
                                       (f"\u26a0 {gap:.0f} min after the row above" if gap > 2.5 else ""))
                                      for late, gap in zip(arriving, [0.0] + [(b - a).total_seconds() / 60
                                                                               for a, b in zip(stamps, stamps[1:])])]})
@@ -886,15 +886,15 @@ def _separate_by_log(spots):
                                                                    help="A, B, or empty to leave this one out.")})
     marked = {t: lab for t, lab in zip(stamps, edited["Antenna"]) if lab in ("A", "B")}
     late = [t for t, wait in zip(stamps, arriving) if wait and t in marked]
-    labels = {t: lab for t, lab in marked.items() if t not in late}
-    if late:
+    labels = marked
+    if late:  # still counted; this is only a heads-up that the newest reports may not all be in yet
         ready_at = max(late) + pd.Timedelta(minutes=DATA_LAG_MINUTES)
-        st.warning(f"{len(late)} of your newest transmissions (from {late[0]:%H:%M} UTC) are only minutes old, and wspr.live "
-                   f"is still receiving reports for them. That usually takes 6\u20138 minutes. They are left out for now: "
-                   f"click **Load spots** again at about {ready_at:%H:%M} UTC to include them.")
+        plural = len(late) > 1
+        st.info(f"\u23f3 The newest transmission{'s' if plural else ''} (from {late[0]:%H:%M} UTC) "
+                f"{'are' if plural else 'is'} less than {DATA_LAG_MINUTES} minutes old, so not all of the spots may be in "
+                f"yet and the result could still shift. Click **Load spots** again after {ready_at:%H:%M} UTC to refresh it.")
     if "A" not in labels.values() or "B" not in labels.values():
-        if not late:
-            st.warning("Mark at least one transmission as A and one as B.")
+        st.warning("Mark at least one transmission as A and one as B.")
         return None
     spots_a, spots_b = split_by_labels(spots, labels)
     return {"a": spots_a, "b": spots_b, "time_based": True, "alternating": True, "labeled": True,
@@ -1182,7 +1182,7 @@ RBN_SOURCES = ["Download by date", "Paste from RBN site"]
 WSPR_SOURCE = "WSPR (wspr.live)"
 # wspr.live fills a slot in over several minutes: about 1 receiver at 2 minutes old, half by 3-4, complete by 6-8 (measured).
 # A transmission younger than this is left out of a comparison, since a half-filled slot makes its antenna look worse.
-DATA_LAG_MINUTES = 8
+DATA_LAG_MINUTES = 5  # measured: reports for a slot are complete ~3 min after it ends, ~5 min after it starts
 
 
 @st.cache_data(show_spinner=False, ttl=300)
@@ -1222,7 +1222,10 @@ def main():
 
     with st.sidebar:
         st.header("Your signal")
-        callsign = st.text_input("Callsign", value=cfg.get("callsign", ""), placeholder="Enter your callsign").strip().upper()
+        ss.setdefault("callsign_in", cfg.get("callsign", ""))
+        callsign = st.text_input(
+            "Callsign", key="callsign_in", placeholder="Enter your callsign",
+            on_change=lambda: ss.update(callsign_in=ss.callsign_in.strip().upper())).strip().upper()
         grid_override = st.text_input(
             "Grid square (optional)", value=cfg.get("grid", ""), placeholder="Looked up from your callsign",
             help="Leave blank to use your callsign's registered address. "
@@ -1252,7 +1255,7 @@ def main():
                 elif len(days) > MAX_DAYS:
                     st.caption(f"⚠️ That's {len(days)} days; the limit is {MAX_DAYS}.")
             if source == WSPR_SOURCE:
-                st.caption("Uses your callsign above as the WSPR transmitter. Reports take 6\u20138 minutes to arrive "
+                st.caption("Uses your callsign above as the WSPR transmitter. Reports take about 5 minutes to arrive "
                            "in full, so for a test you have just run, wait a few minutes before loading.")
                 if days:
                     wspr_start = datetime.combine(days[0], time(0, 0))
@@ -1269,7 +1272,11 @@ def main():
         st.divider()
         st.header("Filters")
         bands = ["All"] + list(BAND_COLORS)
-        band_choice = st.selectbox("Band", bands, index=pick(bands, "band"))
+        pending = ss.pop("pending_band", None)  # set by a WSPR load; applied here, before the widget exists
+        if pending in bands:
+            ss.band_choice = pending
+        ss.setdefault("band_choice", bands[pick(bands, "band")])
+        band_choice = st.selectbox("Band", bands, key="band_choice")
         lo_t, hi_t = time(0, 0), time(23, 59)
         open_t = lo_t  # where the left handle starts
         if kind == "WSPR" and ss.raw is not None and not ss.raw.empty:
@@ -1373,7 +1380,9 @@ def main():
             ss.kind, ss.locs, ss.tx_call = ("WSPR" if source == WSPR_SOURCE else "RBN"), locs, tx_call
             ss.notice = notice
             if source == WSPR_SOURCE:
-                st.rerun()  # redraw the sidebar so the time window follows the spots just loaded
+                if not df.empty:  # a test you have just run is on the band of the newest spots
+                    ss.pending_band = df.sort_values("time")["band"].iloc[-1]
+                st.rerun()  # redraw the sidebar so the band and time window follow the spots just loaded
         except Exception as e:
             ss.raw = None
             st.error(str(e))
