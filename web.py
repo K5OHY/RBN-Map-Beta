@@ -21,22 +21,19 @@ from compare_stats import (
     SECTOR_NAMES,
     EQUAL_DB,
     SLOT_NOISE_DB,
-    alternating_exposure,
     analyze,
     build_verdict,
     count_pairs,
     default_labels,
     db_from_watts,
-    default_windows,
     eligible_receivers,
     locate as skimmer_location,
     median_power_dbm,
     receiver_table,
+    _farthest,
     _lead_text,
     round_consistency,
-    split_alternating,
     split_by_labels,
-    split_windows,
 )
 from report_pdf import build_pdf
 from rbn_data import (
@@ -544,8 +541,6 @@ def bearing_chart(spots, skimmers, home, scale=RBN_SNR_SCALE):
 # The ways compare mode can tell the A side from the B side (these are the labels people see).
 SPLIT_FREQ = "Two frequencies"
 SPLIT_LOG = "Antenna log"
-SPLIT_TIMED = "Swap every few minutes"
-SPLIT_SEQ = "One after the other"
 
 COLOR_A, COLOR_B, COLOR_TIE = "#2563eb", "#f97316", "#8a8f98"
 
@@ -739,23 +734,64 @@ def paired_scatter(shared, names):
     return fig
 
 
+def _gap_text(minutes):
+    return f"{minutes / 60:.1f} h later" if minutes >= 120 else f"{minutes:.0f} min later"
+
+
 def timeline_chart(spots_a, spots_b, names):
-    """SNR of every spot over time, with each transmission's median as a dot: shows when each side was
-    connected and whether conditions drifted while you tested."""
+    """SNR of every spot over time, with each transmission's median as a dot: shows when each side was connected and
+    whether conditions drifted while you tested. Transmissions are placed side by side in order, so a short test fills
+    the chart and a long pause (between two rounds, say) shrinks to a marked gap instead of leaving the dots in two thin
+    stripes. A very long run (over 80 transmissions) is drawn on the real clock instead."""
     fig = Figure(figsize=(9.5, 2.9))
     fig.patch.set_alpha(0)
     ax = fig.add_subplot()
     _style_axes(ax)
-    for spots, color, name in ((spots_a, COLOR_A, names["A"]), (spots_b, COLOR_B, names["B"])):
-        if spots.empty:
-            continue
-        ax.scatter(spots["time"], spots["snr"], s=5, color=color, alpha=0.18, linewidths=0)
-        med = spots.groupby("time")["snr"].median()
-        ax.plot(med.index, med.to_numpy(), linestyle="none", marker="o", markersize=4, color=color, label=name)
+    times = [pd.Timestamp(t) for t in np.sort(pd.concat([spots_a["time"], spots_b["time"]]).unique())]
+    if len(times) > 80:
+        for spots, color, name in ((spots_a, COLOR_A, names["A"]), (spots_b, COLOR_B, names["B"])):
+            if spots.empty:
+                continue
+            ax.scatter(spots["time"], spots["snr"], s=5, color=color, alpha=0.18, linewidths=0)
+            med = spots.groupby("time")["snr"].median()
+            ax.plot(med.index, med.to_numpy(), linestyle="none", marker="o", markersize=4, color=color, label=name)
+        ax.xaxis.set_major_formatter(mdates.DateFormatter("%d %b %H:%M"))
+        fig.autofmt_xdate(rotation=0, ha="center")
+    else:
+        steps = [(b - a).total_seconds() / 60 for a, b in zip(times, times[1:]) if b > a]
+        typical = float(np.median(steps)) if steps else 0.0
+        pos, x, gaps = {times[0]: 0.0}, 0.0, []
+        for before, t in zip(times, times[1:]):
+            gap = (t - before).total_seconds() / 60
+            if typical and gap > max(3 * typical, 6):  # a long pause: leave a small marked gap, not hours of empty axis
+                gaps.append((x + 1.0, gap))
+                x += 1.0
+            x += 1.0
+            pos[t] = x
+        shared = set(spots_a["time"]) & set(spots_b["time"])  # both sides at the same moment: nudge them apart
+        few = len(times) <= 12
+        for spots, color, name, side in ((spots_a, COLOR_A, names["A"], -1), (spots_b, COLOR_B, names["B"], 1)):
+            if spots.empty:
+                continue
+            shift = lambda t: pos[t] + (0.14 * side if t in shared else 0.0)  # noqa: E731
+            ax.scatter(spots["time"].map(shift), spots["snr"], s=16 if few else 7, color=color, alpha=0.2, linewidths=0)
+            med = spots.groupby("time")["snr"].median()
+            ax.plot([shift(t) for t in med.index], med.to_numpy(), linestyle="none", marker="o",
+                    markersize=8 if few else 5, color=color, label=name)
+        for gx, gap in gaps:
+            ax.axvline(gx - 0.0, color=COLOR_TIE, linestyle=":", alpha=0.6, linewidth=1)
+            ax.text(gx, 1.0, _gap_text(gap), transform=ax.get_xaxis_transform(), ha="center", va="bottom",
+                    fontsize=7, color=COLOR_TIE)
+        multi_day = times[0].date() != times[-1].date()
+        every = max(1, int(np.ceil(len(times) / 16)))
+        shown = times[::every]
+        ax.set_xticks([pos[t] for t in shown])
+        ax.set_xticklabels([f"{t:%d %b %H:%M}" if multi_day else f"{t:%H:%M}" for t in shown],
+                           rotation=0 if len(shown) <= 10 else 45, ha="center" if len(shown) <= 10 else "right")
+        ax.set_xlim(-0.8, max(pos.values()) + 0.8)
+        ax.set_xlabel("UTC time of each transmission", color=COLOR_TIE, fontsize=8)
     ax.set_ylabel("SNR (dB)", color=COLOR_TIE, fontsize=8)
-    ax.xaxis.set_major_formatter(mdates.DateFormatter("%d %b %H:%M"))
     ax.legend(frameon=False, fontsize=8, labelcolor=COLOR_TIE, ncol=2, loc="upper right")
-    fig.autofmt_xdate(rotation=0, ha="center")
     return fig
 
 
@@ -925,32 +961,6 @@ def _separate_by_frequency(spots, gap_khz):
     return {"a": spots_a, "b": spots_b, "default": {"A": f"A ({fa:.1f} kHz)", "B": f"B ({fb:.1f} kHz)"}}
 
 
-def _time_bounds(all_spots):
-    first = all_spots["time"].min().floor("min")
-    return first.to_pydatetime(), (all_spots["time"].max().ceil("min") + pd.Timedelta(minutes=2)).to_pydatetime()
-
-
-def _separate_by_windows(spots, all_spots):
-    tmin, tmax = _time_bounds(all_spots)
-    if tmax <= tmin:
-        st.warning("These spots all fall in one moment, so there is no time to split them by.")
-        return None
-    (a0, a1), (b0, b1) = default_windows(all_spots)
-    st.caption("Drag the handles to the times each antenna was connected. The defaults split at the longest quiet "
-               "gap, or down the middle if there isn't one.")
-    c1, c2 = st.columns(2)
-    kw = dict(min_value=tmin, max_value=tmax, step=timedelta(minutes=2), format="MM/DD HH:mm")
-    wa = c1.slider("\U0001F535 When A was connected (UTC)", value=(a0.to_pydatetime(), a1.to_pydatetime()), **kw)
-    wb = c2.slider("\U0001F7E0 When B was connected (UTC)", value=(b0.to_pydatetime(), b1.to_pydatetime()), **kw)
-    if wa[0] < wb[1] and wb[0] < wa[1]:
-        st.warning("The two windows overlap, so some spots would count for both. Move one so they don't.")
-        return None
-    spots_a, spots_b = split_windows(spots, [pd.Timestamp(t) for t in wa], [pd.Timestamp(t) for t in wb])
-    return {"a": spots_a, "b": spots_b, "time_based": True,
-            "exposure": ((wa[1] - wa[0]).total_seconds() / 60, (wb[1] - wb[0]).total_seconds() / 60),
-            "default": {"A": f"A ({wa[0]:%H:%M}–{wa[1]:%H:%M})", "B": f"B ({wb[0]:%H:%M}–{wb[1]:%H:%M})"}}
-
-
 def _without_ghost_cycles(spots):
     """Throw out cycles that only one or two receivers reported when ordinary cycles are heard by many more. They are
     nearly always one receiver with a wrong clock reporting your transmission under the next time slot, so they are
@@ -1025,8 +1035,12 @@ def _separate_by_log(spots):
                   if smallest > EQUAL_DB else
                   f"show differences down to about {EQUAL_DB:g} dB. Anything smaller counts as equal, so more pairs "
                   "won't change the answer much."))
-    st.caption("Which antenna was connected for each transmission? The antenna changes after every cycle. Fix any "
-               "row to match your notes, or clear a row to leave it out.")
+    st.caption("Which antenna was connected for each transmission? The antenna changes after every transmission, down "
+               "the list. Fix any row to match your notes, or clear a row to leave it out.")
+    if any(g > 2.5 for g in [(y - x).total_seconds() / 60 for x, y in zip(stamps, stamps[1:])]):
+        st.caption("\u26a0 Some cycles are missing between these rows (the transmitter skipped them, or nobody heard "
+                   "them). The labels assume you changed antenna after each transmission you made; if you changed on "
+                   "a timer instead, correct the rows after each gap.")
     heard = spots.groupby("time")["spotter"].nunique()
     right_now = pd.Timestamp(datetime.now(timezone.utc).replace(tzinfo=None))
     arriving = [(right_now - t).total_seconds() / 60 < DATA_LAG_MINUTES for t in stamps]
@@ -1060,33 +1074,6 @@ def _separate_by_log(spots):
             "default": {"A": "A", "B": "B"}}
 
 
-def _separate_timed(spots, all_spots):
-    """The antenna changes on a timer: A for N minutes, then B for N minutes, and so on."""
-    tmin, tmax = _time_bounds(all_spots)
-    if tmax <= tmin:
-        st.warning("These spots all fall in one moment, so there is no time to split them by.")
-        return None
-    st.caption("Change antenna on a timer, for example every 10 minutes. Propagation drifts over an hour, but "
-               "both antennas share every drift this way.")
-    c1, c2, c3 = st.columns([2, 1, 1])
-    start = c1.slider("First block starts (UTC)", min_value=tmin, max_value=tmax, value=tmin,
-                      step=timedelta(minutes=2), format="MM/DD HH:mm")
-    block = c2.number_input("Minutes per block", min_value=2, max_value=720, value=20, step=2,
-                            help="How long each antenna stays connected before you change.")
-    guard = c3.number_input("Ignore after change (min)", min_value=0, max_value=max(0, int(block) - 2),
-                            value=2 if block >= 6 else 0, step=1,
-                            help="Spots in the first minutes of each block are dropped, in case the change was still "
-                                 "happening. Leave at 0 for very short blocks.")
-    a_first = st.radio("Which antenna was connected first?", ["A", "B"], horizontal=True) == "A"
-    t0 = pd.Timestamp(start)
-    spots_a, spots_b = split_alternating(spots, t0, block, guard, a_first)
-    n_blocks = max(0, int(np.ceil((pd.Timestamp(tmax) - t0).total_seconds() / 60 / block)))
-    st.caption(f"{n_blocks} blocks of {block} min, about {n_blocks // 2} full rounds of A then B.")
-    return {"a": spots_a, "b": spots_b, "time_based": True, "alternating": True,
-            "exposure": alternating_exposure(t0, pd.Timestamp(tmax), block, guard, a_first),
-            "default": {"A": "A", "B": "B"}}
-
-
 def compare_view(spots, locs, home, label, callsign, file_date, tiles, show_all, units, split, gap_khz,
                  scale, noun, kind, all_spots):
     """Compare mode: separate `spots` into an A side and a B side (by frequency, time window, timed blocks,
@@ -1094,24 +1081,33 @@ def compare_view(spots, locs, home, label, callsign, file_date, tiles, show_all,
     name_a, name_b = _name_inputs()
     if split == SPLIT_FREQ:
         sep = _separate_by_frequency(spots, gap_khz)
-    elif split == SPLIT_SEQ:
-        sep = _separate_by_windows(spots, all_spots)
-    elif split == SPLIT_LOG:
-        sep = _separate_by_log(spots)
     else:
-        sep = _separate_timed(spots, all_spots)
+        sep = _separate_by_log(spots)
     if sep is None:
         return
     spots_a, spots_b = sep["a"], sep["b"]
     if spots_a.empty or spots_b.empty:
         st.warning("One side has no spots. Adjust the selection above, or the filters in the sidebar.")
         return
-    if kind == "WSPR" and sep.get("time_based"):
-        # For WSPR the time on the air that matters is the transmissions that actually happened (2 minutes each), not
-        # the scheduled minutes: a transmitter that picks its slots at random can put far more of them on one side.
-        n_a, n_b = spots_a["time"].nunique(), spots_b["time"].nunique()
-        sep["exposure"] = (2.0 * n_a, 2.0 * n_b) if abs(n_a - n_b) > 1 else None
     map_a, map_b = spots_a, spots_b  # the maps and timeline show everything that was heard
+    if kind == "WSPR" and sep.get("time_based"):
+        if sep.get("labeled") and count_pairs(spots_a, spots_b) >= 1:
+            # An alternating test is judged pair by pair, and a pair has exactly one transmission on each antenna, so
+            # the time on the air is equal by construction. A transmission with no partner on the other antenna has
+            # nothing to be compared with, so it is left out of the comparison (it still shows on the maps). Thinning
+            # the longer side at random instead could throw away a paired transmission and leave nothing to compare.
+            spots_a, spots_b = spots_a[spots_a["round"].notna()], spots_b[spots_b["round"].notna()]
+            sep["exposure"] = None
+            unpaired = (map_a["time"].nunique() - spots_a["time"].nunique()
+                        + map_b["time"].nunique() - spots_b["time"].nunique())
+            if unpaired:
+                st.caption(f"\u2139\ufe0f {unpaired} transmission{'s' if unpaired != 1 else ''} had no partner on the other "
+                           "antenna, so they are left out of the A/B comparison (they still show on the maps).")
+        else:
+            # For WSPR the time on the air that matters is the transmissions that actually happened (2 minutes each),
+            # not the scheduled minutes: a transmitter that picks its slots at random can put far more of them on one side.
+            n_a, n_b = spots_a["time"].nunique(), spots_b["time"].nunique()
+            sep["exposure"] = (2.0 * n_a, 2.0 * n_b) if abs(n_a - n_b) > 1 else None
     listening_note = None
     if kind == "WSPR" and sep.get("time_based"):
         bands = set(spots_a["band"]) | set(spots_b["band"])
@@ -1157,6 +1153,13 @@ def compare_view(spots, locs, home, label, callsign, file_date, tiles, show_all,
             normalize = True
 
     an = analyze(spots_a, spots_b, locs, home, pa, pb, normalize, units, exposure=sep.get("exposure"))
+    # Describe what was heard the way the maps do, from every receiver that heard each side. The fairness checks (listening
+    # during both sides, real A/B pairs) decide who counts for the reach and strength verdict, but they would otherwise
+    # hide a receiver from the "farthest" figure that the map plainly shows.
+    ta_all, tb_all = receiver_table(map_a, locs, home), receiver_table(map_b, locs, home)
+    far_all_a, far_all_b = _farthest(ta_all), _farthest(tb_all)
+    if far_all_a and far_all_b:
+        an["dx"] = {**an["dx"], "a": far_all_a, "b": far_all_b}
     rounds = None
     if sep.get("alternating") and "round" in spots_a:
         rounds = round_consistency(spots_a, spots_b, locs, home, an["power"]["offset"])
@@ -1190,7 +1193,7 @@ def compare_view(spots, locs, home, label, callsign, file_date, tiles, show_all,
 
     r, s_, dx = an["reach"], an["strength"], an["dx"]
     k = KM_PER_MILE if units == "mi" else 1
-    means_a, means_b = sector_means(an["ta"]), sector_means(an["tb"])
+    means_a, means_b = sector_means(ta_all), sector_means(tb_all)
     tab_result, tab_where, tab_each, tab_maps = st.tabs(
         ["\U0001F4CA Result", "\U0001F9ED Direction & distance", "\U0001F4CB Receiver by receiver", "\U0001F5FA️ Maps"])
 
@@ -1206,7 +1209,7 @@ def compare_view(spots, locs, home, label, callsign, file_date, tiles, show_all,
              r["call"] if r["call"] in ("A", "B") else None),
             ("Average SNR", snr_note, (avg_a, ""), (avg_b, ""), s_["call"] if s_["call"] in ("A", "B") else None),
             (f"Farthest {noun}", "your longest path", far(dx["a"]), far(dx["b"]), dx["call"]),
-            ("Typical distance", "half the stations were closer than this", typical(an["ta"]), typical(an["tb"]), None),
+            ("Typical distance", "half the stations were closer than this", typical(ta_all), typical(tb_all), None),
             ("Strongest direction", "where your signal was best",
              (best_direction(means_a), ""), (best_direction(means_b), ""), None),
         ]
@@ -1219,7 +1222,7 @@ def compare_view(spots, locs, home, label, callsign, file_date, tiles, show_all,
             test=(f"Test: {n_a} transmission{'s' if n_a != 1 else ''} on A, {n_b} on B" if sep.get("labeled")
                   else "Test: A and B separated by " + ("frequency" if not sep.get("time_based") else "time")),
             time_based=bool(sep.get("time_based")), means_a=means_a, means_b=means_b,
-            timeline=(map_a, map_b) if sep.get("time_based") and n_a + n_b >= 8 else None)
+            timeline=(map_a, map_b))
         st.download_button("\u2B07\ufe0f Download report (PDF)", data=lambda: compare_report_pdf(pdf_ctx),
                            file_name=f"RBN_compare_{callsign}_{file_date}.pdf", mime="application/pdf",
                            help="The verdict, scoreboard and every chart and table, as a PDF you can keep or share.")
@@ -1230,21 +1233,21 @@ def compare_view(spots, locs, home, label, callsign, file_date, tiles, show_all,
         st.caption(f"Each {noun} is counted once, however many times it spotted you. A *spot* is one report, so "
                    "spots always outnumber stations.")
 
-        if sep.get("time_based") and map_a["time"].nunique() + map_b["time"].nunique() >= 8:
-            st.subheader("Timeline")
-            st.pyplot(timeline_chart(map_a, map_b, names), width="stretch")
-            st.caption("Each faint dot is one spot; the solid dots are the median of each transmission. "
-                       "If one colour sits above the other throughout, that's a real difference; if they swap places, "
-                       "propagation moved around more than the antennas differ.")
-            if rounds is not None and len(rounds) >= 3:
-                if len(rounds) <= 12:
-                    st.caption("Who was stronger in each round, and by how much (dB): "
-                               + " \u00b7 ".join("equal" if abs(d) < 0.05 else f"{'A' if d > 0 else 'B'} +{abs(d):.1f}"
-                                                 for d in rounds["delta"]))
-                else:
-                    st.caption(f"{len(rounds)} rounds (one A transmission and the B one after it). A was stronger in "
-                               f"{int((rounds['delta'] > 0).sum())}, B in {int((rounds['delta'] < 0).sum())}; the typical "
-                               f"round: {_lead_text(names, float(rounds['delta'].median()))}.")
+        st.subheader("Timeline")
+        st.pyplot(timeline_chart(map_a, map_b, names), width="stretch")
+        st.caption("Each faint dot is one spot; the solid dots are the median of each transmission, placed in the "
+                   "order they happened (a dotted line marks a long pause). If one colour sits above the other "
+                   "throughout, that's a real difference; if they swap places, propagation moved around more than "
+                   "the antennas differ.")
+        if rounds is not None and len(rounds) >= 3:
+            if len(rounds) <= 12:
+                st.caption("Who was stronger in each round, and by how much (dB): "
+                           + " \u00b7 ".join("equal" if abs(d) < 0.05 else f"{'A' if d > 0 else 'B'} +{abs(d):.1f}"
+                                             for d in rounds["delta"]))
+            else:
+                st.caption(f"{len(rounds)} rounds (one A transmission and the B one after it). A was stronger in "
+                           f"{int((rounds['delta'] > 0).sum())}, B in {int((rounds['delta'] < 0).sum())}; the typical "
+                           f"round: {_lead_text(names, float(rounds['delta'].median()))}.")
 
     with tab_where:
         if means_a.notna().any() or means_b.notna().any():
@@ -1489,13 +1492,10 @@ def main():
         if kind == "WSPR":
             split, gap_khz = SPLIT_LOG, 0.5  # WSPR needs no choices here: you mark the antenna on each transmission
         else:
-            split = st.radio("Tell A and B apart by", [SPLIT_FREQ, SPLIT_SEQ, SPLIT_TIMED], key=f"split_{kind}",
-                             disabled=not compare,
-                             help="How did you change between the two antennas or tests?\n\n"
-                                  "**Two frequencies**: you sent on two different frequencies.\n\n"
-                                  "**One after the other**: one antenna for a while, then the other.\n\n"
-                                  "**Swap every few minutes**: you change on a timer.\n\n"
-                                  "Switching often is fairest, because both antennas then share the same changing conditions.")
+            split = SPLIT_FREQ  # RBN spots arrive over a minute or more after you send, so only frequency separates A and B well
+            if compare:
+                st.caption("RBN tells A and B apart by frequency: call CQ on one frequency with the first antenna, then on "
+                           "a nearby frequency with the other, back to back (a minute or two apart).")
             gap_khz = st.slider("Frequency gap (kHz)", 0.1, 5.0, 0.5, 0.1,
                                 disabled=not (compare and split == SPLIT_FREQ),
                                 help="Spots closer together than this count as the same frequency. Skimmers report slightly "

@@ -158,11 +158,7 @@ Tick **Compare two antennas or tests** in the sidebar, then choose how the app s
 
 **WSPR: the antenna log.** After you load your spots, the app lists every transmission it found (the UTC time, how many receivers heard it) with an **Antenna** dropdown beside each, like the time-slot sheet N4REE keeps for his tests. It fills the antenna in for you, alternating down the list; use the **Order** choice for *A, B, A, B* or *A, B, B, A* (which balances which antenna goes first in each pair). Every test starts on A; if one really started on B, change the Antenna cells. Change any row to match your notes, or clear a row to leave it out, for example a transmission from before the test began. That is all there is to it, and it works for a test of a single A/B pair as well as a long one.
 
-**RBN** (choose one in the sidebar):
-
-- **Two frequencies.** You sent on two different frequencies, for example the dipole on 14069.5 kHz and the loop on 14070.5. Spots are split into groups of nearby frequencies; the two biggest are chosen as A and B (change them with the dropdowns). Skimmers report slightly different frequencies for the same signal, so spots closer than the **Frequency gap** (default 0.5 kHz) count as one frequency. Lower it if two tests were merged, raise it if one was split.
-- **One after the other.** One antenna for a while, then the other. Drag the handles to say when each was connected. The defaults split at the longest quiet gap, or down the middle if there isn't one. This is the weakest test, since the time of day changes between the two (see below).
-- **Swap every few minutes.** You change antenna on a timer, for example every 10 minutes. Tell the app when the first block started and how long each lasted. *Ignore after change* drops the first minutes of each block in case the change was still happening.
+**RBN: two frequencies.** Call CQ with the first antenna on one frequency, then with the other antenna on a nearby one, back to back (a minute or two apart), for example the dipole on 14069.5 kHz and the loop on 14070.5. Spots are split into groups of nearby frequencies; the two biggest are chosen as A and B (change them with the dropdowns). Skimmers report slightly different frequencies for the same signal, so spots closer than the **Frequency gap** (default 0.5 kHz) count as one frequency. Lower it if two tests are close together. Frequency is the only way RBN tests are separated, on purpose: skimmers report a spot a minute or more after you send, so spot times are too blurred to tell A from B by the clock.
 
 You can give each side a name ("Dipole", "40m loop") under *Name your antennas* and it is used throughout the results.
 
@@ -193,14 +189,14 @@ Tips for a fair test:
 
 The results are in four tabs:
 
-- **Result.** The verdict first: a plain-English answer saying which is getting out better, whether they are equal, or whether it is too close to call, with the evidence under it (reach, strength, farthest and typical distance, direction, and for a longer test how consistent it was from pair to pair) and any caveats. Under it, a scoreboard with A and B side by side, a bar showing who heard you (*only A*, *both*, *only B*), and for longer tests a timeline of every spot.
+- **Result.** The verdict first: a plain-English answer saying which is getting out better, whether they are equal, or whether it is too close to call, with the evidence under it (reach, strength, farthest and typical distance, direction, and for a longer test how consistent it was from pair to pair) and any caveats. Under it, a scoreboard with A and B side by side, a bar showing who heard you (*only A*, *both*, *only B*), and a timeline of every spot, with the transmissions placed in the order they happened (a short test fills the chart, and a long pause between rounds shrinks to a dotted marker).
 - **Direction & distance.** A compass chart of average SNR toward each direction, and a table of which side is better toward each of the eight directions; then the same by distance range. Longer paths usually mean a lower take-off angle, so an antenna that wins close in while the other wins far out is showing high-angle versus low-angle behaviour.
 - **Receiver by receiver.** A scatter plot and table of every station that heard both sides. Dots above the dashed line are where B was stronger.
 - **Maps.** The map for A next to the map for B, with the same view, SNR colours and dot sizes. Each map has its own download button.
 
 ### Reports you can keep
 
-Both views have a **Download report (PDF)** button. In Compare mode it sits under the verdict and produces the verdict, the scoreboard, who heard you on each side, the direction and distance charts and tables, the station-by-station comparison and, for longer tests, the timeline. For a single antenna (Compare mode off) it sits next to *Download map* and produces the key numbers, the direction chart, a by-band table and the stations that heard you, farthest first. The PDF is drawn by the app itself, so there is nothing extra to install.
+Both views have a **Download report (PDF)** button. In Compare mode it sits under the verdict and produces the verdict, the scoreboard, who heard you on each side, the direction and distance charts and tables, the station-by-station comparison and the timeline. For a single antenna (Compare mode off) it sits next to *Download map* and produces the key numbers, the direction chart, a by-band table and the stations that heard you, farthest first. The PDF is drawn by the app itself, so there is nothing extra to install.
 
 In the stronger-by columns and tables, a difference is always shown as which side was ahead and by how much (for example *B +2.0 dB*), never as a signed A-minus-B number, because a negative number reads like "worse" even when it is a win for B. Skimmers at the same place (K9TRV and K9TRV-2, or one site's several antennas) are averaged into one before the result is worked out, because they hear nearly the same signal and would otherwise count as extra witnesses.
 
@@ -212,7 +208,7 @@ In the stronger-by columns and tables, a difference is always shown as which sid
 - **Equal time on the air.** When A and B are separated in time, more time means more chances for a station to hear you. If one side was on the air more than 15% longer (for WSPR, counted in transmissions that actually happened), the app randomly trims it to match before comparing, and says so.
 - **Who was listening** (WSPR). Many WSPR receivers hop between bands and listen to yours only in some time slots. If one antenna's transmissions happen to land on those slots, a receiver "only hears A" because of its own schedule, not the antenna. So the app asks wspr.live which receivers were decoding anything in each slot, and only counts a receiver if it was listening during both sides' transmissions. The verdict tells you how many were kept.
 - **Power.** If the two sides used different power, B's SNR is shifted to A's power first. With a gap of 3 dB or more the correction is approximate, and the verdict says so.
-- **One after the other.** When A and B ran in sequence, even a clear difference could come from the time of day, and the verdict says so instead of declaring the antenna the winner. Changing antenna after every transmission, or every few minutes, removes that doubt.
+- **A and B sent far apart in time.** When A and B were sent more than about 10 minutes apart, even a clear difference could come from the time of day, and the verdict says so instead of declaring the antenna the winner. Sending them back to back removes that doubt.
 
 The sidebar filters (band, time window, minimum SNR) apply before the spots are split into A and B.
 

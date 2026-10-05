@@ -402,47 +402,6 @@ def round_consistency(spots_a, spots_b, locs, home, offset_db=0.0):
 
 # ------------------------------------------------------------------ splitting spots into A and B by time
 
-def default_windows(spots):
-    """Two sensible A / B time windows for a run of spots. When someone stopped transmitting to change antenna
-    there is a quiet gap; split at the longest gap that leaves each side at least a quarter of the run (a gap right
-    at the start or end would make one window tiny), and keep the windows tight around the real activity so the
-    quiet minutes aren't counted as time on the air. With no such gap, split down the middle. Half-open: [start, end)."""
-    times = np.sort(spots["time"].unique())
-    t0, t1 = pd.Timestamp(times[0]), pd.Timestamp(times[-1]) + pd.Timedelta(minutes=2)
-    total = (t1 - t0).total_seconds()
-    if len(times) > 1 and total > 0:
-        gaps = np.diff(times).astype("timedelta64[s]").astype(float) / 60
-        for i in np.argsort(-gaps):
-            if gaps[i] < 6:
-                break
-            a_end = min(pd.Timestamp(times[i]) + pd.Timedelta(minutes=2), pd.Timestamp(times[i + 1]))
-            b_start = pd.Timestamp(times[i + 1])
-            if min((a_end - t0).total_seconds(), (t1 - b_start).total_seconds()) / total >= 0.25:
-                return (t0, a_end), (b_start, t1)
-    mid = t0 + (t1 - t0) / 2
-    return (t0, mid), (mid, t1)
-
-
-def split_windows(spots, window_a, window_b):
-    """Spots inside each [start, end) window."""
-    def inside(w):
-        return spots[(spots["time"] >= w[0]) & (spots["time"] < w[1])]
-    return inside(window_a), inside(window_b)
-
-
-def split_alternating(spots, t0, block_minutes, guard_minutes=0.0, a_first=True):
-    """A in blocks 0, 2, 4 ..., B in blocks 1, 3, 5 ... (swap with a_first=False). Spots in the first
-    `guard_minutes` of each block are dropped (the antenna may still have been switching). Each spot is tagged
-    with its block number and its round (a round = one A block plus the B block after it)."""
-    minutes = (spots["time"] - t0).dt.total_seconds() / 60.0
-    block = np.floor(minutes / block_minutes).astype(int)
-    into_block = minutes - block * block_minutes
-    keep = (minutes >= 0) & (into_block >= guard_minutes)
-    is_a = ((block % 2 == 0) == a_first)
-    tagged = spots.assign(block=block, round=block // 2)
-    return tagged[keep & is_a], tagged[keep & ~is_a]
-
-
 SLOT_SECONDS = 120  # a WSPR transmission starts every two minutes on the clock
 
 
@@ -456,12 +415,9 @@ def clock_labels(times, pattern="ABAB"):
 
 def default_labels(times, pattern="ABAB"):
     """A first guess at the antenna for each transmission in `times` (sorted Timestamps): the antenna changes after
-    every cycle. If the transmitter used nearly every two-minute slot, which is how a test is normally run, go by the
-    clock, so a cycle nobody reported can't shift the ones after it. If it used only some slots, the antenna was
-    presumably changed after each transmission it did make, so go down the list instead. A user can correct any row."""
-    slots_spanned = int(round((times[-1] - times[0]).total_seconds() / SLOT_SECONDS)) + 1
-    if len(times) >= 2 and len(times) / slots_spanned >= 0.8:
-        return clock_labels(times, pattern)
+    every transmission, so the pattern runs down the list. A cycle with no spots usually means the transmitter skipped
+    it (WSJT-X picks its slots at random), and nobody changes an antenna for a transmission that did not happen. A user
+    whose antennas switch on a timer, whatever was sent, can correct any row, or use clock_labels()."""
     return [pattern[i % len(pattern)] for i in range(len(times))]
 
 
@@ -492,19 +448,6 @@ def count_pairs(spots_a, spots_b):
     if "round" not in spots_a.columns or "round" not in spots_b.columns:
         return 0
     return len(set(spots_a["round"].dropna()) & set(spots_b["round"].dropna()))
-
-
-def alternating_exposure(t0, t_end, block_minutes, guard_minutes=0.0, a_first=True):
-    """Minutes on the air (after guard time) for A and for B across an alternating run."""
-    total = (t_end - t0).total_seconds() / 60.0
-    a = b = 0.0
-    for i in range(max(0, math.ceil(total / block_minutes))):
-        length = max(min(block_minutes, total - i * block_minutes) - guard_minutes, 0.0)
-        if (i % 2 == 0) == a_first:
-            a += length
-        else:
-            b += length
-    return a, b
 
 
 # ------------------------------------------------------------------ the verdict
@@ -735,8 +678,8 @@ def build_verdict(an, names, exposure=None, rounds=None, receiver_word="receiver
                 f"show a difference of about {smallest:.1f} dB or more. To see a 2 dB difference you would need about {need}. "
                 f"More transmissions on each side steady each {receiver_word}'s reading and get you there.")
     if sequential:
-        caveats.append("A and B ran one after the other. Which stations can hear you changes through the day, so the "
+        caveats.append("A and B were sent a while apart. Which stations can hear you changes through the day, so the "
                        "difference may come from the time rather than the antenna. For a result you can pin on the "
-                       "antenna, change antenna after every transmission, or every few minutes (the Every other "
-                       "transmission and Swap every few minutes options).")
+                       "antenna, send them back to back (a minute or two apart on RBN, or alternating cycles on WSPR) so "
+                       "both see the same conditions.")
     return {"level": level, "winner": winner, "headline": headline, "points": points, "caveats": caveats}
