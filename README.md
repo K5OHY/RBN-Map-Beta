@@ -21,7 +21,7 @@ The hosted site does not remember your settings; a local copy does (in `settings
 
 **RBN: Paste from RBN site.** For spots from the last few minutes or hours, and for quick tests. Look up your callsign on [reversebeacon.net](https://www.reversebeacon.net/), copy the spot rows, paste them into the box, and click Load spots. The app reads each field by what it looks like, so odd spacing is fine.
 
-**WSPR (wspr.live).** Pick a date (today works) and click Load spots. The app looks up WSPR spots sent by the callsign you entered, so use the callsign your WSPR transmitter sends. Reports take about 5 minutes to arrive in full; a newer cycle is still used and marked *may be incomplete*. Click Load spots again to refresh.
+**WSPR.** Pick a date (today works) and click Load spots. The app looks up WSPR spots sent by the callsign you entered, so use the callsign your WSPR transmitter sends. Reports take about 5 minutes to arrive in full; a newer cycle is still used and marked *may be incomplete*. Click Load spots again to refresh.
 
 WSPR differs from RBN in a few ways: SNR is mostly negative (about -30 to +5 dB), the stations are called receivers, and *Show all skimmers* is off because there is no list of every WSPR receiver.
 
@@ -133,7 +133,7 @@ The skimmer list refreshes itself every 24 hours. To force it: `.venv\Scripts\py
 | `compare_stats.py` | The A/B maths and the plain-English verdict |
 | `report_pdf.py` | Lays out the PDF reports |
 | `rbn_data.py` | Skimmer list, callsign location lookup, grid conversion |
-| `wspr_data.py` | Fetches WSPR spots from wspr.live |
+| `wspr_data.py` | Fetches WSPR spots |
 | `spotter_coords.csv` | Cached skimmer locations (updated automatically) |
 | `cty.dat` | Country prefixes from [country-files.com](https://www.country-files.com), for the approximate-location fallback |
 | `rbn_to_csv.py` | Refreshes the skimmer list now |

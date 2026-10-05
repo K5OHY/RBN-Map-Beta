@@ -895,7 +895,7 @@ def single_report_pdf(spots, locs, home, label, callsign, file_date, kind, noun,
     stats = compute_stats(spots, locs, home)
     bands = ", ".join(sorted(spots["band"].unique(), key=lambda b: list(BAND_COLORS).index(b) if b in BAND_COLORS else 99))
     sub = [f"{callsign} · {label}",
-           f"{'WSPR (wspr.live)' if kind == 'WSPR' else 'Reverse Beacon Network'} · {bands} · {_pretty_date(file_date)}"]
+           f"{'WSPR' if kind == 'WSPR' else 'Reverse Beacon Network'} · {bands} · {_pretty_date(file_date)}"]
     blocks = [("heading", "Summary"),
               ("metrics", [("Spots", f"{stats['spots']:,}"), (f"{noun.capitalize()}s", f"{stats['skimmers']:,}"),
                            (f"Farthest ({units})", f"{stats['max_km'] / k:,.0f}"), ("Best SNR", f"{stats['max_snr']:.0f} dB"),
@@ -1216,7 +1216,7 @@ def compare_view(spots, locs, home, label, callsign, file_date, tiles, show_all,
         n_a, n_b = map_a["time"].nunique(), map_b["time"].nunique()
         pdf_ctx = dict(
             names=names, an=an, verdict=verdict, noun=noun, units=units, score_rows=score_rows, callsign=callsign, label=label,
-            file_date=file_date, source="WSPR (wspr.live)" if kind == "WSPR" else "Reverse Beacon Network",
+            file_date=file_date, source="WSPR" if kind == "WSPR" else "Reverse Beacon Network",
             bands=", ".join(sorted(set(map_a["band"]) | set(map_b["band"]))),
             test=(f"Test: {n_a} transmission{'s' if n_a != 1 else ''} on A, {n_b} on B" if sep.get("labeled")
                   else "Test: A and B separated by " + ("frequency" if not sep.get("time_based") else "time")),
@@ -1370,7 +1370,7 @@ def save_settings(settings):
 
 
 RBN_SOURCES = ["Download by date", "Paste from RBN site"]
-WSPR_SOURCE = "WSPR (wspr.live)"
+WSPR_SOURCE = "WSPR"
 # wspr.live fills a slot in over several minutes: about 1 receiver at 2 minutes old, half by 3-4, complete by 6-8 (measured).
 # A transmission younger than this is left out of a comparison, since a half-filled slot makes its antenna look worse.
 GHOST_MAX, GHOST_MIN_TYPICAL = 2, 16  # see _without_ghost_cycles
@@ -1406,6 +1406,8 @@ def main():
     # default, which Streamlit treats as a brand-new widget and resets, swallowing the first click.
     if "cfg" not in ss:
         ss.cfg = load_settings()
+        if ss.cfg.get("source") == "WSPR (wspr.live)":  # the name an older version saved
+            ss.cfg["source"] = WSPR_SOURCE
     cfg = ss.cfg
 
     def pick(options, key, default=None):
@@ -1473,7 +1475,7 @@ def main():
             tod = ss.raw["time"].dt.floor("min").dt.time
             if tod.min() < tod.max():
                 lo_t, hi_t = tod.min(), tod.max()
-        if kind == "WSPR" and ss.get(f"compare_{kind}", True):
+        if kind == "WSPR" and ss.get(f"compare_{kind}", False):
             start_t, end_t = time.min, time.max  # comparing: you pick your test's cycles on the page instead
         else:
             start_t, end_t = st.slider(
@@ -1485,7 +1487,7 @@ def main():
 
         st.divider()
         st.header("Compare mode")
-        compare = st.checkbox("Compare two antennas or tests", value=(kind == "WSPR"), key=f"compare_{kind}",
+        compare = st.checkbox("Compare two antennas or tests", value=False, key=f"compare_{kind}",
                               help="Splits your spots into an A side and a B side, for example two antennas, "
                                    "two power levels or two test transmissions, and says which is getting out better.")
         if kind == "WSPR":
@@ -1533,7 +1535,7 @@ def main():
                 if not days:
                     raise RuntimeError("The 'To' date must be on or after the 'From' date.")
                 tx_call = clean_callsign(callsign)
-                with st.spinner(f"Asking wspr.live for {tx_call}'s WSPR spots…"):
+                with st.spinner(f"Looking up {tx_call}'s WSPR spots…"):
                     df, truncated = load_wspr(tx_call, wspr_start, wspr_end)
                 if truncated:
                     notice = "That much hit the spot limit, so the oldest spots are missing. Pick fewer days."
@@ -1579,7 +1581,7 @@ def main():
     wspr = ss.kind == "WSPR"
     if ss.raw.empty:
         if wspr:
-            st.warning(f"wspr.live has no WSPR spots from {ss.tx_call} in that time range. The callsign has to match what "
+            st.warning(f"There are no WSPR spots from {ss.tx_call} in that time range. The callsign has to match what "
                        "your transmitter sends, and spots can take a few minutes to show up. Try a wider range.")
         else:
             st.warning(f"RBN has no spots of {ss.callsign} for that date. Check the callsign, or try another day.")
