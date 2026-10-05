@@ -308,6 +308,11 @@ def analyze(spots_a, spots_b, locs, home, power_a=None, power_b=None, normalize=
 
     shared_all = shared  # every skimmer that heard both, for display; the result counts each site once
     shared = _one_per_site(shared_all)
+    # What the dots, the table and the win counts show: A's median minus B's median, the two numbers on screen. The result
+    # itself uses `delta` (the middle of the round-by-round differences), which is steadier but, for a station heard in
+    # several rounds, can lean the other way from the two medians. The dots must sit where their numbers say.
+    shared_all = shared_all.assign(gap=shared_all["snr_a"] - shared_all["snr_b"])
+    shared = shared.assign(gap=shared["snr_a"] - shared["snr_b"])
 
     heard_a, heard_b = set(spots_a["spotter"]), set(spots_b["spotter"])
     only_a, only_b, both = len(heard_a - heard_b), len(heard_b - heard_a), len(heard_a & heard_b)
@@ -340,7 +345,8 @@ def analyze(spots_a, spots_b, locs, home, power_a=None, power_b=None, normalize=
         lo, hi = mean - t_value * sd / math.sqrt(n), mean + t_value * sd / math.sqrt(n)
     if paired and n >= 2:
         lo, hi = widen_for_fading(lo, hi, mean, round_means)
-    wins_a, wins_b = int((d > 0).sum()), int((d < 0).sum())
+    gap = shared["gap"].to_numpy()
+    wins_a, wins_b = int((gap > 0).sum()), int((gap < 0).sum())
     p_ahead = math.nan  # how likely it is that the side the average favours really is ahead
     if n >= 2 and hi > lo:
         t_crit = 1.96 + 2.4 / (n - 1) + 3.0 / (n - 1) ** 2

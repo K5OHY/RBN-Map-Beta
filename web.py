@@ -605,10 +605,10 @@ def head_to_head_table(shared, units):
     dist, col_a, col_b, col_d = f"Distance ({units})", "🔵 A SNR (dB)", "🟠 B SNR (dB)", "Stronger by (dB)"
     view = pd.DataFrame({
         dist: (shared["km_a"] / k).round(0).astype(int),
-        col_a: shared["snr_a"], col_b: shared["snr_b"], col_d: shared["delta"].abs(),  # the size of the lead, never a sign
+        col_a: shared["snr_a"], col_b: shared["snr_b"], col_d: shared["gap"].abs(),  # the size of the lead, never a sign
     }).sort_values(dist, ascending=False)
-    view["Stronger"] = np.where(shared["delta"].reindex(view.index) > 0, "A",
-                                np.where(shared["delta"].reindex(view.index) < 0, "B", "Tie"))
+    view["Stronger"] = np.where(shared["gap"].reindex(view.index) > 0, "A",
+                                np.where(shared["gap"].reindex(view.index) < 0, "B", "Tie"))
     view = view[[dist, col_a, col_b, "Stronger", col_d]]
     view.index.name = "Skimmer"
 
@@ -722,7 +722,7 @@ def paired_scatter(shared, names):
     lo = float(min(shared["snr_a"].min(), shared["snr_b"].min())) - 2
     hi = float(max(shared["snr_a"].max(), shared["snr_b"].max())) + 2
     ax.plot([lo, hi], [lo, hi], color=COLOR_TIE, linestyle="--", linewidth=1)
-    colors = np.where(shared["delta"] > 0, COLOR_A, np.where(shared["delta"] < 0, COLOR_B, COLOR_TIE))
+    colors = np.where(shared["gap"] > 0, COLOR_A, np.where(shared["gap"] < 0, COLOR_B, COLOR_TIE))
     ax.scatter(shared["snr_a"], shared["snr_b"], c=colors, s=26, alpha=0.75, linewidths=0)
     ax.set_xlim(lo, hi)
     ax.set_ylim(lo, hi)
@@ -876,7 +876,7 @@ def compare_report_pdf(ctx):
         k = KM_PER_MILE if units == "mi" else 1
         order = every.sort_values("km_a", ascending=False)
         rows = [[i, f"{row.km_a / k:,.0f}", f"{row.snr_a:g}", f"{row.snr_b:g}",
-                 "A" if row.delta > 0 else "B" if row.delta < 0 else "Tie", f"{abs(row.delta):g}"]
+                 "A" if row.gap > 0 else "B" if row.gap < 0 else "Tie", f"{abs(row.gap):g}"]
                 for i, row in zip(order.index, order.itertuples())]
         blocks += [("heading", f"{noun.capitalize()} by {noun}"), ("figure", paired_scatter(an["shared"], names), 3.8),
                    ("note", f"{len(every)} {noun}s heard both sides, shown farthest first (up to 40). Each SNR is the "
