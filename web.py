@@ -974,8 +974,7 @@ def _without_ghost_cycles(spots):
         return spots
     st.caption(f"Left out {len(ghosts)} cycle{'s' if len(ghosts) > 1 else ''} that {GHOST_MAX} or fewer receivers heard, "
                f"when typical cycles were heard by about {typical:.0f}. A cycle that thin says little about an antenna, and "
-               "it is often one receiver with a wrong clock reporting your signal under the wrong time slot. "
-               "(If one antenna really is almost dead it would look the same, so check your switch.)")
+               "it is often one receiver with a wrong clock reporting your signal under the wrong time slot.")
     return spots[~spots["time"].isin(ghosts)]
 
 

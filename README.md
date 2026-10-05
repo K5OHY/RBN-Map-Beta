@@ -121,7 +121,7 @@ The skimmer list refreshes itself every 24 hours. To force it: `.venv\Scripts\py
 | "Couldn't find a location for ..." | Enter your grid square in the sidebar. |
 | "No location for ..." under the stats | Those skimmers are not in RBN's node list, so they are counted but not drawn. |
 | Compare found only one frequency group | Your spots are on one frequency, or the **Frequency gap** merged your tests. Lower the gap. |
-| A few WSPR cycles show only one or two receivers while the rest show dozens | Usually one receiver with a wrong clock. The app ignores them and says how many. If one antenna really is almost dead it looks the same, so check the switch and SWR. |
+| A few WSPR cycles show only one or two receivers while the rest show dozens | Usually one receiver with a wrong clock. The app ignores them and says how many. |
 | "Not enough data yet" / too close to call | Run more transmissions per antenna (see above). |
 | Downloading is slow | A day of RBN data is a large file. Each day in a range is a separate download. Results are cached for an hour. |
 
