@@ -32,6 +32,7 @@ BIN_ALPHA = 0.01          # ...and a 99 % range that excludes zero (about 14 bin
 MIN_DISCORDANT = 4        # fewer one-sided receivers than this: reach can't be told apart
 SLOT_NOISE_DB = 0.85      # how far apart ONE pair of identical-antenna transmissions typically reads, from fading that
                           # hits every receiver at once (measured on real WSPR data: spread 0.84 dB over 43 pairs)
+REACH_LEAN_MIN = 0.6      # reach is only described as "leaning" a way when it is at least this likely to be real
 MIN_REACH_ROUNDS = 6      # reach is judged round by round; fewer decisive rounds than this can't be significant
 DX_MARGIN = 0.25          # one extreme receiver is noisy, so the farthest must be this much farther...
 DX_MIN_KM = 1000          # ...and at least this far (km) farther, before it is called a difference
@@ -334,6 +335,16 @@ def analyze(spots_a, spots_b, locs, home, power_a=None, power_b=None, normalize=
         else:
             reach_call = "tie"
 
+    # How likely it is that the side with more one-sided receivers (or more winning pairs) really reaches more: one minus the
+    # chance of a split at least that lopsided if the two were truly equal.
+    reach_lead, reach_chance = None, math.nan
+    ahead_a, ahead_b = (a_ahead, b_ahead) if paired else (only_a, only_b)
+    n_split = ahead_a + ahead_b
+    if n_split >= 2 and ahead_a != ahead_b:
+        k_lead = max(ahead_a, ahead_b)
+        reach_lead = "A" if ahead_a > ahead_b else "B"
+        reach_chance = 1 - sum(math.comb(n_split, i) for i in range(k_lead, n_split + 1)) / 2 ** n_split
+
     d = shared["delta"].to_numpy()
     n = len(d)
     lo, hi = bootstrap_mean_ci(d) if n >= 2 else (math.nan, math.nan)
@@ -374,7 +385,7 @@ def analyze(spots_a, spots_b, locs, home, power_a=None, power_b=None, normalize=
     return {
         "ta": ta, "tb": tb, "shared": shared, "shared_all": shared_all,
         "reach": {"a": len(heard_a), "b": len(heard_b), "only_a": only_a, "only_b": only_b, "both": both,
-                  "p": reach_p, "call": reach_call, "rounds": reach_rounds, "spots_a": len(spots_a), "spots_b": len(spots_b),
+                  "p": reach_p, "call": reach_call, "rounds": reach_rounds, "lead": reach_lead, "chance": reach_chance, "spots_a": len(spots_a), "spots_b": len(spots_b),
                   "spots_all_a": n_all_a, "spots_all_b": n_all_b},
         "equalized": equalized,
         "strength": {"n": n, "mean": mean, "sd": sd, "p_ahead": p_ahead, "median": float(np.median(d)) if n else math.nan, "lo": lo, "hi": hi,
@@ -515,6 +526,16 @@ def build_verdict(an, names, exposure=None, rounds=None, receiver_word="receiver
             lean_note = (f" {names[s['lean']]} was ahead in {max(a_r, b_r)} of {len(rounds)} rounds, but only by a hair "
                          f"(under {EQUAL_DB:g} dB), which is too little to matter.")
 
+    # Reach that leans one way but is not enough to call: still worth saying, because more stations heard it is the thing
+    # people look at first.
+    reach_lean = None
+    r_lead, r_chance = r.get("lead"), r.get("chance", math.nan)
+    if rc == "tie" and r_lead and not math.isnan(r_chance) and r_chance >= REACH_LEAN_MIN \
+            and (r["a"] > r["b"]) == (r_lead == "A") and r["a"] != r["b"]:
+        more, fewer = (r["a"], r["b"]) if r_lead == "A" else (r["b"], r["a"])
+        reach_lean = (f"reach leans {names[r_lead]}, heard by {more} {receiver_word}s against {fewer}, "
+                      "but not enough to call")
+
     clearly = "did clearly better in this test" if sequential else "is clearly getting out better"
     stronger = "was stronger in this test" if sequential else "has the stronger signal"
     winner, level = None, "info"
@@ -530,7 +551,8 @@ def build_verdict(an, names, exposure=None, rounds=None, receiver_word="receiver
     elif sc in ("A", "B"):
         winner, level = sc, "success"
         headline = (f"**{names[sc]} {stronger}** ({abs(s['mean']):.1f} dB louder at shared "
-                    f"{receiver_word}s). Reach was about the same.{dir_note}")
+                    f"{receiver_word}s). " + (reach_lean[0].upper() + reach_lean[1:] + "." if reach_lean else "Reach was about the same.")
+                    + dir_note)
     elif rc in ("A", "B"):
         winner, level = rc, "success"
         why = {"equal": "strength at shared receivers is about equal",
@@ -538,12 +560,14 @@ def build_verdict(an, names, exposure=None, rounds=None, receiver_word="receiver
                "insufficient": f"too few {receiver_word}s heard both to compare strength"}[sc]
         headline = f"**{names[rc]} reached more {receiver_word}s;** {why}.{dir_note}"
     elif sc == "equal" and dir_note:
-        headline = f"**About equal overall** (strength within ±{EQUAL_DB:g} dB, same reach).{dir_note}"
+        headline = (f"**About equal overall** (strength within ±{EQUAL_DB:g} dB; "
+                    f"{reach_lean or 'same reach'}).{dir_note}")
     elif sc == "equal":
-        headline = f"**These two are equal.** Same reach, and signal strength is the same within ±{EQUAL_DB:g} dB."
+        headline = (f"**Equal on strength.** Signal strength is the same within ±{EQUAL_DB:g} dB; {reach_lean}." if reach_lean
+                    else f"**These two are equal.** Same reach, and signal strength is the same within ±{EQUAL_DB:g} dB.")
     elif sc == "insufficient":
         headline = (f"**Too close to call.** Only {s['n']} {receiver_word}(s) heard both; need at least "
-                    f"{MIN_SHARED} to compare strength, and reach is about the same.{dir_note}")
+                    f"{MIN_SHARED} to compare strength, and {reach_lean or 'reach is about the same'}.{dir_note}")
     else:
         if s["lo"] > 0 or s["hi"] < 0:
             side = "A" if s["mean"] > 0 else "B"
@@ -551,7 +575,8 @@ def build_verdict(an, names, exposure=None, rounds=None, receiver_word="receiver
             gap = f"{names[side]} looks ahead by {lo_:.1f} to {hi_:.1f} dB, a small edge that isn't decisive"
         else:
             gap = _straddle_text(names, s)
-        headline = f"**Too close to call.** No clear difference in reach, and {gap}.{dir_note}"
+        headline = (f"**Too close to call.** {reach_lean[0].upper() + reach_lean[1:] if reach_lean else 'No clear difference in reach'}, "
+                    f"and {gap}.{dir_note}")
 
     if sc == "equal" and lean_note:
         headline += lean_note
@@ -577,6 +602,9 @@ def build_verdict(an, names, exposure=None, rounds=None, receiver_word="receiver
         sig = (f"a real difference (p = {r['p']:.2g})" if rc in ("A", "B")
                else f"within normal variation (p = {r['p']:.2g})" if r["only_a"] + r["only_b"] >= MIN_DISCORDANT
                else "too few one-sided receivers to say")
+    if rc == "tie" and r_lead and not math.isnan(r_chance) and r_chance >= REACH_LEAN_MIN:
+        sig += (f". The chance that {names[r_lead]} really reaches more is about {r_chance:.0%}: better than a coin flip, "
+                "but short of the 95% needed to call it")
     points.append(("\U0001F4E1", f"**Reach:** {recv(r['a'])} heard A and {recv(r['b'])} heard B "
                    f"({r['only_a']} only A, {r['only_b']} only B, {r['both']} both) — {sig}."))
 
