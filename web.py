@@ -1443,9 +1443,12 @@ def _linear_average_view(spots_a, spots_b, an, names, noun, locs, home, kind, ca
         "relies on having many receivers to average that out.")
     right.markdown(
         "**Linear average: each receiver's average power**\n\n"
-        "Best for a **long test**: one antenna for 30 minutes or an hour, then the other, over several hours, so every "
-        "receiver has 20 to 40 reports per antenna. The ups and downs average out over time, so it doesn't rely on two "
-        "particular transmissions matching, and it gives a tight 95% range.\n\n"
+        "Best for a **long test**: run one antenna for 30 minutes to an hour, then the other, and repeat for several hours. "
+        "Each receiver then hears you 20 to 40 times on each antenna. For every receiver, the site averages all its reports "
+        "for A and all its reports for B (as power, not dB) and compares the two averages.\n\n"
+        "Any single report bounces up and down with fading, but over 20 to 40 reports those bounces even out, so the "
+        "averages are steady. The result no longer depends on two particular transmissions lining up, and the 95% range "
+        "(how far off the answer could plausibly be) comes out narrow.\n\n"
         "*Limits:* it needs many reports per receiver, so on a short test one lucky report can swing the result. Strong "
         "reports count for far more than weak ones, so a single peak can pull the average up. "
         "Reports right at WSPR's -28 dB floor throw it off, and a long run mixes in whatever the band did meanwhile.")
