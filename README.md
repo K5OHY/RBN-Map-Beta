@@ -58,7 +58,7 @@ Use an even number of transmissions: an odd one has no partner and is left out.
 
 ### With RBN
 
-Call CQ with the first antenna on one frequency, then with the other antenna on a nearby frequency, back to back (a minute or two apart). Paste the spots and click Load spots. The two biggest frequency groups become A and B; change them with the dropdowns. Skimmers report slightly different frequencies for the same signal, so spots closer than the **Frequency gap** (0.5 kHz) count as one. RBN is compared by frequency only, because skimmers report a spot a minute or more after you send, which is too blurry to separate A and B by the clock.
+Call CQ with the first antenna on one frequency, then with the other antenna on a nearby frequency, back to back (a minute or two apart). Paste the spots and click Load spots. The two biggest frequency groups become A and B; change them with the dropdowns. Skimmers report slightly different frequencies for the same signal, so spots closer than 0.5 kHz count as one (it looks closer if your two tests are nearer than that). RBN is compared by frequency only, because skimmers report a spot a minute or more after you send, which is too blurry to separate A and B by the clock.
 
 Send plenty of CQs on each side, at the same power and speed (or enter the power under **Power**).
 
@@ -125,7 +125,7 @@ The skimmer list refreshes itself every 24 hours. To force it: `.venv\Scripts\py
 | "Couldn't read any spot rows" | Copy the rows straight from the RBN spot table. The message quotes the first line it couldn't read. |
 | "Couldn't find a location for ..." | Enter your grid square in the sidebar. |
 | "No location for ..." under the stats | Those skimmers are not in RBN's node list, so they are counted but not drawn. |
-| Compare found only one frequency group | Your spots are on one frequency, or the **Frequency gap** merged your tests. Lower the gap. |
+| Compare found only one frequency group | Your spots are on one frequency, or your two tests were less than 0.1 kHz apart. Use a different frequency for each antenna. |
 | A few WSPR cycles show only one or two receivers while the rest show dozens | Usually one receiver with a wrong clock. The app ignores them and says how many. |
 | "Not enough data yet" / too close to call | Run more transmissions per antenna (see above). |
 | Downloading is slow | A day of RBN data is a large file. Each day in a range is a separate download. Results are cached for an hour. |

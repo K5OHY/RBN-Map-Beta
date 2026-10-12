@@ -970,10 +970,14 @@ def _name_inputs():
 def _separate_by_frequency(spots, gap_khz):
     """{'a', 'b', 'default'} chosen from frequency groups, or None if that can't be done."""
     groups = frequency_groups(spots, gap_khz)
+    for tighter in (0.2, 0.1):  # two tests very close together look like one group: look a little closer before giving up
+        if len(groups) >= 2:
+            break
+        groups = frequency_groups(spots, tighter)
     freqs = ", ".join(f"{f:.1f}" for f, _ in groups)
     if len(groups) < 2:
         st.warning(f"Found only {len(groups)} frequency group ({freqs or 'none'} kHz). Compare mode needs spots on at "
-                   f"least two frequencies. If your tests were close together, lower **Frequency gap** in the sidebar.")
+                   f"least two frequencies. Call CQ on a different frequency with each antenna, at least 0.1 kHz apart.")
         return None
 
     def option_label(i):
@@ -1938,10 +1942,7 @@ def main():
             if compare:
                 st.caption("RBN tells A and B apart by frequency: call CQ on one frequency with the first antenna, then on "
                            "a nearby frequency with the other, back to back (a minute or two apart).")
-            gap_khz = st.slider("Frequency gap (kHz)", 0.1, 5.0, 0.5, 0.1,
-                                disabled=not (compare and split == SPLIT_FREQ),
-                                help="Spots closer together than this count as the same frequency. Skimmers report slightly "
-                                     "different frequencies for the same signal. Lower it if two tests are close together.")
+            gap_khz = 0.5  # skimmers report slightly different frequencies for one signal, so spots this close count as one
 
         st.divider()
         st.header("Map")
