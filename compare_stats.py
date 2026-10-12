@@ -119,6 +119,79 @@ def _one_per_site(shared):
     return out
 
 
+# ------------------------------------------------------------------ the power-average ("linear") check
+
+WSPR_FLOOR_DB = -27       # WSPR decodes down to about -28 dB; reports at or below this are at the edge of what can be decoded
+DALE_MIN_SPOTS = 20       # spots per antenna that a long time-averaged test aims for (40 for the best accuracy)
+
+
+def power_method(spots_a, spots_b, locs, home, min_spots=1, floor=None):
+    """The same comparison done by averaging POWER instead of dB, for a cross-check against the default.
+
+    For each receiver: every report is turned from dB into power (10 ** (dB / 10)), each antenna's reports are averaged,
+    and the ratio is turned back into dB. That is that receiver's relative gain (A minus B). The receivers' gains are then
+    averaged (each place counted once) with a 95 % range. `min_spots` keeps only receivers with at least that many
+    reports on EACH antenna; `floor` drops reports at or below that SNR (WSPR's decoding edge).
+    Returns {'table', 'n', 'mean', 'lo', 'hi', 'median', 'sd', 'near_floor', 'dropped'}."""
+    def clip(spots):
+        return spots if floor is None else spots[spots["snr"] > floor]
+
+    near_floor = float(((spots_a["snr"] <= WSPR_FLOOR_DB).sum() + (spots_b["snr"] <= WSPR_FLOOR_DB).sum())
+                       / max(len(spots_a) + len(spots_b), 1))
+    a, b = clip(spots_a), clip(spots_b)
+    dropped = (len(spots_a) - len(a)) + (len(spots_b) - len(b))
+    pa = a.assign(p=10 ** (a["snr"] / 10)).groupby("spotter").agg(spots_a=("p", "size"), power_a=("p", "mean"))
+    pb = b.assign(p=10 ** (b["snr"] / 10)).groupby("spotter").agg(spots_b=("p", "size"), power_b=("p", "mean"))
+    t = pa.join(pb, how="inner")
+    t = t[(t["spots_a"] >= min_spots) & (t["spots_b"] >= min_spots)]
+    empty = {"table": t.assign(gain=np.nan), "n": 0, "mean": math.nan, "lo": math.nan, "hi": math.nan,
+             "median": math.nan, "sd": math.nan, "near_floor": near_floor, "dropped": dropped, "sites": t.iloc[0:0]}
+    if t.empty:
+        return empty
+    t = t.assign(gain=10 * np.log10(t["power_a"] / t["power_b"]))
+    geo = {}
+    for who in t.index:
+        loc = locate(who, locs)
+        if loc is not None:
+            geo[who] = _inverse(float(home[0]), float(home[1]), float(loc[0]), float(loc[1]))
+    t = t[t.index.isin(geo)].copy()
+    if t.empty:
+        return empty
+    t["km_a"] = [geo[w][0] for w in t.index]
+    t["bearing_a"] = [geo[w][1] for w in t.index]
+    t.index.name = "receiver"
+    sites = _one_per_site(t)
+    g = sites["gain"].to_numpy()
+    n = len(g)
+    mean = float(g.mean())
+    sd = float(g.std(ddof=1)) if n >= 2 else math.nan
+    if n >= 2:
+        t_value = 1.96 + 2.4 / (n - 1) + 3.0 / (n - 1) ** 2
+        lo, hi = mean - t_value * sd / math.sqrt(n), mean + t_value * sd / math.sqrt(n)
+    else:
+        lo = hi = math.nan
+    return {"table": t, "sites": sites, "n": n, "mean": mean, "lo": lo, "hi": hi, "median": float(np.median(g)),
+            "sd": sd, "near_floor": near_floor, "dropped": dropped}
+
+
+def direction_advantage(shared, width_deg=45):
+    """Which side is stronger in each direction sector, at the stations that heard both: one row per sector with the number
+    of stations and the average A-minus-B difference (positive = A stronger). `width_deg` is 45, 30 or 15."""
+    n_sec = int(round(360 / width_deg))
+    if shared.empty:
+        sector = pd.Series([], dtype=int)
+    else:
+        sector = (((shared["bearing_a"] + width_deg / 2) % 360) // width_deg).astype(int)
+    rows = []
+    for i in range(n_sec):
+        sh = shared[sector == i] if len(shared) else shared
+        center = (i * width_deg) % 360
+        start, end = (center - width_deg / 2) % 360, (center + width_deg / 2) % 360
+        rows.append({"center": center, "n": len(sh), "delta": float(sh["delta"].mean()) if len(sh) else math.nan,
+                     "label": SECTOR_NAMES[i] if width_deg == 45 else f"{start:.0f}\u2013{end:.0f}\u00b0"})
+    return pd.DataFrame(rows)
+
+
 # ------------------------------------------------------------------ small statistics
 
 def _t_two_sided_p(t, df, steps=4000):

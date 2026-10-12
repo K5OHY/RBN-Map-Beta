@@ -17,7 +17,10 @@ from matplotlib.figure import Figure
 from matplotlib.ticker import FuncFormatter
 
 from compare_stats import (
+    BIN_MIN_SHARED,
+    DALE_MIN_SPOTS,
     DIRECTION_EDGE_DB,
+    WSPR_FLOOR_DB,
     SECTOR_NAMES,
     EQUAL_DB,
     SLOT_NOISE_DB,
@@ -25,10 +28,12 @@ from compare_stats import (
     build_verdict,
     count_pairs,
     default_labels,
+    direction_advantage,
     db_from_watts,
     eligible_receivers,
     locate as skimmer_location,
     median_power_dbm,
+    power_method,
     receiver_table,
     _farthest,
     _lead_text,
@@ -36,6 +41,7 @@ from compare_stats import (
     split_by_labels,
 )
 from report_pdf import build_pdf
+from world_map import MAX_KM, MIN_CELL, azimuth_map_figure
 from rbn_data import (
     get_band,
     load_skimmers,
@@ -860,11 +866,23 @@ def compare_report_pdf(ctx):
               ("heading", f"Who heard you on each {'side' if ctx['time_based'] else 'frequency'}"),
               ("bar", [r["only_a"], r["both"], r["only_b"]], [f"Only {names['A']}", "Heard both", f"Only {names['B']}"],
                [COLOR_A, "#6b7280", COLOR_B]),
-              ("note", f"Each {noun} is counted once, however many times it spotted you.")]
+              ("note", f"Each {noun} is counted once, however many times it spotted you."),
+              ("paragraph", ctx["counts_note"])]
     cols = ["", "A", "B", "Both", "Stronger by", "Better"]
     widths = [0.26, 0.09, 0.09, 0.09, 0.2, 0.27]
     if ctx["means_a"].notna().any() or ctx["means_b"].notna().any():
-        blocks += [("heading", "Direction"), ("figure", direction_chart(ctx["means_a"], ctx["means_b"], names["A"], names["B"]), 3.5),
+        if len(ctx["az_points"]):
+            blocks += [("heading", "Where each antenna reached"),
+                       ("figure", azimuth_map_figure(ctx["home"][0], ctx["home"][1], ctx["az_points"], names, ctx["callsign"],
+                                                      units, MAX_KM, "advantage", True, ctx["scale"]), 5.6),
+                       ("note", "The station is at the centre; a dot's distance and angle are its true distance and bearing from "
+                                "you. Cells show which antenna was stronger there (blue A, orange B) where at least 3 receivers heard both; "+"filled dots heard both antennas, open rings only one.")]
+        if ctx["adv"]["n"].sum():
+            blocks += [("heading", "Which side is stronger, by direction"),
+                       ("figure", direction_advantage_chart(ctx["adv"], names, 45, ctx["callsign"]), 3.8),
+                       ("note", "A longer bar means a bigger difference; a more solid bar rests on more receivers; a hatched "
+                                "one has too few to trust.")]
+        blocks += [("heading", "Average SNR by direction"), ("figure", direction_chart(ctx["means_a"], ctx["means_b"], names["A"], names["B"]), 3.5),
                    ("note", "Distance from the centre is the average SNR toward that direction."),
                    ("table", ["Direction"] + cols[1:], _breakdown_rows(an["direction"], names), widths)]
     if len(an["distance"]) and an["distance"][["a", "b"]].to_numpy().sum():
@@ -883,6 +901,10 @@ def compare_report_pdf(ctx):
                             "median of that station's spots."),
                    ("table", [noun.capitalize(), f"Distance ({units})", "A SNR", "B SNR", "Stronger", "By (dB)"],
                     rows[:40], [0.28, 0.2, 0.13, 0.13, 0.13, 0.13])]
+    if ctx["method"]:
+        blocks += [("heading", "Linear average"), ("paragraph", ctx["method"]),
+                   ("note", "The default compares the same receiver in neighbouring transmissions, so it suits a short test. "
+                            "The power average suits long, time-averaged runs and needs many reports per receiver.")]
     if ctx["timeline"] is not None:
         blocks += [("heading", "Timeline"), ("figure", timeline_chart(*ctx["timeline"], names), 3.0)]
     meta = {"title": "Antenna comparison report", "callsign": ctx["callsign"], "subtitle": sub}
@@ -905,6 +927,15 @@ def single_report_pdf(spots, locs, home, label, callsign, file_date, kind, noun,
     if result:
         fig, summary = result
         blocks += [("heading", "Direction of your spots"), ("figure", fig, 4.4), ("paragraph", summary)]
+    pts = _single_points(spots, locs, home)
+    if len(pts):
+        one_band = spots["band"].nunique() == 1
+        blocks += [("heading", "World view from your station"),
+                   ("figure", azimuth_map_figure(home[0], home[1], pts, {"A": "", "B": ""}, callsign, units, MAX_KM,
+                                                  "snr" if one_band else "dots", not one_band, scale), 5.6),
+                   ("note", "You are at the centre; distance and angle from the centre are true distance and compass bearing. "
+                            + ("Cells show the average SNR by direction and distance." if one_band else
+                               "Dots are coloured by band."))]
     table = receiver_table(spots, locs, home)
     band_rows = []
     for band, g in spots.groupby("band"):
@@ -979,10 +1010,9 @@ def _without_ghost_cycles(spots):
 
 
 def _separate_by_log(spots):
-    """WSPR antenna test the way N4REE keeps it: each transmission is logged with the antenna that was connected. The
-    user says how many cycles the test had and where it started (it opens on the latest cycles, which is where a test
-    just run will be); the app lists those cycles with a first guess (the antenna alternating down the list), and the
-    user corrects any row or clears it to leave it out."""
+    """WSPR antenna test: each transmission is logged with the antenna that was connected. Either the antenna changed
+    after every transmission (the user says how many there were and where the test started, and the app lists them with a
+    first guess the user can correct), or it stayed on one antenna for a long block and then the other, over hours."""
     spots = _without_ghost_cycles(spots)
     all_stamps = [pd.Timestamp(t) for t in np.sort(spots["time"].unique())]
     if len(all_stamps) < 2:
@@ -993,6 +1023,13 @@ def _separate_by_log(spots):
         st.warning(f"These spots cover {spots['band'].nunique()} bands. Test one band at a time: pick it under "
                    "**Filters \u2192 Band** in the sidebar.")
     st.markdown("**Your test**")
+    mode = st.radio("How did you switch antennas?", ["After every transmission", "In long blocks"], horizontal=True,
+                    key="test_mode",
+                    help="After every transmission: A, then B, then A \u2026 (or A, B, B, A), the quick test. "
+                         "In long blocks: one antenna for 30 minutes or an hour, then the other, repeated over several hours, "
+                         "which suits a long, time-averaged test.")
+    if mode == "In long blocks":
+        return _blocks_test(spots, all_stamps)
     top = st.columns([4, 2, 3])
     n_cycles = int(top[0].number_input(
         "Transmissions in your test", min_value=2, max_value=max(2, min(len(all_stamps), 80)), value=2, step=2,
@@ -1071,6 +1108,372 @@ def _separate_by_log(spots):
     spots_a, spots_b = split_by_labels(in_test, labels)
     return {"a": spots_a, "b": spots_b, "time_based": True, "alternating": True, "labeled": True,
             "default": {"A": "A", "B": "B"}}
+
+
+def _blocks_test(spots, all_stamps):
+    """A long test: one antenna for a block of time, then the other, repeated. Every transmission inside a block counts
+    for that block's antenna. Nothing is paired: each receiver's reports on A and on B are compared as a whole."""
+    multi_day = all_stamps[0].date() != all_stamps[-1].date()
+    fmt = (lambda t: f"{t:%d %b %H:%M}") if multi_day else (lambda t: f"{t:%H:%M}")
+    c1, c2, c3, c4 = st.columns([2, 2, 2, 3])
+    block_min = int(c1.number_input("Minutes per block", 4, 480, 30, step=2, key="blk_len",
+                                    help="How long each antenna stayed connected before you switched."))
+    n_blocks = int(c2.number_input("Number of blocks", 2, 40, 4, step=2, key="blk_n",
+                                   help="Count every block, A and B together: A for 30 minutes then B for 30 is 2."))
+    patterns = {"A, B, A, B \u2026": "ABAB", "A, B, B, A \u2026": "ABBA"}
+    order = c4.radio("Block order", list(patterns), key="blk_order", horizontal=True,
+                     help="Starting with A. A, B, B, A balances which antenna goes first.")
+    target = all_stamps[-1] - pd.Timedelta(minutes=block_min * n_blocks)  # open on the latest window that fits
+    default_i = next((i for i, t in enumerate(all_stamps) if t >= target), 0)
+    start_label = c3.selectbox("First block starts at (UTC)", [fmt(t) for t in all_stamps], index=default_i, key="blk_start",
+                               help="The time you first connected antenna A. The list is every transmission in the data.")
+    t0 = next(t for t in all_stamps if fmt(t) == start_label)
+    pattern = patterns[order]
+    rows = []
+    for k in range(n_blocks):
+        lo, hi = t0 + pd.Timedelta(minutes=k * block_min), t0 + pd.Timedelta(minutes=(k + 1) * block_min)
+        inside = [t for t in all_stamps if lo <= t < hi]
+        rows.append({"Block": k + 1, "Antenna": pattern[k % len(pattern)], "From (UTC)": f"{lo:%H:%M}",
+                     "To (UTC)": f"{hi:%H:%M}", "Transmissions": len(inside),
+                     "Receivers": int(spots[spots["time"].isin(inside)]["spotter"].nunique()) if inside else 0, "_lo": lo, "_hi": hi})
+    table = pd.DataFrame(rows)
+    st.caption("Each block is one antenna for its whole time. Change an Antenna cell if you switched differently, or clear it to "
+               "leave a block out. Blocks with no transmissions are ignored.")
+    edited = st.data_editor(
+        table.drop(columns=["_lo", "_hi"]), hide_index=True, width="stretch",
+        key=f"blocks_{pattern}_{block_min}_{n_blocks}_{t0:%d%H%M}",
+        disabled=["Block", "From (UTC)", "To (UTC)", "Transmissions", "Receivers"],
+        column_config={"Antenna": st.column_config.SelectboxColumn("Antenna", options=["A", "B"],
+                                                                   help="A, B, or empty to leave this block out.")})
+    labels = {}
+    for (_, row), antenna in zip(table.iterrows(), edited["Antenna"]):
+        if antenna in ("A", "B"):
+            for t in all_stamps:
+                if row["_lo"] <= t < row["_hi"]:
+                    labels[t] = antenna
+    if "A" not in labels.values() or "B" not in labels.values():
+        st.warning("There are no transmissions in at least one antenna's blocks. Check the start time, block length and "
+                   "number of blocks against your notes.")
+        return None
+    if t0 + pd.Timedelta(minutes=block_min * n_blocks) > all_stamps[-1] + pd.Timedelta(minutes=2):
+        st.caption("\u26a0 The last block runs past the newest transmission in the data, so it may be cut short.")
+    in_test = spots[spots["time"].isin(list(labels))]
+    in_test = in_test.assign(antenna=in_test["time"].map(labels))
+    spots_a, spots_b = in_test[in_test["antenna"] == "A"], in_test[in_test["antenna"] == "B"]
+    per_a, per_b = spots_a.groupby("spotter").size(), spots_b.groupby("spotter").size()
+    both = per_a.index.intersection(per_b.index)
+    if len(both):
+        st.caption(f"{spots_a['time'].nunique()} transmissions on A and {spots_b['time'].nunique()} on B. At the "
+                   f"{len(both)} receivers that heard both, the middle receiver has {int(per_a[both].median())} reports on A and "
+                   f"{int(per_b[both].median())} on B. A long test aims for {DALE_MIN_SPOTS} or more on each (40 for the best accuracy).")
+    return {"a": spots_a, "b": spots_b, "time_based": True, "alternating": False, "labeled": False, "blocks": True,
+            "n_blocks": int(len(set(row["Block"] for (_, row), ant in zip(table.iterrows(), edited["Antenna"]) if ant in ("A", "B")))),
+            "default": {"A": "A", "B": "B"}}
+
+
+def _azimuth_points(ta_all, tb_all, an):
+    """One row per receiver for the world map: where it is (km, bearing), whether only A, only B or both heard it, how much
+    stronger A was than B (for both, from the same numbers the scatter chart uses), and each antenna's SNR there."""
+    both = ta_all.index.intersection(tb_all.index)
+    gap = an["shared_all"]["gap"] if "shared_all" in an else pd.Series(dtype=float)
+    rows = [(ta_all.at[r, "km"], ta_all.at[r, "bearing"], "only_a", np.nan, ta_all.at[r, "snr"], np.nan)
+            for r in ta_all.index.difference(both)]
+    rows += [(tb_all.at[r, "km"], tb_all.at[r, "bearing"], "only_b", np.nan, np.nan, tb_all.at[r, "snr"])
+             for r in tb_all.index.difference(both)]
+    rows += [(ta_all.at[r, "km"], ta_all.at[r, "bearing"], "both", float(gap.get(r, ta_all.at[r, "snr"] - tb_all.at[r, "snr"])),
+              ta_all.at[r, "snr"], tb_all.at[r, "snr"]) for r in both]
+    return pd.DataFrame(rows, columns=["km", "bearing", "group", "gap", "snr_a", "snr_b"])
+
+
+def _single_points(spots, locs, home):
+    """Points for the one-antenna world map: one per receiver and band, coloured by band when several are loaded."""
+    frames = []
+    for band, g in spots.groupby("band"):
+        t = receiver_table(g, locs, home)
+        if len(t):
+            frames.append(pd.DataFrame({"km": t["km"].to_numpy(), "bearing": t["bearing"].to_numpy(), "group": "single",
+                                        "gap": np.nan, "snr_a": t["snr"].to_numpy(), "snr_b": np.nan,
+                                        "color": BAND_COLORS.get(band, "#8a8f98")}))
+    return pd.concat(frames, ignore_index=True) if frames else pd.DataFrame(
+        columns=["km", "bearing", "group", "gap", "snr_a", "snr_b", "color"])
+
+
+def _views(units):
+    km = 1.609344 if units == "mi" else 1.0
+    return {f"Nearby ({3000 if units == 'mi' else 5000:,} {units})": (3000 * km if units == "mi" else 5000.0),
+            f"Half the world ({7500 if units == 'mi' else 12000:,} {units})": (7500 * km if units == "mi" else 12000.0),
+            "Whole world": MAX_KM}
+
+
+def _azimuth_map_section(points, an, names, noun, units, home, callsign, scale):
+    """The world map for a comparison, with a choice of what the cells show and how much of the world to draw."""
+    k = KM_PER_MILE if units == "mi" else 1
+    views = _views(units)
+    layers = {"Which antenna is stronger": "advantage", f"SNR with {names['A']}": "snr_a", f"SNR with {names['B']}": "snr_b",
+              "Receivers only": "dots"}
+    c1, c2 = st.columns([3, 2])
+    layer_name = c1.radio("Colour the map by", list(layers), horizontal=True, key="azmap_layer")
+    layer = layers[layer_name]
+    show_dots = c2.checkbox("Show the receivers", value=False, key="azmap_dots") or layer == "dots"
+    choice = st.radio("How much of the world", list(views), index=2, horizontal=True, key="azmap_view")
+    radius = views[choice]
+    map_col, info_col = st.columns([3, 2])
+    map_col.pyplot(azimuth_map_figure(home[0], home[1], points, names, callsign, units, radius, layer, show_dots, scale),
+                   width="stretch")
+    outside = int((points["km"] > radius).sum())
+    counts = points["group"].value_counts()
+    info_col.markdown(
+        f"**{int(counts.get('both', 0))}** {noun}s heard both \u00b7 **{int(counts.get('only_a', 0))}** only {names['A']} \u00b7 "
+        f"**{int(counts.get('only_b', 0))}** only {names['B']}" + (f" \u00b7 {outside} beyond this view" if outside else ""))
+    for side in ("a", "b"):
+        far = an["dx"][side]
+        if far:
+            info_col.markdown(f"Farthest {noun} for {names[side.upper()]}: **{far['km'] / k:,.0f} {units}** ({far['who']})")
+    info_col.caption(
+        "The station is at the centre. Distance from the centre is true distance from you and the angle is true compass "
+        "bearing, so a straight line from the centre is the path the signal takes. Each coloured cell is one direction "
+        f"(30\u00b0) and distance band, shown only where at least {MIN_CELL} {noun}s were heard. "
+        + ("Blue cells are where A was stronger and orange where B was; a brighter colour is a bigger difference and a more solid "
+           "cell rests on more receivers." if layer == "advantage" else
+           "The colour is the average SNR in the cell." if layer in ("snr_a", "snr_b") else
+           "Filled dots heard both antennas, open rings only one.")
+        + " Blank means nobody there heard it, which also happens wherever there are no receivers, such as over the oceans.")
+
+
+def _azimuth_single_section(spots, locs, home, callsign, noun, units, scale):
+    """The world map for one antenna: average signal strength, or how many stations heard you, by direction and distance."""
+    pts = _single_points(spots, locs, home)
+    if pts.empty:
+        st.caption(f"No located {noun}s to map.")
+        return
+    bands = spots["band"].nunique()
+    views = _views(units)
+    c1, c2 = st.columns([3, 2])
+    if bands > 1:
+        c1.caption(f"{bands} bands are loaded, so the dots are coloured by band. Choose a single band in the Band box to see average "
+                   "signal strength and reach by direction and distance.")
+        layer = "dots"
+    else:
+        layer = {"Average signal strength": "snr", f"{noun.capitalize()}s heard": "reach"}[
+            c1.radio("Colour the map by", ["Average signal strength", f"{noun.capitalize()}s heard"], horizontal=True,
+                     key="azmap_single_layer")]
+    show_dots = c2.checkbox("Show the receivers", value=bands > 1, key="azmap_single_dots") or layer == "dots"
+    choice = st.radio("How much of the world", list(views), index=2, horizontal=True, key="azmap_single_view")
+    radius = views[choice]
+    map_col, info_col = st.columns([3, 2])
+    map_col.pyplot(azimuth_map_figure(home[0], home[1], pts, {"A": "", "B": ""}, callsign, units, radius, layer, show_dots, scale),
+                   width="stretch")
+    k = KM_PER_MILE if units == "mi" else 1
+    far = pts.loc[pts["km"].idxmax()]
+    info_col.markdown(f"**{len(pts)}** {noun}s heard you. Farthest: **{far['km'] / k:,.0f} {units}**.")
+    info_col.caption(
+        "You are at the centre. Distance from the centre is true distance and the angle is true compass bearing, so a straight "
+        f"line from the centre is the path your signal takes. Each cell is one direction (30\u00b0) and distance band with at least "
+        f"{MIN_CELL} {noun}s; the colour is the average SNR there, or how many {noun}s heard you. Strength falls with distance "
+        "whatever the antenna, so read the shape and the spread, not just the colour. Blank means nobody there heard you, "
+        "which also happens wherever there are no receivers.")
+
+
+def direction_advantage_chart(adv, names, width_deg, callsign="", selected=None, scale=None):
+    """A rose of direction sectors. A bar's LENGTH is how many dB stronger one side is in that direction, its colour says
+    which side (blue A, orange B), and how solid it is says how many receivers it rests on (hatched: too few to trust).
+    `selected` outlines one sector; `scale` fixes the dB at the outer ring so two roses can be compared."""
+    fig = Figure(figsize=(5.2, 5.2))
+    ax = _themed_axes(fig, polar=True)
+    ax.set_theta_zero_location("N")
+    ax.set_theta_direction(-1)
+    deltas = adv["delta"].dropna()
+    top = float(deltas.abs().max()) if len(deltas) else 0.0
+    scale = scale or max(4.0, float(np.ceil(top / 2) * 2))
+    hole = 0.2
+    theta = np.linspace(0, 2 * np.pi, 240)
+    for frac in (0.25, 0.5, 0.75, 1.0):  # rings, labelled in dB
+        ax.plot(theta, [hole + (1 - hole) * frac] * len(theta), linestyle="--", linewidth=0.7, color=COLOR_TIE, alpha=0.4)
+        ax.text(np.radians(202), hole + (1 - hole) * frac, f"{scale * frac:g} dB", fontsize=6.5, color=COLOR_TIE, ha="center")
+    width = np.radians(width_deg) * 0.94
+    for _, row in adv.iterrows():
+        if row["n"] == 0 or pd.isna(row["delta"]):
+            continue
+        length = max((1 - hole) * min(abs(row["delta"]) / scale, 1.0), 0.02)
+        thin = row["n"] < BIN_MIN_SHARED
+        chosen = selected is not None and row["label"] == selected
+        color = COLOR_A if row["delta"] > 0 else COLOR_B
+        ax.bar(np.radians(row["center"]), length, width=width, bottom=hole, color=color,
+               alpha=0.28 if thin else 0.45 + 0.5 * min(row["n"] / 12, 1.0), hatch="///" if thin else None,
+               edgecolor="white" if chosen else color, linewidth=2.6 if chosen else 0.6, zorder=2)
+        if width_deg >= 30:
+            ax.text(np.radians(row["center"]), min(hole + length + 0.06, 1.04), f"{abs(row['delta']):.1f}",
+                    ha="center", va="center", fontsize=7.5, color=COLOR_TIE, fontweight="bold")
+    ax.fill(theta, [hole] * len(theta), color="#1b2230", zorder=3)
+    ax.text(0, 0, callsign or "TX", ha="center", va="center", fontsize=9, color="white", fontweight="bold", zorder=4)
+    ax.set_ylim(0, 1.1)
+    ax.set_yticks([])
+    ax.set_xticks(np.radians(np.arange(0, 360, 45)))
+    ax.set_xticklabels(SECTOR_NAMES, color=COLOR_TIE, fontsize=11)
+    ax.text(0.5, -0.08, f"Length = how much stronger.  Blue: {names['A']}   Orange: {names['B']}", transform=ax.transAxes,
+            ha="center", fontsize=8, color=COLOR_TIE)
+    return fig
+
+
+def _sector_detail(shared, adv, label, width_deg, names, noun):
+    """One sentence about the chosen direction: how many receivers, who is stronger, and the 95% range."""
+    row = adv[adv["label"] == label]
+    if row.empty or int(row["n"].iloc[0]) == 0:
+        return f"No {noun} in that direction."
+    center, n = float(row["center"].iloc[0]), int(row["n"].iloc[0])
+    sector = (((shared["bearing_a"] + width_deg / 2) % 360) // width_deg).astype(int)
+    d = shared[sector == int(round(center / width_deg))]["delta"].to_numpy()
+    text = f"**{label}: {n} {noun}{'s' if n != 1 else ''} heard both.** {_lead_text(names, float(d.mean()))}."
+    if n >= 3:
+        t_value = 1.96 + 2.4 / (n - 1) + 3.0 / (n - 1) ** 2
+        half = t_value * float(d.std(ddof=1)) / np.sqrt(n)
+        text += f" 95% range: {_range_text(names, float(d.mean()) - half, float(d.mean()) + half)}."
+    else:
+        text += " Too few for a range."
+    return text
+
+
+def _shared_counts_note(an, noun):
+    """Why 'heard both' and 'compared' are different numbers: pairing, and counting one place once."""
+    both, every, n = an["reach"]["both"], len(an["shared_all"]), an["strength"]["n"]
+    text = f"**{both} {noun}s heard both sides.**"
+    if an["paired"] and every != both:
+        text += (f" {every} of them heard both in the same pair of neighbouring transmissions, which is what the strength "
+                 "comparison needs.")
+    if n != every:
+        text += f" Counting {noun}s at the same place once leaves {n}, the number the strength result rests on."
+    elif n != both:
+        text += f" The strength result rests on {n}."
+    return text
+
+
+def _linear_average_view(spots_a, spots_b, an, names, noun, locs, home, kind, callsign):
+    """The SNR average (the standard comparison) next to the same comparison worked out by averaging power instead of dB,
+    overall and by direction, and
+    when to use which."""
+    st.markdown(
+        "Reports use dB, a logarithmic scale. The **SNR average** (the standard comparison) measures the **typical SNR difference "
+        "at each receiver**. The **linear average** converts SNR to power ratios, averages them for each antenna, then converts back "
+        "to dB and subtracts. This gives stronger signals more weight. Neither method is inherently more accurate; they measure "
+        "different things. Both compare **relative signal strength at the same receivers**, not absolute antenna gain.")
+    with st.expander("Show the arithmetic"):
+        st.markdown(
+            "1. For every report, turn dB into power: **power = 10 ^ (dB / 10)**\n"
+            "2. Average those power numbers for each antenna.\n"
+            "3. Turn each average back into dB: **dB = 10 x log10(average power)**\n"
+            "4. Subtract the two. That is the relative gain of A against B.\n\n"
+            "Example: reports of 0, 0, 0 and 20 dB are powers of 1, 1, 1 and 100. Their average is 25.75, which is **14.1 dB**. "
+            "Averaging the dB numbers directly gives 5 dB. The single strong report counts for much more in power.")
+    c1, c2 = st.columns(2)
+    min_spots = c1.slider(f"Only {noun}s with at least this many reports on each antenna", 1, 10, 1, key="pm_min_spots",
+                          help=f"A long test aims for {DALE_MIN_SPOTS} or more per receiver on each antenna (40 for the best "
+                               "accuracy). A short test can't reach that, but raising this drops receivers heard only once or "
+                               "twice, whose single reports can swing a power average.")
+    floor = None
+    if kind == "WSPR" and c2.checkbox(f"Ignore reports at or below {WSPR_FLOOR_DB} dB", key="pm_floor",
+                                      help="WSPR can only decode down to about -28 dB. A report at that edge is unreliable, and "
+                                           "the weaker antenna's weakest reports are often missing altogether."):
+        floor = WSPR_FLOOR_DB
+    s_ = an["strength"]
+    pm = power_method(spots_a, spots_b, locs, home, min_spots=min_spots, floor=floor)
+    if pm["n"] < 2:
+        st.info(f"Too few {noun}s heard both antennas with that many reports each. Lower the setting above.")
+        return
+    m1, m2 = st.columns(2)
+    m1.metric("SNR average: typical dB difference at the same receiver", _lead_text(names, s_["mean"]))
+    m1.caption(f"{s_['n']} {noun}s counted once per place. 95% range: {_range_text(names, s_['lo'], s_['hi'])}.")
+    m2.metric("Linear average: each receiver's average power, A against B", _lead_text(names, pm["mean"]))
+    m2.caption(f"{pm['n']} {noun}s counted once per place. 95% range: {_range_text(names, pm['lo'], pm['hi'])}.")
+    gap = abs(s_["mean"] - pm["mean"]) if not np.isnan(s_["mean"]) else np.nan
+    if not np.isnan(gap):
+        if gap < 1.0:
+            st.success(f"The two agree within 1 dB ({gap:.1f} dB apart), so the answer doesn't depend on how it is averaged.")
+        else:
+            st.warning(f"The two are {gap:.1f} dB apart. That usually means a few strong reports, or {noun}s with only one or "
+                       "two reports each, are pulling the linear average. Try raising the minimum reports above.")
+    if pm["near_floor"] >= 0.1:
+        st.warning(f"{pm['near_floor']:.0%} of the reports are at or below {WSPR_FLOOR_DB} dB, the edge of what WSPR can decode. "
+                   "Weak decodes are unreliable and the weaker antenna's weakest reports may be missing, which can shrink the "
+                   "apparent difference. Try ticking the box to ignore them.")
+    elif pm["dropped"]:
+        st.caption(f"{pm['dropped']} reports at or below {WSPR_FLOOR_DB} dB were ignored.")
+
+    st.subheader("By direction, both ways")
+    width = st.radio("Sector width", [45, 30, 15], horizontal=True, key="lin_width", format_func=lambda w: f"{w}\u00b0")
+    adv_default = direction_advantage(an["shared"], width)
+    adv_linear = direction_advantage(pm["sites"].rename(columns={"gain": "delta"}), width)
+    tops = [float(a["delta"].abs().max()) for a in (adv_default, adv_linear) if a["delta"].notna().any()]
+    shared_scale = max(4.0, float(np.ceil(max(tops) / 2) * 2)) if tops else 4.0
+    left, right = st.columns(2)
+    left.markdown("**SNR average**")
+    left.pyplot(direction_advantage_chart(adv_default, names, width, callsign, scale=shared_scale), width="stretch")
+    right.markdown("**Linear average**")
+    right.pyplot(direction_advantage_chart(adv_linear, names, width, callsign, scale=shared_scale), width="stretch")
+    both = adv_default.assign(linear=adv_linear["delta"], n_linear=adv_linear["n"])
+    both = both[(both["n"] > 0) | (both["n_linear"] > 0)]
+    st.dataframe(pd.DataFrame({
+        "Direction": both["label"], f"{noun.capitalize()}s": both["n"].astype(int),
+        "SNR average": [_gain_text(v) for v in both["delta"]], "Linear average": [_gain_text(v) for v in both["linear"]]}),
+        width="stretch", hide_index=True, height=min(38 * (len(both) + 1), 360))
+    st.caption("Both charts use the same scale, so you can compare bar lengths. Where the two differ a lot in one direction, "
+               "a few strong reports from there are probably pulling the linear average.")
+
+    with st.expander(f"Receiver by receiver, both ways"):
+        t = pm["table"]
+        default = an["shared_all"]["delta"] if "shared_all" in an else pd.Series(dtype=float)
+        view = pd.DataFrame({
+            noun.capitalize(): t.index, "Reports A": t["spots_a"].astype(int).to_numpy(),
+            "Reports B": t["spots_b"].astype(int).to_numpy(), "Linear average": [_gain_text(v) for v in t["gain"]],
+            "SNR average": [_gain_text(default.get(i, np.nan)) for i in t.index]}).sort_values("Reports A", ascending=False)
+        st.dataframe(view, width="stretch", hide_index=True, height=min(38 * (len(view) + 1), 380))
+
+    st.subheader("Which should you use?")
+    left, right = st.columns(2)
+    left.markdown(
+        "**SNR average: the typical dB difference at the same receiver**\n\n"
+        "Best for a **quick test** (8 to 16 transmissions, switching after each one). A and B are measured minutes apart, so "
+        "fading and band changes mostly cancel, and one very strong report can't dominate. It gives a verdict and ranges by "
+        "direction and distance.\n\n"
+        "*Limits:* it averages in dB, which isn't a power average, and it assumes conditions barely change between "
+        "neighbouring transmissions, which isn't always true (WSPR SNR can move several dB between 2-minute windows). It "
+        "relies on having many receivers to average that out.")
+    right.markdown(
+        "**Linear average: each receiver's average power**\n\n"
+        "Best for a **long test**: one antenna for 30 minutes or an hour, then the other, over several hours, so every "
+        "receiver has 20 to 40 reports per antenna. The ups and downs average out over time, so it doesn't rely on two "
+        "particular transmissions matching, and it gives a tight 95% range.\n\n"
+        "*Limits:* it needs those many reports, so it is noisy for a short test. Strong reports weigh heavily, so one lucky "
+        "peak can swing it. Reports at WSPR's -28 dB floor throw it off, and a long run mixes in whatever the band did meanwhile.")
+    st.markdown(
+        "**In practice:** if the two agree within 1 dB, the answer holds either way. If they don't, look at the reports near the "
+        "floor and raise the minimum reports. To use the long-test method as intended, choose **In long blocks** under *Your test* "
+        "and give the start time, block length and number of blocks.")
+
+
+def _method_summary(spots_a, spots_b, an, names, noun, locs, home):
+    """One paragraph for the PDF: the SNR average next to the linear average, and whether they agree."""
+    s_ = an["strength"]
+    pm = power_method(spots_a, spots_b, locs, home)
+    if pm["n"] < 2 or np.isnan(s_["mean"]):
+        return ""
+    gap = abs(s_["mean"] - pm["mean"])
+    return (f"SNR average (typical dB difference at the same {noun}): {_lead_text(names, s_['mean'])}. "
+            f"Linear average (each {noun}'s average power, A against B): {_lead_text(names, pm['mean'])}. "
+            + (f"The two agree within 1 dB ({gap:.1f} dB apart)." if gap < 1.0 else
+               f"The two are {gap:.1f} dB apart, usually a few strong reports or {noun}s with only one or two reports."))
+
+
+def _range_text(names, lo, hi):
+    """'B ahead by 6.3 to 14.7 dB' when the whole range favours one side; otherwise 'A ahead by 1.4 dB to B ahead by 0.9 dB'."""
+    if lo > 0 and hi > 0:
+        return f"{names['A']} ahead by {lo:.1f} to {hi:.1f} dB"
+    if lo < 0 and hi < 0:
+        return f"{names['B']} ahead by {-hi:.1f} to {-lo:.1f} dB"
+    return f"{_lead_text(names, lo)} to {_lead_text(names, hi)}"
+
+
+def _gain_text(v):
+    return "-" if pd.isna(v) or abs(v) < 0.05 else f"{'A' if v > 0 else 'B'} +{abs(v):.1f}"
 
 
 def compare_view(spots, locs, home, label, callsign, file_date, tiles, show_all, units, split, gap_khz,
@@ -1167,8 +1570,10 @@ def compare_view(spots, locs, home, label, callsign, file_date, tiles, show_all,
     if sep.get("labeled"):  # a log of mostly unpaired transmissions (A A A B B B) is a one-after-the-other test
         transmissions = map_a["time"].nunique() + map_b["time"].nunique()
         sequential = transmissions > 0 and 2 * n_pairs < 0.5 * transmissions
+    if sep.get("blocks"):
+        sequential = sep["n_blocks"] < 4  # a few alternations average out the changing band; one A then one B does not
     close_in_time = None
-    if sequential and not sep.get("labeled"):
+    if sequential and not sep.get("labeled") and not sep.get("blocks"):
         # Two frequencies or two windows sent within a few minutes of each other saw the same band conditions, so the
         # warning that the time of day could explain the difference does not apply.
         all_times = pd.concat([map_a["time"], map_b["time"]])
@@ -1193,8 +1598,9 @@ def compare_view(spots, locs, home, label, callsign, file_date, tiles, show_all,
     r, s_, dx = an["reach"], an["strength"], an["dx"]
     k = KM_PER_MILE if units == "mi" else 1
     means_a, means_b = sector_means(ta_all), sector_means(tb_all)
-    tab_result, tab_where, tab_each, tab_maps = st.tabs(
-        ["\U0001F4CA Result", "\U0001F9ED Direction & distance", "\U0001F4CB Receiver by receiver", "\U0001F5FA️ Maps"])
+    tab_result, tab_where, tab_each, tab_method, tab_maps = st.tabs(
+        ["\U0001F4CA Result", "\U0001F9ED Direction & distance", "\U0001F4CB Receiver by receiver",
+         "\U0001F4D0 Linear average", "\U0001F5FA️ Maps"])
 
     with tab_result:
         snr_note = f"at the {s_['n']} {noun}s that heard both" if s_["n"] else f"no {noun} heard both"
@@ -1221,6 +1627,9 @@ def compare_view(spots, locs, home, label, callsign, file_date, tiles, show_all,
             test=(f"Test: {n_a} transmission{'s' if n_a != 1 else ''} on A, {n_b} on B" if sep.get("labeled")
                   else "Test: A and B separated by " + ("frequency" if not sep.get("time_based") else "time")),
             time_based=bool(sep.get("time_based")), means_a=means_a, means_b=means_b,
+            adv=direction_advantage(an["shared"], 45), counts_note=_shared_counts_note(an, noun),
+            az_points=_azimuth_points(ta_all, tb_all, an), home=home, scale=scale,
+            method=_method_summary(spots_a, spots_b, an, names, noun, locs, home),
             timeline=(map_a, map_b))
         st.download_button("\u2B07\ufe0f Download report (PDF)", data=lambda: compare_report_pdf(pdf_ctx),
                            file_name=f"RBN_compare_{callsign}_{file_date}.pdf", mime="application/pdf",
@@ -1231,6 +1640,7 @@ def compare_view(spots, locs, home, label, callsign, file_date, tiles, show_all,
         st.markdown(reach_bar_html(r["only_a"], r["both"], r["only_b"]), unsafe_allow_html=True)
         st.caption(f"Each {noun} is counted once, however many times it spotted you. A *spot* is one report, so "
                    "spots always outnumber stations.")
+        st.markdown(_shared_counts_note(an, noun))
 
         st.subheader("Timeline")
         st.pyplot(timeline_chart(map_a, map_b, names), width="stretch")
@@ -1249,8 +1659,35 @@ def compare_view(spots, locs, home, label, callsign, file_date, tiles, show_all,
                            f"round: {_lead_text(names, float(rounds['delta'].median()))}.")
 
     with tab_where:
+        az_points = _azimuth_points(ta_all, tb_all, an)
+        if len(az_points):
+            st.subheader("Where each antenna reached")
+            _azimuth_map_section(az_points, an, names, noun, units, home, callsign, scale)
+        if s_["n"]:
+            st.subheader("Which side is stronger, by direction")
+            width = st.radio("Sector width", [45, 30, 15], horizontal=True, key="adv_width",
+                             format_func=lambda w: f"{w}\u00b0", help="Narrower sectors show more detail but each holds fewer receivers.")
+            adv = direction_advantage(an["shared"], width)
+            have = adv[adv["n"] > 0]
+            options = ["All"] + list(have["label"])
+            picked = st.pills("Look at one direction", options, default="All", key="adv_sector",
+                              help="Outlines that direction on the chart and gives its numbers.")
+            picked = picked if picked in options else "All"
+            chart_col, table_col = st.columns([1, 1])
+            chart_col.pyplot(direction_advantage_chart(adv, names, width, callsign, None if picked == "All" else picked),
+                             width="stretch")
+            if picked != "All":
+                table_col.markdown(_sector_detail(an["shared"], adv, picked, width, names, noun))
+            table_col.dataframe(pd.DataFrame({
+                "Direction": have["label"], f"{noun.capitalize()}s": have["n"].astype(int),
+                "Stronger by": [_gain_text(v) for v in have["delta"]],
+                "Note": ["only " + str(int(n)) + " - treat as a hint" if n < BIN_MIN_SHARED else "" for n in have["n"]]}),
+                width="stretch", hide_index=True, height=min(38 * (len(have) + 1), 420))
+            table_col.caption("The longer the bar, the more one side beat the other toward that direction; blue is A and orange "
+                              "is B. A more solid bar rests on more receivers, and a hatched one on too few to trust. Unlike "
+                              "the average-SNR chart below, there is nothing to subtract in your head.")
         if means_a.notna().any() or means_b.notna().any():
-            st.subheader("Direction")
+            st.subheader("Average SNR by direction")
             chart_col, table_col = st.columns([1, 1])
             chart_col.pyplot(direction_chart(means_a, means_b, names["A"], names["B"]), width="stretch")
             table_col.dataframe(breakdown_table(an["direction"], names, "Direction", noun), width="stretch", hide_index=True,
@@ -1283,6 +1720,9 @@ def compare_view(spots, locs, home, label, callsign, file_date, tiles, show_all,
                                 height=min(38 * (len(every) + 1), 420))
         else:
             st.info(f"No {noun} heard both sides, so there is nothing to compare receiver by receiver.")
+
+    with tab_method:
+        _linear_average_view(spots_a, spots_b, an, names, noun, locs, home, kind, callsign)
 
     with tab_maps:
         st.caption("Both maps use the same view, the same SNR scale and the same dot sizes.")
@@ -1650,6 +2090,9 @@ def main():
         text_col.markdown(summary)
     else:
         chart_col.caption(f"No located {noun}s to chart.")
+
+    st.subheader("World view from your station")
+    _azimuth_single_section(spots, locs, home, who, noun, units, scale)
 
     with st.expander("Spot table"):
         st.dataframe(spots.sort_values("time").assign(time=lambda d: d["time"].dt.strftime("%d %b %H:%M")),

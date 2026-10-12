@@ -18,7 +18,6 @@ import re
 import textwrap
 from datetime import datetime, timezone
 
-import numpy as np
 from matplotlib.backends.backend_pdf import PdfPages
 from matplotlib.figure import Figure
 from matplotlib.patches import Rectangle
@@ -276,7 +275,7 @@ def build_pdf(meta, blocks):
             kind, args = block[0], block[1:]
             if kind == "heading":  # keep the heading on the same page as the start of what it introduces
                 nxt = blocks[i + 1] if i + 1 < len(blocks) else None
-                need = 0.4 + {"figure": min(nxt[2], 4.0) if nxt and nxt[0] == "figure" else 1.0}.get(nxt[0] if nxt else "", 1.0)
+                need = 0.7 + {"figure": min(nxt[2], 4.0) if nxt and nxt[0] == "figure" else 1.0}.get(nxt[0] if nxt else "", 1.0)
                 args = (args[0], need)
             getattr(flow, kind)(*args)
         flow.finish()
