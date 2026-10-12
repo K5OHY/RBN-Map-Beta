@@ -1442,8 +1442,9 @@ def _linear_average_view(spots_a, spots_b, an, names, noun, locs, home, kind, ca
         "Best for a **long test**: one antenna for 30 minutes or an hour, then the other, over several hours, so every "
         "receiver has 20 to 40 reports per antenna. The ups and downs average out over time, so it doesn't rely on two "
         "particular transmissions matching, and it gives a tight 95% range.\n\n"
-        "*Limits:* it needs those many reports, so it is noisy for a short test. Strong reports weigh heavily, so one lucky "
-        "peak can swing it. Reports at WSPR's -28 dB floor throw it off, and a long run mixes in whatever the band did meanwhile.")
+        "*Limits:* it needs many reports per receiver, so on a short test one lucky report can swing the result. Strong "
+        "reports count for far more than weak ones, so a single peak can pull the average up. "
+        "Reports right at WSPR's -28 dB floor throw it off, and a long run mixes in whatever the band did meanwhile.")
     st.markdown(
         "**In practice:** if the two agree within 1 dB, the answer holds either way. If they don't, look at the reports near the "
         "floor and raise the minimum reports. To use the long-test method as intended, choose **In long blocks** under *Your test* "
