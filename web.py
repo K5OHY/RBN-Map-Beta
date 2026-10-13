@@ -1383,7 +1383,7 @@ def _shared_counts_note(an, noun):
     return text
 
 
-def _linear_average_view(spots_a, spots_b, an, names, noun, locs, home, kind, callsign):
+def _linear_average_view(spots_a, spots_b, an, names, noun, locs, home, kind, callsign, paired=None):
     """The SNR average (the standard comparison) next to the same comparison worked out by averaging power instead of dB,
     overall and by direction, and
     when to use which."""
@@ -1413,6 +1413,11 @@ def _linear_average_view(spots_a, spots_b, an, names, noun, locs, home, kind, ca
         floor = WSPR_FLOOR_DB
     s_ = an["strength"]
     pm = power_method(spots_a, spots_b, locs, home, min_spots=min_spots, floor=floor)
+    if paired is not None and (paired[0]["time"].nunique() + paired[1]["time"].nunique()
+                               != spots_a["time"].nunique() + spots_b["time"].nunique()):
+        st.caption(f"The linear average uses every transmission ({spots_a['time'].nunique()} on A, {spots_b['time'].nunique()} on B), "
+                   "because averaging power needs no partner transmission. The SNR average compares only paired transmissions "
+                   f"({paired[0]['time'].nunique()} on A, {paired[1]['time'].nunique()} on B).")
     if pm["n"] < 2:
         st.info(f"Too few {noun}s heard both antennas with that many reports each. Lower the setting above.")
         return
@@ -1768,7 +1773,7 @@ def compare_view(spots, locs, home, label, callsign, file_date, tiles, show_all,
             st.info(f"No {noun} heard both sides, so there is nothing to compare receiver by receiver.")
 
     with tab_method:
-        _linear_average_view(spots_a, spots_b, an, names, noun, locs, home, kind, callsign)
+        _linear_average_view(map_a, map_b, an, names, noun, locs, home, kind, callsign, paired=(spots_a, spots_b))
 
     with tab_maps:
         st.caption("Both maps use the same view, the same SNR scale and the same dot sizes.")
