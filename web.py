@@ -2020,27 +2020,6 @@ def main():
         kind = ss.kind if ss.raw is not None else ("WSPR" if source == WSPR_SOURCE else "RBN")
 
         st.divider()
-        st.header("Filters")
-        bands = ["All"] + list(BAND_COLORS)
-        ss.setdefault("band_choice", bands[pick(bands, "band")])
-        band_choice = st.selectbox("Band", bands, key="band_choice")
-        lo_t, hi_t = time(0, 0), time(23, 59)
-        if kind == "WSPR" and ss.raw is not None and not ss.raw.empty:
-            # The slider covers just the span of the spots loaded rather than all day, and starts out showing all of it.
-            tod = ss.raw["time"].dt.floor("min").dt.time
-            if tod.min() < tod.max():
-                lo_t, hi_t = tod.min(), tod.max()
-        if kind == "WSPR" and ss.get(f"compare_{kind}", False):
-            start_t, end_t = time.min, time.max  # comparing: you pick your test's cycles on the page instead
-        else:
-            start_t, end_t = st.slider(
-                "UTC time window", min_value=lo_t, max_value=hi_t, value=(lo_t, hi_t), step=timedelta(minutes=1),
-                format="HH:mm",
-                help=("Only show spots between these times. It follows the spots you loaded."
-                      if kind == "WSPR" else None))
-        min_snr = -100 if kind == "WSPR" else st.slider("Minimum SNR (dB)", 0, 40, cfg.get("min_snr", 0))
-
-        st.divider()
         st.header("Compare mode")
         compare = st.checkbox("Compare two antennas or tests", value=False, key=f"compare_{kind}",
                               help="Splits your spots into an A side and a B side, for example two antennas, "
@@ -2053,6 +2032,27 @@ def main():
                 st.caption("RBN tells A and B apart by frequency: call CQ on one frequency with the first antenna, then on "
                            "a nearby frequency with the other, back to back (a minute or two apart).")
             gap_khz = 0.5  # skimmers report slightly different frequencies for one signal, so spots this close count as one
+
+        st.divider()
+        st.header("Filters")
+        bands = ["All"] + list(BAND_COLORS)
+        ss.setdefault("band_choice", bands[pick(bands, "band")])
+        band_choice = st.selectbox("Band", bands, key="band_choice")
+        lo_t, hi_t = time(0, 0), time(23, 59)
+        if kind == "WSPR" and ss.raw is not None and not ss.raw.empty:
+            # The slider covers just the span of the spots loaded rather than all day, and starts out showing all of it.
+            tod = ss.raw["time"].dt.floor("min").dt.time
+            if tod.min() < tod.max():
+                lo_t, hi_t = tod.min(), tod.max()
+        if kind == "WSPR" and compare:
+            start_t, end_t = time.min, time.max  # comparing: you pick your test's cycles on the page instead
+        else:
+            start_t, end_t = st.slider(
+                "UTC time window", min_value=lo_t, max_value=hi_t, value=(lo_t, hi_t), step=timedelta(minutes=1),
+                format="HH:mm",
+                help=("Only show spots between these times. It follows the spots you loaded."
+                      if kind == "WSPR" else None))
+        min_snr = -100 if kind == "WSPR" else st.slider("Minimum SNR (dB)", 0, 40, cfg.get("min_snr", 0))
 
         st.divider()
         st.header("Map")
