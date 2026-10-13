@@ -122,7 +122,8 @@ def _one_per_site(shared):
 # ------------------------------------------------------------------ the power-average ("linear") check
 
 WSPR_FLOOR_DB = -27       # WSPR decodes down to about -28 dB; reports at or below this are at the edge of what can be decoded
-DALE_MIN_SPOTS = 20       # spots per antenna that a long time-averaged test aims for (40 for the best accuracy)
+DALE_MIN_SPOTS = 20       # spots per antenna that a long time-averaged test aims for
+DALE_SITE_MIN = 40        # the minimum his published method (n3hxz.net) keeps per antenna, per receiver
 
 
 def power_method(spots_a, spots_b, locs, home, min_spots=1, floor=None):

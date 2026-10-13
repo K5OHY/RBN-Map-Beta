@@ -19,6 +19,7 @@ from matplotlib.ticker import FuncFormatter
 from compare_stats import (
     BIN_MIN_SHARED,
     DALE_MIN_SPOTS,
+    DALE_SITE_MIN,
     DIRECTION_EDGE_DB,
     WSPR_FLOOR_DB,
     SECTOR_NAMES,
@@ -1200,7 +1201,7 @@ def _blocks_test(spots, all_stamps):
     if len(both):
         st.caption(f"{spots_a['time'].nunique()} transmissions on A and {spots_b['time'].nunique()} on B. At the "
                    f"{len(both)} receivers that heard both, the middle receiver has {int(per_a[both].median())} reports on A and "
-                   f"{int(per_b[both].median())} on B. A long test aims for {DALE_MIN_SPOTS} or more on each (40 for the best accuracy).")
+                   f"{int(per_b[both].median())} on B. A long test aims for {DALE_MIN_SPOTS} or more on each; the published method keeps only receivers with {DALE_SITE_MIN}.")
     return {"a": spots_a, "b": spots_b, "time_based": True, "alternating": False, "labeled": False, "blocks": True,
             "n_blocks": int(len(set(row["Block"] for (_, row), ant in zip(table.iterrows(), edited["Antenna"]) if ant in ("A", "B")))),
             "default": {"A": "A", "B": "B"}}
@@ -1400,10 +1401,11 @@ def _linear_average_view(spots_a, spots_b, an, names, noun, locs, home, kind, ca
             "Example: reports of 0, 0, 0 and 20 dB are powers of 1, 1, 1 and 100. Their average is 25.75, which is **14.1 dB**. "
             "Averaging the dB numbers directly gives 5 dB. The single strong report counts for much more in power.")
     c1, c2 = st.columns(2)
-    min_spots = c1.slider(f"Only {noun}s with at least this many reports on each antenna", 1, 10, 1, key="pm_min_spots",
-                          help=f"A long test aims for {DALE_MIN_SPOTS} or more per receiver on each antenna (40 for the best "
-                               "accuracy). A short test can't reach that, but raising this drops receivers heard only once or "
-                               "twice, whose single reports can swing a power average.")
+    min_spots = c1.slider(f"Only {noun}s with at least this many reports on each antenna", 1, 60, 1, key="pm_min_spots",
+                          help=f"A long test aims for {DALE_MIN_SPOTS} or more per receiver on each antenna, and the published "
+                               f"method keeps only receivers with {DALE_SITE_MIN} or more. A short test can't reach that, but "
+                               "raising this drops receivers heard only once or twice, whose single reports can swing a power "
+                               "average.")
     floor = None
     if kind == "WSPR" and c2.checkbox(f"Ignore reports at or below {WSPR_FLOOR_DB} dB", key="pm_floor",
                                       help="WSPR can only decode down to about -28 dB. A report at that edge is unreliable, and "
@@ -1414,6 +1416,11 @@ def _linear_average_view(spots_a, spots_b, an, names, noun, locs, home, kind, ca
     if pm["n"] < 2:
         st.info(f"Too few {noun}s heard both antennas with that many reports each. Lower the setting above.")
         return
+    if min_spots < DALE_SITE_MIN:
+        strict = power_method(spots_a, spots_b, locs, home, min_spots=DALE_SITE_MIN, floor=floor)
+        st.caption(f"With the published minimum of {DALE_SITE_MIN} reports on each antenna, "
+                   + (f"{strict['n']} {noun}s qualify: linear average {_lead_text(names, strict['mean'])}."
+                      if strict["n"] >= 2 else f"too few {noun}s qualify ({strict['n']}), so a long test is needed for that."))
     m1, m2 = st.columns(2)
     m1.metric("SNR average: typical dB difference at the same receiver", _lead_text(names, s_["mean"]))
     m1.caption(f"{s_['n']} {noun}s counted once per place. 95% range: {_range_text(names, s_['lo'], s_['hi'])}.")
