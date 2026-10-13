@@ -30,10 +30,11 @@ WSPR differs from RBN in a few ways: SNR is mostly negative (about -30 to +5 dB)
 - Paths from you to every station that heard you, drawn as great circles and coloured by band.
 - Dots sized and coloured by SNR. Click one for every spot from that station. The farthest station is circled.
 - Filters: **Band**, **UTC time window** (one-minute steps), and **Minimum SNR** (RBN). They update the map instantly.
+- With Compare mode off, a **Session report** tab for the whole day, across every band you loaded: when you were heard on each band, a band-by-hour grid (spots, farthest reach or median signal), a band scorecard, and how many stations heard you on each band by region (US East/Central/West, Canada, Europe, Asia and so on). It counts time you were *heard*, not time on the air, because a spot only exists when someone heard you.
 - With Compare mode off, a **World view from your station** below the map: the same azimuthal map, coloured by average SNR or by how many stations heard you in each direction and distance cell.
 - Stats above the map, a compass chart of your spots by direction below it, and a sortable spot table.
 - Map style (light, dark, satellite, street), miles or kilometres, and **Download map** (a standalone HTML file).
-- **Download report (PDF)** next to it: key numbers, direction chart, a by-band table and the stations that heard you.
+- **Download report (PDF)** next to it: key numbers, the session report, direction chart and the stations that heard you.
 
 Your location comes from the grid you typed, else the RBN skimmer list, else the FCC ([callook.info](https://callook.info)), else [HamDB](https://hamdb.org), else the centre of your country (the app warns you). Enter a grid for an exact pin.
 
@@ -140,6 +141,7 @@ The skimmer list refreshes itself every 24 hours. To force it: `.venv\Scripts\py
 | `rbn_data.py` | Skimmer list, callsign location lookup, grid conversion |
 | `wspr_data.py` | Fetches WSPR spots |
 | `world_map.py` | Draws the world map centred on your station |
+| `session_report.py` | Builds the session report: timeline, band-by-hour grid, scorecard and regions |
 | `world_land.npz`, `build_world_mask.py` | The land/ocean grid the map is drawn from, and the one-off script that built it |
 | `spotter_coords.csv` | Cached skimmer locations (updated automatically) |
 | `cty.dat` | Country prefixes from [country-files.com](https://www.country-files.com), for the approximate-location fallback |

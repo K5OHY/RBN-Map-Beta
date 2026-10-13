@@ -135,6 +135,7 @@ def _load_cty():
     """
     if _cty_cache:
         return _cty_cache["prefixes"], _cty_cache["exact"]
+    continents = {}
 
     stale = not CTY_FILE.exists() or (time.time() - CTY_FILE.stat().st_mtime) > CTY_MAX_AGE_DAYS * 86400
     if stale:
@@ -155,6 +156,7 @@ def _load_cty():
         if not line[0].isspace():  # entity header: name: cq: itu: cont: lat: lon(west+): tz: prefix:
             f = [x.strip() for x in line.split(":")]
             entity = (float(f[4]), -float(f[5]), f[0])
+            continents[f[0]] = f[3]
             continue
         for item in line.strip().rstrip(";").split(","):
             item = re.sub(r"[\(\[<\{~].*", "", item.strip())  # drop zone/lat-lon overrides
@@ -165,8 +167,14 @@ def _load_cty():
             else:
                 prefixes[item] = entity
 
-    _cty_cache.update(prefixes=prefixes, exact=exact)
+    _cty_cache.update(prefixes=prefixes, exact=exact, continents=continents)
     return prefixes, exact
+
+
+def country_continent(country):
+    """Two-letter continent code (NA, SA, EU, AF, AS, OC, AN) of a country name from cty.dat, or None."""
+    _load_cty()
+    return _cty_cache.get("continents", {}).get(country)
 
 
 def country_location(callsign):
