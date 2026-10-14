@@ -610,10 +610,10 @@ def best_direction(means):
 def head_to_head_table(shared, units):
     """Styled table of the skimmers that heard both frequencies, with the stronger side's SNR tinted."""
     k = KM_PER_MILE if units == "mi" else 1
-    dist, col_a, col_b, col_d = f"Distance ({units})", "🔵 A SNR (dB)", "🟠 B SNR (dB)", "Stronger by (dB)"
+    dist, col_a, col_b, col_d = f"Distance ({units})", "🔵 A SNR (dB)", "🟠 B SNR (dB)", "Relative gain B − A (dB)"
     view = pd.DataFrame({
         dist: (shared["km_a"] / k).round(0).astype(int),
-        col_a: shared["snr_a"], col_b: shared["snr_b"], col_d: shared["gap"].abs(),  # the size of the lead, never a sign
+        col_a: shared["snr_a"], col_b: shared["snr_b"], col_d: -shared["gap"],  # B's SNR minus A's: positive = B stronger
     }).sort_values(dist, ascending=False)
     view["Stronger"] = np.where(shared["gap"].reindex(view.index) > 0, "A",
                                 np.where(shared["gap"].reindex(view.index) < 0, "B", "Tie"))
@@ -626,7 +626,7 @@ def head_to_head_table(shared, units):
             if row["Stronger"] == side:
                 style[view.columns.get_loc(col)] = f"background-color:{color}33;font-weight:600"
         return style
-    return view.style.apply(tint, axis=1).format({col_a: "{:g}", col_b: "{:g}", col_d: "{:g}", dist: "{:,}"})
+    return view.style.apply(tint, axis=1).format({col_a: "{:g}", col_b: "{:g}", col_d: "{:+g}", dist: "{:,}"})
 
 
 def scoreboard_html(name_a, name_b, rows):
@@ -718,6 +718,41 @@ def distance_chart(dist, names):
         ax.text(1.03, i, f"heard by {short['A']} {int(row['a'])} · {short['B']} {int(row['b'])}\n{int(row['shared'])} heard both",
                 transform=ax.get_yaxis_transform(), ha="left", va="center", fontsize=7.5, color=COLOR_TIE)
     fig.subplots_adjust(left=0.2, right=0.66, top=0.86, bottom=0.18)
+    return fig
+
+
+def relative_gain_chart(shared, names, units, by="direction"):
+    """Relative gain (B's SNR minus A's SNR at the same receiver) of every receiver that heard both, against its direction
+    or its distance from you. Above the zero line B was stronger, below it A was."""
+    k = KM_PER_MILE if units == "mi" else 1
+    gain = -shared["gap"]
+    fig = Figure(figsize=(5.4, 3.3))
+    fig.patch.set_alpha(0)
+    ax = fig.add_subplot()
+    _style_axes(ax)
+    if by == "direction":
+        x = shared["bearing_a"]
+        ax.set_xlim(0, 360)
+        ax.set_xticks(range(0, 361, 45))
+        ax.set_xticklabels(["N", "NE", "E", "SE", "S", "SW", "W", "NW", "N"])
+        ax.set_xlabel("Direction from your station", fontsize=9, color=COLOR_TIE)
+    else:
+        x = shared["km_a"] / k
+        ax.set_xlim(0, float(x.max()) * 1.05 if len(x) else 1)
+        ax.set_xlabel(f"Distance from your station ({units})", fontsize=9, color=COLOR_TIE)
+    colors = np.where(gain > 0, COLOR_B, np.where(gain < 0, COLOR_A, COLOR_TIE))
+    ax.scatter(x, gain, c=colors, s=24, alpha=0.8, linewidths=0, zorder=3)
+    ax.axhline(0, color=COLOR_TIE, linestyle="--", linewidth=1, zorder=2)
+    mean = float(gain.mean())
+    ax.axhline(mean, color="#e5e7eb", linewidth=1.1, alpha=0.8, zorder=2)
+    ax.text(0.99, 0.02 if mean >= 0 else 0.98, f"average {mean:+.1f} dB", transform=ax.transAxes, fontsize=8,
+            color=COLOR_TIE, ha="right", va="bottom" if mean >= 0 else "top")
+    span = float(max(abs(gain.max()), abs(gain.min()), 2)) * 1.15
+    ax.set_ylim(-span, span)
+    ax.set_ylabel("Relative gain, B − A (dB)", fontsize=9, color=COLOR_TIE)
+    ax.text(0.01, 0.97, f"{names['B']} stronger", transform=ax.transAxes, color=COLOR_B, fontsize=8, va="top")
+    ax.text(0.01, 0.03, f"{names['A']} stronger", transform=ax.transAxes, color=COLOR_A, fontsize=8, va="bottom")
+    fig.tight_layout()
     return fig
 
 
@@ -896,12 +931,17 @@ def compare_report_pdf(ctx):
         k = KM_PER_MILE if units == "mi" else 1
         order = every.sort_values("km_a", ascending=False)
         rows = [[i, f"{row.km_a / k:,.0f}", f"{row.snr_a:g}", f"{row.snr_b:g}",
-                 "A" if row.gap > 0 else "B" if row.gap < 0 else "Tie", f"{abs(row.gap):g}"]
+                 "A" if row.gap > 0 else "B" if row.gap < 0 else "Tie", f"{-row.gap:+g}"]
                 for i, row in zip(order.index, order.itertuples())]
         blocks += [("heading", f"{noun.capitalize()} by {noun}"), ("figure", paired_scatter(an["shared"], names), 3.8),
+                   ("heading", "Relative gain by direction and distance"),
+                   ("figure", relative_gain_chart(every, names, units, "direction"), 3.0),
+                   ("figure", relative_gain_chart(every, names, units, "distance"), 3.0),
+                   ("note", f"Relative gain is B's SNR minus A's SNR at the same {noun}: above zero the second antenna "
+                            "gave more signal. Treat A as the reference and B as the test."),
                    ("note", f"{len(every)} {noun}s heard both sides, shown farthest first (up to 40). Each SNR is the "
                             "median of that station's spots."),
-                   ("table", [noun.capitalize(), f"Distance ({units})", "A SNR", "B SNR", "Stronger", "By (dB)"],
+                   ("table", [noun.capitalize(), f"Distance ({units})", "A SNR", "B SNR", "Stronger", "B − A (dB)"],
                     rows[:40], [0.28, 0.2, 0.13, 0.13, 0.13, 0.13])]
     if ctx["method"]:
         blocks += [("heading", "Linear average"), ("paragraph", ctx["method"]),
@@ -1769,6 +1809,14 @@ def compare_view(spots, locs, home, label, callsign, file_date, tiles, show_all,
                               "spots. Click a column heading to sort.")
             table_col.dataframe(head_to_head_table(every, units), width="stretch",
                                 height=min(38 * (len(every) + 1), 420))
+            st.subheader("Relative gain by direction and distance")
+            st.caption(f"Relative gain is B's SNR minus A's SNR at the same {noun}. Think of A as the reference antenna and B "
+                       f"as the test antenna: above zero, the test antenna gave that {noun} more signal. Because it is a "
+                       f"difference at one {noun}, that {noun}'s own noise level cancels, so {noun}s can be compared with "
+                       "each other. This holds when both antennas used the same power and receiver and have similar patterns.")
+            gain_dir, gain_dist = st.columns(2)
+            gain_dir.pyplot(relative_gain_chart(every, names, units, "direction"), width="stretch")
+            gain_dist.pyplot(relative_gain_chart(every, names, units, "distance"), width="stretch")
         else:
             st.info(f"No {noun} heard both sides, so there is nothing to compare receiver by receiver.")
 
