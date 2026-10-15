@@ -20,6 +20,7 @@ from compare_stats import (
     BIN_MIN_SHARED,
     DALE_MIN_SPOTS,
     DALE_SITE_MIN,
+    station_gains,
     DIRECTION_EDGE_DB,
     WSPR_FLOOR_DB,
     SECTOR_NAMES,
@@ -610,14 +611,14 @@ def best_direction(means):
 def head_to_head_table(shared, units):
     """Styled table of the skimmers that heard both frequencies, with the stronger side's SNR tinted."""
     k = KM_PER_MILE if units == "mi" else 1
-    dist, col_a, col_b, col_d = f"Distance ({units})", "🔵 A SNR (dB)", "🟠 B SNR (dB)", "Relative gain B − A (dB)"
+    dist, col_a, col_b, col_d = f"Distance ({units})", "🔵 A SNR (dB)", "🟠 B SNR (dB)", "Gain B−A (dB)"
     view = pd.DataFrame({
         dist: (shared["km_a"] / k).round(0).astype(int),
         col_a: shared["snr_a"], col_b: shared["snr_b"], col_d: -shared["gap"],  # B's SNR minus A's: positive = B stronger
     }).sort_values(dist, ascending=False)
     view["Stronger"] = np.where(shared["gap"].reindex(view.index) > 0, "A",
                                 np.where(shared["gap"].reindex(view.index) < 0, "B", "Tie"))
-    view = view[[dist, col_a, col_b, "Stronger", col_d]]
+    view = view[[dist, col_d, col_a, col_b, "Stronger"]]
     view.index.name = "Skimmer"
 
     def tint(row):
@@ -927,20 +928,20 @@ def compare_report_pdf(ctx):
                    ("table", ["Distance"] + cols[1:], _breakdown_rows(an["distance"], names), widths),
                    ("note", "Longer paths usually mean a lower take-off angle.")]
     if s_["n"]:
-        every = an["shared_all"]
+        every = ctx.get("every", an["shared_all"])  # the table on screen, if the reader changed how it is averaged
         k = KM_PER_MILE if units == "mi" else 1
         order = every.sort_values("km_a", ascending=False)
         rows = [[i, f"{row.km_a / k:,.0f}", f"{row.snr_a:g}", f"{row.snr_b:g}",
                  "A" if row.gap > 0 else "B" if row.gap < 0 else "Tie", f"{-row.gap:+g}"]
                 for i, row in zip(order.index, order.itertuples())]
-        blocks += [("heading", f"{noun.capitalize()} by {noun}"), ("figure", paired_scatter(an["shared"], names), 3.8),
+        blocks += [("heading", f"{noun.capitalize()} by {noun}"), ("figure", paired_scatter(ctx.get("scatter_src", an["shared"]), names), 3.8),
                    ("heading", "Relative gain by direction and distance"),
                    ("figure", relative_gain_chart(every, names, units, "direction"), 3.0),
                    ("figure", relative_gain_chart(every, names, units, "distance"), 3.0),
                    ("note", f"Relative gain is B's SNR minus A's SNR at the same {noun}: above zero the second antenna "
                             "gave more signal. Treat A as the reference and B as the test."),
-                   ("note", f"{len(every)} {noun}s heard both sides, shown farthest first (up to 40). Each SNR is the "
-                            "median of that station's spots."),
+                   ("note", f"{len(every)} {noun}s heard both sides, shown farthest first (up to 40). "
+                            + ctx.get("rx_note", "Each SNR is the median of that station's spots.")),
                    ("table", [noun.capitalize(), f"Distance ({units})", "A SNR", "B SNR", "Stronger", "B − A (dB)"],
                     rows[:40], [0.28, 0.2, 0.13, 0.13, 0.13, 0.13])]
     if ctx["method"]:
@@ -1194,14 +1195,18 @@ def _blocks_test(spots, all_stamps):
     c1, c2, c3, c4 = st.columns([2, 2, 2, 3])
     block_min = int(c1.number_input("Minutes per block", 4, 480, 30, step=2, key="blk_len",
                                     help="How long each antenna stayed connected before you switched."))
-    n_blocks = int(c2.number_input("Number of blocks", 2, 40, 4, step=2, key="blk_n",
+    # Open on the whole data set: the first transmission, and enough blocks to reach the last one. The keys carry the data's
+    # first and last times, so loading different spots starts fresh instead of keeping the last test's choices.
+    sig = f"{all_stamps[0]:%d%H%M}_{all_stamps[-1]:%d%H%M}_{block_min}"
+    span_min = (all_stamps[-1] - all_stamps[0]).total_seconds() / 60 + 2
+    fit = int(np.ceil(span_min / block_min))
+    default_blocks = int(min(40, max(2, fit + fit % 2)))
+    n_blocks = int(c2.number_input("Number of blocks", 2, 40, default_blocks, step=2, key=f"blk_n_{sig}",
                                    help="Count every block, A and B together: A for 30 minutes then B for 30 is 2."))
     patterns = {"A, B, A, B \u2026": "ABAB", "A, B, B, A \u2026": "ABBA"}
     order = c4.radio("Block order", list(patterns), key="blk_order", horizontal=True,
                      help="Starting with A. A, B, B, A balances which antenna goes first.")
-    target = all_stamps[-1] - pd.Timedelta(minutes=block_min * n_blocks)  # open on the latest window that fits
-    default_i = next((i for i, t in enumerate(all_stamps) if t >= target), 0)
-    start_label = c3.selectbox("First block starts at (UTC)", [fmt(t) for t in all_stamps], index=default_i, key="blk_start",
+    start_label = c3.selectbox("First block starts at (UTC)", [fmt(t) for t in all_stamps], index=0, key=f"blk_start_{sig}",
                                help="The time you first connected antenna A. The list is every transmission in the data.")
     t0 = next(t for t in all_stamps if fmt(t) == start_label)
     pattern = patterns[order]
@@ -1430,8 +1435,10 @@ def _linear_average_view(spots_a, spots_b, an, names, noun, locs, home, kind, ca
     st.markdown(
         "Reports use dB, a logarithmic scale. The **SNR average** (the standard comparison) measures the **typical SNR difference "
         "at each receiver**. The **linear average** converts SNR to power ratios, averages them for each antenna, then converts back "
-        "to dB and subtracts. This gives stronger signals more weight. Neither method is inherently more accurate; they measure "
-        "different things. Both compare **relative signal strength at the same receivers**, not absolute antenna gain.")
+        "to dB and subtracts. Linear power is the proper way to average signal strength over time, and it gives stronger "
+        "signals more weight, so it needs many reports per receiver. The SNR average is the typical dB difference, and one "
+        "strong report can't dominate it, so it holds up better with few reports. Both compare **relative signal strength "
+        "at the same receivers**, not absolute antenna gain.")
     with st.expander("Show the arithmetic"):
         st.markdown(
             "1. For every report, turn dB into power: **power = 10 ^ (dB / 10)**\n"
@@ -1452,7 +1459,7 @@ def _linear_average_view(spots_a, spots_b, an, names, noun, locs, home, kind, ca
                                            "the weaker antenna's weakest reports are often missing altogether."):
         floor = WSPR_FLOOR_DB
     s_ = an["strength"]
-    pm = power_method(spots_a, spots_b, locs, home, min_spots=min_spots, floor=floor)
+    pm = power_method(spots_a, spots_b, locs, home, min_spots=min_spots, floor=floor, offset=an["power"]["offset"])
     if paired is not None and (paired[0]["time"].nunique() + paired[1]["time"].nunique()
                                != spots_a["time"].nunique() + spots_b["time"].nunique()):
         st.caption(f"The linear average uses every transmission ({spots_a['time'].nunique()} on A, {spots_b['time'].nunique()} on B), "
@@ -1462,7 +1469,7 @@ def _linear_average_view(spots_a, spots_b, an, names, noun, locs, home, kind, ca
         st.info(f"Too few {noun}s heard both antennas with that many reports each. Lower the setting above.")
         return
     if min_spots < DALE_SITE_MIN:
-        strict = power_method(spots_a, spots_b, locs, home, min_spots=DALE_SITE_MIN, floor=floor)
+        strict = power_method(spots_a, spots_b, locs, home, min_spots=DALE_SITE_MIN, floor=floor, offset=an["power"]["offset"])
         st.caption(f"With the published minimum of {DALE_SITE_MIN} reports on each antenna, "
                    + (f"{strict['n']} {noun}s qualify: linear average {_lead_text(names, strict['mean'])}."
                       if strict["n"] >= 2 else f"too few {noun}s qualify ({strict['n']}), so a long test is needed for that."))
@@ -1544,7 +1551,7 @@ def _linear_average_view(spots_a, spots_b, an, names, noun, locs, home, kind, ca
 def _method_summary(spots_a, spots_b, an, names, noun, locs, home):
     """One paragraph for the PDF: the SNR average next to the linear average, and whether they agree."""
     s_ = an["strength"]
-    pm = power_method(spots_a, spots_b, locs, home)
+    pm = power_method(spots_a, spots_b, locs, home, offset=an["power"]["offset"])
     if pm["n"] < 2 or np.isnan(s_["mean"]):
         return ""
     gap = abs(s_["mean"] - pm["mean"])
@@ -1799,24 +1806,61 @@ def compare_view(spots, locs, home, label, callsign, file_date, tiles, show_all,
 
     with tab_each:
         if s_["n"]:
-            chart_col, table_col = st.columns([1, 1])
-            chart_col.pyplot(paired_scatter(an["shared"], names), width="stretch")
-            every = an["shared_all"]
-            same_place = (f" ({len(every)} {noun}s; ones at the same place are averaged into one for the result)"
-                          if len(every) != s_["n"] else "")
-            table_col.caption(f"{s_['n']} {noun}s heard both{same_place}. \U0001F535 A was stronger at {s_['wins_a']}, "
-                              f"\U0001F7E0 B at {s_['wins_b']}, tied at {s_['ties']}. Each SNR is the median of that {noun}'s "
-                              "spots. Click a column heading to sort.")
-            table_col.dataframe(head_to_head_table(every, units), width="stretch",
-                                height=min(38 * (len(every) + 1), 420))
-            st.subheader("Relative gain by direction and distance")
-            st.caption(f"Relative gain is B's SNR minus A's SNR at the same {noun}. Think of A as the reference antenna and B "
-                       f"as the test antenna: above zero, the test antenna gave that {noun} more signal. Because it is a "
-                       f"difference at one {noun}, that {noun}'s own noise level cancels, so {noun}s can be compared with "
-                       "each other. This holds when both antennas used the same power and receiver and have similar patterns.")
-            gain_dir, gain_dist = st.columns(2)
-            gain_dir.pyplot(relative_gain_chart(every, names, units, "direction"), width="stretch")
-            gain_dist.pyplot(relative_gain_chart(every, names, units, "distance"), width="stretch")
+            blocks_mode = bool(sep.get("blocks"))
+            ctrl_method, ctrl_min = st.columns([2, 3])
+            method_label = ctrl_method.radio(
+                f"Average each {noun}'s reports by", ["SNR (dB)", "Linear power"], index=1 if blocks_mode else 0,
+                horizontal=True, key=f"rx_method_{'blk' if blocks_mode else 'pair'}",
+                help="SNR (dB) takes the middle of a station's reports in dB. Linear power turns each report into power, "
+                     "averages the power and turns it back into dB. Linear is the proper average of signal power over "
+                     "time and suits a long test with many reports per station; the dB middle is steadier when a station "
+                     "has only a few reports.")
+            min_reports = int(ctrl_min.slider(
+                f"Only {noun}s with at least this many reports on each antenna", 1, 60, 1, key="rx_min_reports",
+                help="Raising this drops stations with few reports. The far, weak ones go first, but each station left has a "
+                     "steadier average, and the answer settling as you raise it is a sign it can be trusted."))
+            plain = method_label == "SNR (dB)" and min_reports == 1
+            if plain:
+                every, scatter_src = an["shared_all"], an["shared"]
+            else:
+                every = station_gains(spots_a, spots_b, locs, home, "linear" if method_label == "Linear power" else "snr",
+                                      min_reports, an["power"]["offset"])
+                scatter_src = every
+            if every.empty:
+                st.info(f"No {noun} has {min_reports} or more reports on both antennas. Lower the number above.")
+            else:
+                pdf_ctx["every"], pdf_ctx["scatter_src"] = every, scatter_src
+                pdf_ctx["rx_note"] = (f"Each SNR is the {'average power, in dB,' if method_label == 'Linear power' else 'median'} "
+                                      f"of that station's spots"
+                                      + (f"; only {noun}s with at least {min_reports} reports on each antenna are included." if min_reports > 1
+                                         else "."))
+                chart_col, table_col = st.columns([1, 1])
+                chart_col.pyplot(paired_scatter(scatter_src, names), width="stretch")
+                if plain:
+                    same_place = (f" ({len(every)} {noun}s; ones at the same place are averaged into one for the result)"
+                                  if len(every) != s_["n"] else "")
+                    table_col.caption(f"{s_['n']} {noun}s heard both{same_place}. \U0001F535 A was stronger at {s_['wins_a']}, "
+                                      f"\U0001F7E0 B at {s_['wins_b']}, tied at {s_['ties']}. Each SNR is the median of that "
+                                      f"{noun}'s spots. Click a column heading to sort.")
+                else:
+                    wins_a, wins_b = int((every["gap"] > 0).sum()), int((every["gap"] < 0).sum())
+                    table_col.caption(f"{len(every)} {noun}s with at least {min_reports} report{'s' if min_reports != 1 else ''} on each antenna. "
+                                      f"\U0001F535 A was stronger at {wins_a}, \U0001F7E0 B at {wins_b}, tied at "
+                                      f"{len(every) - wins_a - wins_b}. Each SNR is the "
+                                      f"{'average power, in dB,' if method_label == 'Linear power' else 'median'} of that "
+                                      f"{noun}'s spots. Click a column heading to sort.")
+                table_col.dataframe(head_to_head_table(every, units), width="stretch",
+                                    height=min(38 * (len(every) + 1), 420))
+            if not every.empty:
+                st.subheader("Relative gain by direction and distance")
+                st.caption(f"Relative gain is B's SNR minus A's SNR at the same {noun}. Think of A as the reference antenna and "
+                           f"B as the test antenna: above zero, the test antenna gave that {noun} more signal. Because it is "
+                           f"a difference at one {noun}, that {noun}'s own noise level cancels, so {noun}s can be compared "
+                           "with each other. This holds when both antennas used the same power and receiver and have "
+                           "similar patterns.")
+                gain_dir, gain_dist = st.columns(2)
+                gain_dir.pyplot(relative_gain_chart(every, names, units, "direction"), width="stretch")
+                gain_dist.pyplot(relative_gain_chart(every, names, units, "distance"), width="stretch")
         else:
             st.info(f"No {noun} heard both sides, so there is nothing to compare receiver by receiver.")
 

@@ -126,7 +126,36 @@ DALE_MIN_SPOTS = 20       # spots per antenna that a long time-averaged test aim
 DALE_SITE_MIN = 40        # the minimum his published method (n3hxz.net) keeps per antenna, per receiver
 
 
-def power_method(spots_a, spots_b, locs, home, min_spots=1, floor=None):
+def station_gains(spots_a, spots_b, locs, home, method="snr", min_spots=1, offset=0.0):
+    """One row per located receiver that heard both sides: each side's average SNR there, how many reports that rests on, and
+    where the receiver is. `method` is 'snr' (the middle of the dB reports) or 'linear' (the reports turned into power,
+    averaged, and turned back into dB). `min_spots` keeps receivers with at least that many reports on EACH side, and
+    `offset` (dB) is added to B first to correct a transmit-power difference. gap = A minus B, so a station's relative
+    gain (B minus A) is minus the gap."""
+    def per_receiver(spots, shift):
+        snr = spots["snr"] + shift
+        g = spots.assign(_snr=snr, _power=10 ** (snr / 10)).groupby("spotter")
+        avg = 10 * np.log10(g["_power"].mean()) if method == "linear" else g["_snr"].median()
+        return pd.DataFrame({"snr": avg, "n": g.size()})
+
+    t = per_receiver(spots_a, 0.0).join(per_receiver(spots_b, offset), how="inner", lsuffix="_a", rsuffix="_b")
+    t = t[(t["n_a"] >= min_spots) & (t["n_b"] >= min_spots)]
+    geo = {}
+    for who in t.index:
+        loc = locate(who, locs)
+        if loc is not None:
+            geo[who] = _inverse(float(home[0]), float(home[1]), float(loc[0]), float(loc[1]))
+    t = t[t.index.isin(geo)].copy()
+    t["km_a"] = [geo[w][0] for w in t.index]
+    t["bearing_a"] = [geo[w][1] for w in t.index]
+    t[["snr_a", "snr_b"]] = t[["snr_a", "snr_b"]].round(1)  # a tenth of a dB is plenty, and keeps the table readable
+    t["gap"] = (t["snr_a"] - t["snr_b"]).round(1)
+    t["delta"] = t["gap"]
+    t.index.name = "receiver"
+    return t
+
+
+def power_method(spots_a, spots_b, locs, home, min_spots=1, floor=None, offset=0.0):
     """The same comparison done by averaging POWER instead of dB, for a cross-check against the default.
 
     For each receiver: every report is turned from dB into power (10 ** (dB / 10)), each antenna's reports are averaged,
@@ -142,7 +171,7 @@ def power_method(spots_a, spots_b, locs, home, min_spots=1, floor=None):
     a, b = clip(spots_a), clip(spots_b)
     dropped = (len(spots_a) - len(a)) + (len(spots_b) - len(b))
     pa = a.assign(p=10 ** (a["snr"] / 10)).groupby("spotter").agg(spots_a=("p", "size"), power_a=("p", "mean"))
-    pb = b.assign(p=10 ** (b["snr"] / 10)).groupby("spotter").agg(spots_b=("p", "size"), power_b=("p", "mean"))
+    pb = b.assign(p=10 ** ((b["snr"] + offset) / 10)).groupby("spotter").agg(spots_b=("p", "size"), power_b=("p", "mean"))
     t = pa.join(pb, how="inner")
     t = t[(t["spots_a"] >= min_spots) & (t["spots_b"] >= min_spots)]
     empty = {"table": t.assign(gain=np.nan), "n": 0, "mean": math.nan, "lo": math.nan, "hi": math.nan,
