@@ -2561,9 +2561,15 @@ def conditions_page():
         points = pd.DataFrame({"km": good["km"].to_numpy(), "bearing": good["bearing"].to_numpy(), "group": "single",
                                "gap": float("nan"), "snr_a": good["margin"].to_numpy(), "snr_b": float("nan"),
                                "color": [BAND_COLORS.get(b, "#8a8f98") for b in good["band"]]})
+        views = _views(units)
+        view_choice = st.radio("How much of the world", list(views), index=2, horizontal=True, key=f"cond_map_view_{units}")
+        view_km = views[view_choice]
         map_col, key_col = st.columns([3, 1])
-        map_col.pyplot(azimuth_map_figure(lat, lon, points, {"A": "", "B": ""}, callsign or "You", units, MAX_KM, "dots", True,
+        map_col.pyplot(azimuth_map_figure(lat, lon, points, {"A": "", "B": ""}, callsign or "You", units, view_km, "dots", True,
                                           (0, 20)), width="stretch")
+        beyond = int((points["km"] > view_km).sum())
+        if beyond:
+            map_col.caption(f"{beyond} receiver{'s' if beyond != 1 else ''} beyond this view.")
         key_col.markdown("**Band colours**\n\n" + "\n\n".join(
             f"<span style='color:{BAND_COLORS.get(b, '#8a8f98')}'>\u25CF</span> {b}" for b in sorted(
                 set(good["band"]), key=lambda b: list(BAND_COLORS).index(b) if b in BAND_COLORS else 99)), unsafe_allow_html=True)
