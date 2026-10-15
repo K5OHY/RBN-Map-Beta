@@ -194,9 +194,14 @@ def timeline_figure(spots, colors, day=None):
     ax.set_ylim(len(bands) - 0.4, -0.6)
     lo, hi = d["time"].min().floor("h"), d["time"].max().ceil("h")
     ax.set_xlim(mdates.date2num(lo), mdates.date2num(max(hi, lo + pd.Timedelta(hours=1))))
-    ax.xaxis.set_major_locator(mdates.AutoDateLocator(minticks=4, maxticks=10))
-    ax.xaxis.set_major_formatter(mdates.DateFormatter("%H:%M" if d["time"].dt.date.nunique() == 1 else "%d %b %H:%M"))
-    ax.set_xlabel("UTC", color=GREY, fontsize=9)
+    locator = mdates.AutoDateLocator(minticks=4, maxticks=8)
+    ax.xaxis.set_major_locator(locator)
+    if d["time"].dt.date.nunique() == 1:
+        ax.xaxis.set_major_formatter(mdates.DateFormatter("%H:%M"))
+        ax.set_xlabel(f"UTC, {d['time'].min():%d %b %Y}", color=GREY, fontsize=9)
+    else:  # a short date under the clock time where the day changes, so labels never run together
+        ax.xaxis.set_major_formatter(mdates.ConciseDateFormatter(locator, show_offset=False))
+        ax.set_xlabel("UTC", color=GREY, fontsize=9)
     ax.grid(axis="x", color=GREY, alpha=0.2)
     fig.tight_layout()
     return fig

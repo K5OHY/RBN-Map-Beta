@@ -809,9 +809,7 @@ def receiver_time_chart(spots_a, spots_b, receiver, names, offset=0.0, linear=Tr
         ax.axhline(avg, color=color, linewidth=1.6, alpha=0.85, zorder=2)
     ax.set_ylabel("SNR (dB)", fontsize=9, color=COLOR_TIE)
     ax.set_xlabel("UTC", fontsize=9, color=COLOR_TIE)
-    times = pd.concat([a["time"], b["time"]])
-    ax.xaxis.set_major_formatter(mdates.DateFormatter("%H:%M" if times.dt.date.nunique() == 1 else "%d %b %H:%M"))
-    ax.xaxis.set_major_locator(mdates.AutoDateLocator(minticks=4, maxticks=9))
+    _time_axis(ax, pd.concat([a["time"], b["time"]]))
     ax.grid(color=COLOR_TIE, alpha=0.2)
     ax.legend(loc="upper center", bbox_to_anchor=(0.5, 1.14), ncol=2, frameon=False, labelcolor=COLOR_TIE, fontsize=9)
     fig.tight_layout()
@@ -839,6 +837,20 @@ def paired_scatter(shared, names):
     return fig
 
 
+def _time_axis(ax, times):
+    """Readable clock labels on a time axis. A one-day run shows just the clock time, with the date in the axis label; a run over
+    several days puts a short date under the clock time where the day changes. (A full date on every label ran together.)"""
+    stamps = pd.to_datetime(pd.Series(times))
+    locator = mdates.AutoDateLocator(minticks=4, maxticks=8)
+    ax.xaxis.set_major_locator(locator)
+    if stamps.dt.date.nunique() == 1:
+        ax.xaxis.set_major_formatter(mdates.DateFormatter("%H:%M"))
+        ax.set_xlabel(f"UTC time, {stamps.min():%d %b %Y}", color=COLOR_TIE, fontsize=8)
+    else:
+        ax.xaxis.set_major_formatter(mdates.ConciseDateFormatter(locator, show_offset=False))
+        ax.set_xlabel("UTC time", color=COLOR_TIE, fontsize=8)
+
+
 def _gap_text(minutes):
     return f"{minutes / 60:.1f} h later" if minutes >= 120 else f"{minutes:.0f} min later"
 
@@ -860,8 +872,8 @@ def timeline_chart(spots_a, spots_b, names):
             ax.scatter(spots["time"], spots["snr"], s=5, color=color, alpha=0.18, linewidths=0)
             med = spots.groupby("time")["snr"].median()
             ax.plot(med.index, med.to_numpy(), linestyle="none", marker="o", markersize=4, color=color, label=name)
-        ax.xaxis.set_major_formatter(mdates.DateFormatter("%d %b %H:%M"))
-        fig.autofmt_xdate(rotation=0, ha="center")
+        _time_axis(ax, times)
+        fig.subplots_adjust(bottom=0.2)
     else:
         steps = [(b - a).total_seconds() / 60 for a, b in zip(times, times[1:]) if b > a]
         typical = float(np.median(steps)) if steps else 0.0
