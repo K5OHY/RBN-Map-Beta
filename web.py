@@ -757,6 +757,66 @@ def relative_gain_chart(shared, names, units, by="direction"):
     return fig
 
 
+def _linear_db(snr):
+    """The average power of a set of dB reports, in dB: 10 x log10 of the mean of 10 ^ (dB / 10)."""
+    return float(10 * np.log10(np.mean(10 ** (np.asarray(snr, dtype=float) / 10))))
+
+
+def _gain_interval(snr_a, snr_b):
+    """B minus A from the two sets of dB reports at one receiver, with a 95% range (Welch's unequal-variance interval on the
+    two means, as in Dale's article). Returns (difference, low, high); the range is NaN with fewer than 3 reports per side."""
+    a, b = np.asarray(snr_a, dtype=float), np.asarray(snr_b, dtype=float)
+    diff = float(b.mean() - a.mean())
+    if len(a) < 3 or len(b) < 3:
+        return diff, float("nan"), float("nan")
+    va, vb = a.var(ddof=1) / len(a), b.var(ddof=1) / len(b)
+    se = float(np.sqrt(va + vb))
+    if se == 0:
+        return diff, diff, diff
+    df = (va + vb) ** 2 / (va ** 2 / (len(a) - 1) + vb ** 2 / (len(b) - 1))
+    t_value = 1.96 + 2.4 / max(df, 1.0) + 3.0 / max(df, 1.0) ** 2  # Student's t for 95%, close enough without SciPy
+    return diff, diff - t_value * se, diff + t_value * se
+
+
+def receiver_time_chart(spots_a, spots_b, receiver, names, offset=0.0, linear=True):
+    """Every report from one receiver against time, A in blue and B in orange, with a line at each antenna's average. In a test
+    run in long blocks the blocks are shaded so you can see when each antenna was connected."""
+    a = spots_a[spots_a["spotter"] == receiver].sort_values("time")
+    b = spots_b[spots_b["spotter"] == receiver].sort_values("time")
+    snr_a, snr_b = a["snr"].to_numpy(float), b["snr"].to_numpy(float) + offset
+    fig = Figure(figsize=(8.0, 3.7))
+    fig.patch.set_alpha(0)
+    ax = fig.add_subplot()
+    _style_axes(ax)
+    # the stretches of time each antenna was connected, shaded when they are long (blocks), not when they alternate every 2 minutes
+    seq = sorted([(t, "A") for t in spots_a["time"].unique()] + [(t, "B") for t in spots_b["time"].unique()])
+    runs = []
+    for t, who in seq:
+        if runs and runs[-1][0] == who:
+            runs[-1][2] = t
+        else:
+            runs.append([who, t, t])
+    if runs and len(seq) / len(runs) >= 3:
+        for who, start, end in runs:
+            ax.axvspan(pd.Timestamp(start), pd.Timestamp(end) + pd.Timedelta(minutes=2),
+                       color=COLOR_A if who == "A" else COLOR_B, alpha=0.07, linewidth=0, zorder=0)
+    for t_, s_, color, label in ((a["time"], snr_a, COLOR_A, names["A"]), (b["time"], snr_b, COLOR_B, names["B"])):
+        if not len(s_):
+            continue
+        avg = _linear_db(s_) if linear else float(np.median(s_))
+        ax.scatter(t_, s_, color=color, s=30, alpha=0.8, linewidths=0, zorder=3, label=f"{label} ({len(s_)} reports)")
+        ax.axhline(avg, color=color, linewidth=1.6, alpha=0.85, zorder=2)
+    ax.set_ylabel("SNR (dB)", fontsize=9, color=COLOR_TIE)
+    ax.set_xlabel("UTC", fontsize=9, color=COLOR_TIE)
+    times = pd.concat([a["time"], b["time"]])
+    ax.xaxis.set_major_formatter(mdates.DateFormatter("%H:%M" if times.dt.date.nunique() == 1 else "%d %b %H:%M"))
+    ax.xaxis.set_major_locator(mdates.AutoDateLocator(minticks=4, maxticks=9))
+    ax.grid(color=COLOR_TIE, alpha=0.2)
+    ax.legend(loc="upper center", bbox_to_anchor=(0.5, 1.14), ncol=2, frameon=False, labelcolor=COLOR_TIE, fontsize=9)
+    fig.tight_layout()
+    return fig
+
+
 def paired_scatter(shared, names):
     """One dot per receiver that heard both: A's SNR across, B's up. Above the dashed line B was stronger."""
     fig = Figure(figsize=(4.4, 4.4))
@@ -1861,6 +1921,35 @@ def compare_view(spots, locs, home, label, callsign, file_date, tiles, show_all,
                 gain_dir, gain_dist = st.columns(2)
                 gain_dir.pyplot(relative_gain_chart(every, names, units, "direction"), width="stretch")
                 gain_dist.pyplot(relative_gain_chart(every, names, units, "distance"), width="stretch")
+
+                st.subheader(f"One {noun} over time")
+                reports_a, reports_b = spots_a.groupby("spotter").size(), spots_b.groupby("spotter").size()
+                kk = KM_PER_MILE if units == "mi" else 1
+                ranked = sorted(every.index, key=lambda r: (-min(reports_a.get(r, 0), reports_b.get(r, 0)), every.at[r, "km_a"]))
+                pick = st.selectbox(
+                    f"Pick a {noun}", ranked,
+                    format_func=lambda r: (f"{r} \u00b7 {every.at[r, 'km_a'] / kk:,.0f} {units} \u00b7 "
+                                           f"{reports_a.get(r, 0)} on A, {reports_b.get(r, 0)} on B"),
+                    help=f"The {noun}s with the most reports on both antennas are first.")
+                offset = an["power"]["offset"]
+                st.pyplot(receiver_time_chart(spots_a, spots_b, pick, names, offset, linear=method_label == "Linear power"),
+                          width="stretch")
+                one_a = spots_a[spots_a["spotter"] == pick]["snr"].to_numpy(float)
+                one_b = spots_b[spots_b["spotter"] == pick]["snr"].to_numpy(float) + offset
+                m_a, m_b, m_gain = st.columns(3)
+                for col, label, values in ((m_a, names["A"], one_a), (m_b, names["B"], one_b)):
+                    col.metric(label, f"{_linear_db(values):.1f} dB linear average")
+                    col.caption(f"{len(values)} reports \u00b7 dB average {values.mean():.1f} \u00b7 middle {np.median(values):g} "
+                                f"\u00b7 spread (std) {values.std(ddof=1) if len(values) > 1 else float('nan'):.1f} dB")
+                diff, lo, hi = _gain_interval(one_a, one_b)
+                m_gain.metric("Relative gain B \u2212 A", f"{_linear_db(one_b) - _linear_db(one_a):+.1f} dB linear")
+                m_gain.caption(f"dB averages: {diff:+.1f} dB"
+                               + (f", 95% range {lo:+.1f} to {hi:+.1f} dB" if not np.isnan(lo) else ", too few reports for a range"))
+                st.caption(f"Each dot is one report from this {noun}; the line is each antenna's average "
+                           f"({'linear power' if method_label == 'Linear power' else 'middle of the dB reports'}). "
+                           "Wide scatter means the signal was fading or the band was changing, which is why a few reports "
+                           "can give a misleading average. In a long-block test the shading shows when each antenna was "
+                           "connected.")
         else:
             st.info(f"No {noun} heard both sides, so there is nothing to compare receiver by receiver.")
 
