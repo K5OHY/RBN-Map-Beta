@@ -82,6 +82,16 @@ Differences are always shown as who is ahead and by how much (for example *B +2.
 - **Two ways of averaging.** The default takes the dB difference at each receiver, a power ratio, and finds the typical difference. That works for short tests because A and B are measured minutes apart, but it adds up dB, and it depends on conditions being similar in neighbouring transmissions. The **Linear average** tab averages power instead: every report is turned from dB into power, each antenna's reports are averaged, and the ratio is turned back into dB. That is a true power average and doesn't rely on two particular transmissions matching, but it needs many reports per receiver (20 to 40, so hours of data), it is swung by a few strong reports (0, 0, 0 and 20 dB average to 14 dB, not 5), and it is thrown off by reports at WSPR's -28 dB decoding floor. For a short switched test, trust the default; for a long, time-averaged run, the power average; and if the two agree within 1 dB you can be more confident.
 - **Fairness.** For WSPR only receivers that were listening during both sides' transmissions count, and cycles heard by 2 or fewer receivers are ignored when normal cycles are heard by many more (usually one receiver with a wrong clock). A cycle with no partner on the other antenna is left out. Power differences are corrected (WSPR carries the power). Skimmers at the same place are counted once. If A and B were sent more than about 10 minutes apart, the verdict warns that the time of day could explain the difference.
 
+## Band conditions now
+
+The **Band conditions** page (in the sidebar menu) tells you which bands are open and where a signal like yours would be heard, which helps when you are deciding whether to change band at a park. It takes the WSPR stations transmitting near you (your grid square or callsign, within an area you choose) over the last hour, and restates each report for **your power and mode**: SNR moves dB for dB with power, and each mode needs a minimum SNR, so the gap is your margin.
+
+- A band-by-band table: open, marginal or quiet, whether it is opening or fading, how many receivers would hear you, and the farthest one.
+- A region table (US East, Europe, South America and so on) showing your margin, or the **power you would need** to reach a typical receiver there.
+- The farthest receivers that would hear you, and a map of them.
+
+It is a guide good to a few dB, not a promise: it only counts receivers that heard the nearby WSPR stations (so with more power than they used you would be heard in more places), WSPR receivers are often quiet sites, and the mode thresholds are approximate. There is a box for how your antenna compares with theirs.
+
 ## Run it locally
 
 You need [Python 3.9+](https://www.python.org/downloads/).
@@ -142,6 +152,7 @@ The skimmer list refreshes itself every 24 hours. To force it: `.venv\Scripts\py
 | `wspr_data.py` | Fetches WSPR spots |
 | `world_map.py` | Draws the world map centred on your station |
 | `session_report.py` | Builds the session report: timeline, band-by-hour grid, scorecard and regions |
+| `conditions.py` | Band conditions: nearby WSPR stations restated for your power and mode |
 | `world_land.npz`, `build_world_mask.py` | The land/ocean grid the map is drawn from, and the one-off script that built it |
 | `spotter_coords.csv` | Cached skimmer locations (updated automatically) |
 | `cty.dat` | Country prefixes from [country-files.com](https://www.country-files.com), for the approximate-location fallback |
