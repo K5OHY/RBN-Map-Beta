@@ -21,6 +21,7 @@ from compare_stats import (
     DALE_MIN_SPOTS,
     DALE_SITE_MIN,
     station_gains,
+    gain_by_window,
     DIRECTION_EDGE_DB,
     WSPR_FLOOR_DB,
     SECTOR_NAMES,
@@ -816,6 +817,41 @@ def receiver_time_chart(spots_a, spots_b, receiver, names, offset=0.0, linear=Tr
     return fig
 
 
+def gain_over_time_chart(windows, names, receiver=None):
+    """Relative gain (B minus A) in each time window: a bar for the average over all stations with its 95% range, and a line
+    for one picked receiver. Shows whether the answer drifts, for example when the band opens during a long test."""
+    fig = Figure(figsize=(8.0, 3.6))
+    fig.patch.set_alpha(0)
+    ax = fig.add_subplot()
+    _style_axes(ax)
+    x = np.arange(len(windows))
+    mean = windows["mean"].to_numpy(float)
+    colors = [COLOR_B if v >= 0 else COLOR_A for v in np.nan_to_num(mean)]
+    err = np.vstack([np.nan_to_num(mean - windows["lo"].to_numpy(float)), np.nan_to_num(windows["hi"].to_numpy(float) - mean)])
+    ax.bar(x, np.nan_to_num(mean), width=0.6, color=colors, alpha=0.55, zorder=2,
+           label=f"All stations (average, 95% range)")
+    ax.errorbar(x, np.nan_to_num(mean), yerr=err, fmt="none", ecolor=COLOR_TIE, elinewidth=1.2, capsize=4, zorder=3)
+    for xi, v, n in zip(x, mean, windows["n"]):
+        if not np.isnan(v):
+            ax.text(xi, 0.12 if v >= 0 else -0.12, f"{v:+.1f}", ha="center", va="bottom" if v >= 0 else "top", fontsize=8,
+                    color=COLOR_TIE, zorder=4)  # at the foot of the bar, clear of the line and its labels
+    if receiver is not None and windows["one"].notna().any():
+        ax.plot(x, windows["one"].to_numpy(float), color="#16a34a", marker="o", markersize=6, linewidth=1.8, zorder=5,
+                label=f"{receiver}")
+        for xi, v in zip(x, windows["one"].to_numpy(float)):
+            if not np.isnan(v):
+                ax.annotate(f"{v:+.1f}", (xi, v), textcoords="offset points", xytext=(8, 6), fontsize=8, color="#16a34a", zorder=6)
+    ax.axhline(0, color=COLOR_TIE, linestyle="--", linewidth=1, zorder=1)
+    ax.set_xticks(x)
+    ax.set_xticklabels([f"{s:%H:%M}\u2013{e:%H:%M}" for s, e in zip(windows["start"], windows["end"])], fontsize=8)
+    ax.set_ylabel("Relative gain, B \u2212 A (dB)", fontsize=9, color=COLOR_TIE)
+    ax.set_xlabel("UTC time window", fontsize=9, color=COLOR_TIE)
+    ax.grid(axis="y", color=COLOR_TIE, alpha=0.2, zorder=0)
+    ax.legend(loc="upper center", bbox_to_anchor=(0.5, 1.16), ncol=2, frameon=False, labelcolor=COLOR_TIE, fontsize=9)
+    fig.tight_layout()
+    return fig
+
+
 def paired_scatter(shared, names):
     """One dot per receiver that heard both: A's SNR across, B's up. Above the dashed line B was stronger."""
     fig = Figure(figsize=(4.4, 4.4))
@@ -1352,6 +1388,7 @@ def _blocks_test(spots, all_stamps):
                    f"{len(both)} receivers that heard both, the middle receiver has {int(per_a[both].median())} reports on A and "
                    f"{int(per_b[both].median())} on B. A long test aims for {DALE_MIN_SPOTS} or more on each; the published method keeps only receivers with {DALE_SITE_MIN}.")
     return {"a": spots_a, "b": spots_b, "time_based": True, "alternating": False, "labeled": False, "blocks": True,
+            "t0": t0, "block_min": block_min, "n_blocks_set": n_blocks,
             "n_blocks": int(len(set(row["Block"] for (_, row), ant in zip(table.iterrows(), edited["Antenna"]) if ant in ("A", "B")))),
             "default": {"A": "A", "B": "B"}}
 
@@ -1994,6 +2031,47 @@ def compare_view(spots, locs, home, label, callsign, file_date, tiles, show_all,
                            "Wide scatter means the signal was fading or the band was changing, which is why a few reports "
                            "can give a misleading average. In a long-block test the shading shows when each antenna was "
                            "connected.")
+                if sep.get("blocks") and sep.get("t0") is not None:
+                    st.subheader("Relative gain over time")
+                    block_min = sep["block_min"]
+                    t_start = sep["t0"]
+                    t_end = t_start + pd.Timedelta(minutes=block_min * sep["n_blocks_set"])
+                    multiples = [m for m in (2, 4, 6, 8) if m * block_min <= (t_end - t_start).total_seconds() / 60]
+                    c_len, c_min = st.columns(2)
+                    mult = c_len.selectbox("Window length", multiples or [2], index=min(1, max(len(multiples) - 1, 0)),
+                                           format_func=lambda m: (f"{m * block_min / 60:g} hour{'s' if m * block_min != 60 else ''}"
+                                                                  if m * block_min >= 60 else f"{m * block_min} minutes"),
+                                           key=f"rx_win_len_{block_min}",
+                                           help="A window should hold whole A and B blocks so both antennas get equal time. "
+                                                "Two hours (four 30-minute blocks) balances either block order.")
+                    win_min = c_min.slider(f"Minimum reports per {noun} in a window", 1, 20, 3, key="rx_win_min",
+                                           help=f"Each window is averaged on its own, so it holds fewer reports per {noun} than "
+                                                "the whole test. A low number keeps more stations; a higher one is steadier.")
+                    step = pd.Timedelta(minutes=mult * block_min)
+                    windows, cursor = [], t_start
+                    while cursor < t_end:
+                        windows.append((cursor, min(cursor + step, t_end)))
+                        cursor += step
+                    over_time = gain_by_window(spots_a, spots_b, locs, home, windows,
+                                               "linear" if method_label == "Linear power" else "snr", win_min, offset,
+                                               receiver=pick)
+                    if over_time["n"].sum() == 0:
+                        st.caption("No window has enough reports at that minimum. Lower it.")
+                    else:
+                        st.pyplot(gain_over_time_chart(over_time, names, pick), width="stretch")
+                        st.dataframe(pd.DataFrame({
+                            "Window (UTC)": [f"{s:%H:%M}\u2013{e:%H:%M}" for s, e in zip(over_time["start"], over_time["end"])],
+                            f"{noun.capitalize()}s": over_time["n"],
+                            "Average gain B \u2212 A (dB)": over_time["mean"].round(1),
+                            "95% range": [f"{lo:+.1f} to {hi:+.1f}" if not np.isnan(lo) else "" for lo, hi in
+                                          zip(over_time["lo"], over_time["hi"])],
+                            f"{pick} (dB)": over_time["one"].round(1),
+                            f"{pick} reports (A / B)": [f"{a} / {b}" for a, b in over_time["one_n"]]}),
+                            width="stretch", hide_index=True)
+                        st.caption("The bars are the average relative gain over every station that heard both antennas in that "
+                                   "window, with the 95% range across stations; the line is the picked "
+                                   f"{noun}. If the bars and line move up or down during the test, a single average over the "
+                                   "whole test hides it. A band opening, for example Europe late in the day, shows up here.")
         else:
             st.info(f"No {noun} heard both sides, so there is nothing to compare receiver by receiver.")
 

@@ -155,6 +155,45 @@ def station_gains(spots_a, spots_b, locs, home, method="snr", min_spots=1, offse
     return t
 
 
+def mean_interval(values):
+    """(mean, low, high) of a set of numbers, with a 95% range on the mean (NaN when there are fewer than two numbers)."""
+    g = np.asarray(values, dtype=float)
+    g = g[~np.isnan(g)]
+    if not len(g):
+        return math.nan, math.nan, math.nan
+    mean = float(g.mean())
+    if len(g) < 2:
+        return mean, math.nan, math.nan
+    t_value = 1.96 + 2.4 / (len(g) - 1) + 3.0 / (len(g) - 1) ** 2  # Student's t for 95%, close enough without SciPy
+    half = t_value * float(g.std(ddof=1)) / math.sqrt(len(g))
+    return mean, mean - half, mean + half
+
+
+def gain_by_window(spots_a, spots_b, locs, home, windows, method="linear", min_spots=3, offset=0.0, receiver=None):
+    """Relative gain (B minus A) in each time window: the average over every receiver that heard both sides in that window,
+    with a 95% range, and the number of receivers. `windows` is a list of (start, end) times. With `receiver` set, the gain at
+    that one receiver is returned as well. Returns a DataFrame, one row per window."""
+    rows = []
+    for start, end in windows:
+        a = spots_a[(spots_a["time"] >= start) & (spots_a["time"] < end)]
+        b = spots_b[(spots_b["time"] >= start) & (spots_b["time"] < end)]
+        row = {"start": start, "end": end, "n": 0, "mean": math.nan, "lo": math.nan, "hi": math.nan, "one": math.nan,
+               "one_n": (0, 0)}
+        if len(a) and len(b):
+            table = station_gains(a, b, locs, home, method, min_spots, offset)
+            if len(table):
+                row["n"] = len(table)
+                row["mean"], row["lo"], row["hi"] = mean_interval(-table["gap"])
+            if receiver is not None:
+                x, y = a[a["spotter"] == receiver]["snr"].to_numpy(float), b[b["spotter"] == receiver]["snr"].to_numpy(float) + offset
+                row["one_n"] = (len(x), len(y))
+                if len(x) and len(y):
+                    row["one"] = (10 * np.log10(np.mean(10 ** (y / 10))) - 10 * np.log10(np.mean(10 ** (x / 10)))
+                                  if method == "linear" else float(np.median(y) - np.median(x)))
+        rows.append(row)
+    return pd.DataFrame(rows)
+
+
 def power_method(spots_a, spots_b, locs, home, min_spots=1, floor=None, offset=0.0):
     """The same comparison done by averaging POWER instead of dB, for a cross-check against the default.
 
