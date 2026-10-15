@@ -1260,6 +1260,31 @@ def _separate_by_log(spots):
             "default": {"A": "A", "B": "B"}}
 
 
+def _block_start(label, all_stamps, fmt):
+    """The start of a long test, from a transmission picked in the list or a time typed in. Times can be typed as 12:30, 1230,
+    12.30, 12 30, 930 or 1230z, and a date can come first (08 Oct 12:30). Returns a Timestamp, or None if the text isn't a
+    time. A time alone takes the date of the first transmission."""
+    label = (label or "").strip()
+    for t in all_stamps:
+        if fmt(t) == label:
+            return t
+    first = all_stamps[0]
+    text = re.sub(r"\s*(utc|z)$", "", label, flags=re.IGNORECASE).strip()
+    clock = re.fullmatch(r"(\d{1,2})[:.\s]?(\d{2})", text)
+    if clock:
+        hour, minute = int(clock[1]), int(clock[2])
+        if hour < 24 and minute < 60:
+            return pd.Timestamp(first.year, first.month, first.day, hour, minute)
+        return None
+    for pattern in ("%d %b %H:%M", "%d %b %H%M"):
+        try:
+            parsed = datetime.strptime(text, pattern)
+        except ValueError:
+            continue
+        return pd.Timestamp(first.year, parsed.month, parsed.day, parsed.hour, parsed.minute)
+    return None
+
+
 def _blocks_test(spots, all_stamps):
     """A long test: one antenna for a block of time, then the other, repeated. Every transmission inside a block counts
     for that block's antenna. Nothing is paired: each receiver's reports on A and on B are compared as a whole."""
@@ -1279,9 +1304,15 @@ def _blocks_test(spots, all_stamps):
     patterns = {"A, B, A, B \u2026": "ABAB", "A, B, B, A \u2026": "ABBA"}
     order = c4.radio("Block order", list(patterns), key="blk_order", horizontal=True,
                      help="Starting with A. A, B, B, A balances which antenna goes first.")
-    start_label = c3.selectbox("First block starts at (UTC)", [fmt(t) for t in all_stamps], index=0, key=f"blk_start_{sig}",
-                               help="The time you first connected antenna A. The list is every transmission in the data.")
-    t0 = next(t for t in all_stamps if fmt(t) == start_label)
+    start_label = c3.selectbox(
+        "First block starts at (UTC)", [fmt(t) for t in all_stamps], index=0, key=f"blk_start_{sig}", accept_new_options=True,
+        help="The time you first connected antenna A. Pick a transmission from the list, or type any time such as 12:30 or 1230, "
+             "even if nothing was heard at that minute" + (" (a time alone means the first day; add the date as 08 Oct 12:30 "
+                                                           "for another day)." if multi_day else "."))
+    t0 = _block_start(start_label, all_stamps, fmt)
+    if t0 is None:
+        c3.caption(f"⚠ Couldn't read '{start_label}'. Type a time like 12:30; using {fmt(all_stamps[0])} for now.")
+        t0 = all_stamps[0]
     pattern = patterns[order]
     rows = []
     for k in range(n_blocks):
