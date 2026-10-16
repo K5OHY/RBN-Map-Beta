@@ -90,7 +90,7 @@ The **Band conditions** page (in the sidebar menu) tells you which bands are ope
 - A region table (US East, Europe, South America and so on) showing your margin, or the **power you would need** to reach a typical receiver there.
 - The farthest receivers that would hear you, and a map of them.
 
-It is a guide good to a few dB, not a promise: it only counts receivers that heard the nearby WSPR stations (so with more power than they used you would be heard in more places), WSPR receivers are often quiet sites, and the mode thresholds are approximate. There is a box for how your antenna compares with theirs.
+It is a guide good to a few dB, not a promise: it only counts receivers that heard the nearby WSPR stations (so with more power than they used you would be heard in more places), WSPR receivers are often quiet sites, and the mode thresholds are approximate. There is a box for how your antenna compares with theirs. Find yourself by callsign, by grid square (a park, say), or with a **Use my location** button that asks your browser for your position; the area around you can be set in miles or kilometres.
 
 ## Run it locally
 

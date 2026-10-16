@@ -2523,6 +2523,45 @@ def spots_page():
 
 # ------------------------------------------------------------------------------------------- band conditions
 
+_LOCATE_JS = """
+export default function (component) {
+  const { parentElement, setTriggerValue } = component
+  const button = parentElement.querySelector("#locate")
+  const note = parentElement.querySelector("#note")
+  if (!button || !note) return
+  button.onclick = () => {
+    if (!navigator.geolocation) {
+      note.textContent = "This browser can't share a location."
+      setTriggerValue("error", "unsupported")
+      return
+    }
+    note.textContent = "Asking your browser\u2026"
+    navigator.geolocation.getCurrentPosition(
+      (p) => {
+        note.textContent = ""
+        setTriggerValue("position", { lat: p.coords.latitude, lon: p.coords.longitude, accuracy: p.coords.accuracy })
+      },
+      (e) => {
+        note.textContent = e.code === 1 ? "Location was blocked. Allow it for this site, or use a callsign or grid."
+                                        : "Couldn't get a location (" + e.message + ")."
+        setTriggerValue("error", e.code)
+      },
+      { enableHighAccuracy: false, timeout: 20000, maximumAge: 300000 }
+    )
+  }
+}
+"""
+_LOCATE_CSS = """
+#locate { width: 100%; padding: 0.45rem 0.75rem; border-radius: 0.5rem; cursor: pointer; font: inherit;
+          color: var(--st-text-color); background: var(--st-secondary-background-color);
+          border: 1px solid var(--st-border-color); }
+#locate:hover { border-color: var(--st-primary-color); color: var(--st-primary-color); }
+#note { margin-top: 0.35rem; font-size: 0.85rem; color: var(--st-text-color); opacity: 0.75; }
+"""
+_LOCATE = st.components.v2.component(
+    "use_my_location", html='<button id="locate" type="button">\U0001F4CD Use my location</button><div id="note"></div>',
+    css=_LOCATE_CSS, js=_LOCATE_JS)
+
 _STATUS = {"Open": "\U0001F7E2 Open", "Marginal": "\U0001F7E1 Marginal", "Quiet": "\u26AA Quiet"}
 _TREND = {"opening": "\u2197 opening", "fading": "\u2198 fading", "steady": "\u2192 steady", "new": "\u2197 just started"}
 _REGION_NAME = {"Mexico, Caribbean & Central America": "Mexico / Caribbean"}
@@ -2548,16 +2587,33 @@ def conditions_page():
     saved = st.session_state.get("cfg") or load_settings()
     with st.sidebar:
         st.header("Where")
-        callsign = st.text_input("Callsign", value=st.session_state.get("callsign_in", saved.get("callsign", "")),
-                                 key="cond_call").strip().upper()
-        grid = st.text_input("Grid square (optional)", value=saved.get("grid", ""), key="cond_grid",
-                             placeholder="Looked up from your callsign",
-                             help="Enter the grid you are activating from, such as a park, to see conditions there.")
-        radius_choice = st.slider("Area around you (km)", 100, 1500, 500, 50, key="cond_radius",
-                                  help="WSPR stations inside this distance count as being near you. A wider area gives more "
-                                       "data where few stations transmit.")
+        where = st.radio("Find me by", ["Callsign or grid", "My location"], horizontal=True, key="cond_where")
+        callsign, grid = "", ""
+        if where == "Callsign or grid":
+            callsign = st.text_input("Callsign", value=st.session_state.get("callsign_in", saved.get("callsign", "")),
+                                     key="cond_call").strip().upper()
+            grid = st.text_input("Grid square (optional)", value=saved.get("grid", ""), key="cond_grid",
+                                 placeholder="Looked up from your callsign",
+                                 help="Enter the grid you are activating from, such as a park, to see conditions there.")
+        else:
+            fix = _LOCATE(key="cond_locate", on_position_change=lambda: None, on_error_change=lambda: None)
+            if fix.position:
+                st.session_state["cond_geo"] = (float(fix.position["lat"]), float(fix.position["lon"]))
+            geo = st.session_state.get("cond_geo")
+            if geo:
+                st.caption(f"\U0001F4CD {geo[0]:.3f}, {geo[1]:.3f} \u00b7 grid {cond.latlon_to_maidenhead(*geo)}")
+            st.caption("Your browser asks before sharing. The position is used only to find WSPR stations near you and is not "
+                       "saved; only a box around it goes to wspr.live.")
         units = st.radio("Distance units", ["mi", "km"], index=["mi", "km"].index(saved.get("units", "mi")), horizontal=True,
                          key="cond_units")
+        if units == "mi":
+            radius_choice = st.slider("Area around you (miles)", 60, 930, 300, 25, key="cond_radius_mi",
+                                      help="WSPR stations inside this distance count as being near you. A wider area gives "
+                                           "more data where few stations transmit.") * KM_PER_MILE
+        else:
+            radius_choice = float(st.slider("Area around you (km)", 100, 1500, 500, 50, key="cond_radius_km",
+                                            help="WSPR stations inside this distance count as being near you. A wider area "
+                                                 "gives more data where few stations transmit."))
         st.header("Your signal")
         power = st.number_input("Power (watts)", 0.1, 1500.0, 5.0, step=1.0, key="cond_power")
         mode = st.selectbox("Mode", list(cond.MODES), key="cond_mode",
@@ -2573,11 +2629,21 @@ def conditions_page():
                           format_func=lambda m: f"{m} min" if m < 60 else f"{m // 60} h")
         if st.button("Refresh now", width="stretch", key="cond_refresh"):
             _nearby_spots.clear()
+    k = KM_PER_MILE if units == "mi" else 1.0
     try:
-        if not (callsign or grid.strip()):
-            st.info("Enter your callsign or a grid square in the sidebar.")
+        if where == "My location":
+            geo = st.session_state.get("cond_geo")
+            if not geo:
+                st.info("Click **Use my location** in the sidebar and allow your browser to share it. If it can't, switch to "
+                        "**Callsign or grid**.")
+                return
+            lat, lon = geo
+            label = f"your location, grid {cond.latlon_to_maidenhead(lat, lon)}"
+        elif not (callsign or grid.strip()):
+            st.info("Enter your callsign or a grid square in the sidebar, or choose **My location**.")
             return
-        lat, lon, label = resolve_home(callsign, grid, skimmers)
+        else:
+            lat, lon, label = resolve_home(callsign, grid, skimmers)
     except (RuntimeError, ValueError) as exc:
         st.error(str(exc))
         return
@@ -2589,27 +2655,26 @@ def conditions_page():
         with st.spinner("Asking wspr.live which stations near you were heard\u2026"):
             while True:
                 spots, cut = _nearby_spots(lat, lon, float(radius), end.isoformat(), int(window))
-                if spots["tx"].nunique() >= 3 or radius >= 1500:
+                if spots["tx"].nunique() >= 3 or radius >= 1490:
                     break
-                radius, widened = min(1500, radius * 2), True
+                radius, widened = min(1500.0, radius * 2), True
     except WsprError as exc:
         st.error(str(exc))
         return
     st.caption(f"\U0001F4CD {label} \u00b7 spots up to {end:%H:%M} UTC (WSPR reports arrive a few minutes late)")
     if spots.empty:
-        st.warning(f"No WSPR station within {radius:,} km of this spot was heard in the last {window} minutes, so there is "
+        st.warning(f"No WSPR station within {radius / k:,.0f} {units} of this spot was heard in the last {window} minutes, so there is "
                    "nothing to base conditions on. Widen the area, or try again in a few minutes.")
         return
     if widened:
-        st.info(f"Only a few WSPR stations transmit near you, so I widened the area to {radius:,} km to get enough data.")
+        st.info(f"Only a few WSPR stations transmit near you, so I widened the area to {radius / k:,.0f} {units} to get enough data.")
     if cut:
         st.warning("That was more data than the limit, so the oldest spots are missing. Try a shorter look-back.")
     result = cond.analyze(spots, home, power, mode, end, window, antenna_db, margin_db)
     if result["bands"].empty:
         st.warning("No receivers heard the stations near you in that time.")
         return
-    k = KM_PER_MILE if units == "mi" else 1.0
-    st.markdown(f"**{result['n_tx']} WSPR stations** within {radius:,} km, **{result['n_spots']:,} spots** in the last "
+    st.markdown(f"**{result['n_tx']} WSPR stations** within {radius / k:,.0f} {units}, **{result['n_spots']:,} spots** in the last "
                 f"{window} minutes, restated for **{power:g} W {mode}**.")
 
     with st.container(border=True):

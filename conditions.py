@@ -26,6 +26,15 @@ CODE_TO_BAND = {code: band for band, code in BAND_CODES.items()}
 EARTH_KM = 6371.0
 
 
+def latlon_to_maidenhead(lat, lon):
+    """Six-character Maidenhead grid square (like DM81wx) for a latitude and longitude."""
+    lon, lat = (lon + 180.0) % 360.0, min(max(lat + 90.0, 0.0), 179.999999)
+    field = chr(65 + int(lon // 20)) + chr(65 + int(lat // 10))
+    square = str(int(lon % 20 // 2)) + str(int(lat % 10))
+    sub = chr(97 + int(lon % 2 * 12)) + chr(97 + int(lat % 1 * 24))
+    return field + square + sub
+
+
 def _km_between(lat1, lon1, lat2, lon2):
     """Great-circle distance in km (haversine), vectorised over the second point."""
     p1, p2 = math.radians(lat1), np.radians(lat2)
