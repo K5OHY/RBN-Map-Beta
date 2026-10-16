@@ -21,7 +21,7 @@ from session_report import BAND_ORDER, REGION_ORDER, region_of
 from wspr_data import BAND_CODES, HEADERS, MAX_ROWS, WSPR_URL, WsprError
 
 # The SNR (dB, in a 2,500 Hz bandwidth) a mode needs for a solid contact. Approximate: CW and voice depend on the operator.
-MODES = {"CW (by ear)": -5.0, "SSB (voice)": 8.0, "FT8": -21.0, "FT4": -17.0, "JS8 (normal)": -24.0, "WSPR": -28.0}
+MODES = {"CW": -5.0, "SSB": 8.0, "FT8": -21.0, "FT4": -17.0, "JS8": -24.0, "WSPR": -28.0}
 CODE_TO_BAND = {code: band for band, code in BAND_CODES.items()}
 EARTH_KM = 6371.0
 
