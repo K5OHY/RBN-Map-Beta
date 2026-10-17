@@ -2563,7 +2563,7 @@ _LOCATE = st.components.v2.component(
     css=_LOCATE_CSS, js=_LOCATE_JS)
 
 _STATUS = {"Open": "\U0001F7E2 Open", "Marginal": "\U0001F7E1 Marginal", "Quiet": "\u26AA Quiet"}
-_TREND = {"opening": "\u2197 opening", "fading": "\u2198 fading", "steady": "\u2192 steady", "new": "\u2197 just started"}
+_TREND = {"opening": "\u2197 opening", "fading": "\u2198 fading", "steady": "\u2192 steady", "new": "\u2197 just started", "unclear": "– too few to tell"}
 _REGION_NAME = {"Mexico, Caribbean & Central America": "Mexico / Caribbean"}
 
 
@@ -2574,109 +2574,24 @@ def _nearby_spots(lat, lon, radius_km, end_iso, minutes):
     return cond.fetch_nearby(lat, lon, radius_km, end - timedelta(minutes=minutes), end)
 
 
+@st.cache_data(ttl=300, show_spinner=False)
+def _station_spots(call, end_iso, minutes):
+    """Spots from one WSPR transmitter, cached for five minutes."""
+    end = pd.Timestamp(end_iso).to_pydatetime()
+    return cond.fetch_station(call, end - timedelta(minutes=minutes), end)
+
+
 def _color_cells(frame, rule):
     return frame.style.map(lambda v: "" if pd.isna(v) else rule(v))
 
 
-def conditions_page():
-    """Which bands are open and where a signal like yours would be heard, from the WSPR stations near you."""
-    st.title("\U0001F310 Band conditions now")
-    st.markdown('<p class="subtitle">Which bands are open and where you would be heard, worked out from the WSPR stations near '
-                'you in the last hour, restated for your power and mode.</p>', unsafe_allow_html=True)
-    skimmers, _ = skimmer_data()
-    saved = st.session_state.get("cfg") or load_settings()
-    with st.sidebar:
-        st.header("Where")
-        where = st.radio("Find me by", ["Callsign or grid", "My location"], horizontal=True, key="cond_where")
-        callsign, grid = "", ""
-        if where == "Callsign or grid":
-            callsign = st.text_input("Callsign", value=st.session_state.get("callsign_in", saved.get("callsign", "")),
-                                     key="cond_call").strip().upper()
-            grid = st.text_input("Grid square (optional)", value=saved.get("grid", ""), key="cond_grid",
-                                 placeholder="Looked up from your callsign",
-                                 help="Enter the grid you are activating from, such as a park, to see conditions there.")
-        else:
-            fix = _LOCATE(key="cond_locate", on_position_change=lambda: None, on_error_change=lambda: None)
-            if fix.position:
-                st.session_state["cond_geo"] = (float(fix.position["lat"]), float(fix.position["lon"]))
-            geo = st.session_state.get("cond_geo")
-            if geo:
-                st.caption(f"\U0001F4CD {geo[0]:.3f}, {geo[1]:.3f} \u00b7 grid {cond.latlon_to_maidenhead(*geo)}")
-            st.caption("Your browser asks before sharing. The position is used only to find WSPR stations near you and is not "
-                       "saved; only a box around it goes to wspr.live.")
-        units = st.radio("Distance units", ["mi", "km"], index=["mi", "km"].index(saved.get("units", "mi")), horizontal=True,
-                         key="cond_units")
-        if units == "mi":
-            radius_choice = st.slider("Area around you (miles)", 60, 930, 300, 25, key="cond_radius_mi",
-                                      help="WSPR stations inside this distance count as being near you. A wider area gives "
-                                           "more data where few stations transmit.") * KM_PER_MILE
-        else:
-            radius_choice = float(st.slider("Area around you (km)", 100, 1500, 500, 50, key="cond_radius_km",
-                                            help="WSPR stations inside this distance count as being near you. A wider area "
-                                                 "gives more data where few stations transmit."))
-        st.header("Your signal")
-        power = st.number_input("Power (watts)", 0.1, 1500.0, 5.0, step=1.0, key="cond_power")
-        mode = st.selectbox("Mode", list(cond.MODES), key="cond_mode",
-                            help="Each mode needs a minimum signal-to-noise ratio. These are approximate, in a 2,500 Hz "
-                                 + "bandwidth: " + ", ".join(f"{m} {v:+g} dB" for m, v in cond.MODES.items()) + ".")
-        antenna_db = st.number_input("Your antenna compared with theirs (dB)", -20.0, 20.0, 0.0, step=1.0, key="cond_antenna",
-                                     help="0 assumes your antenna is about as good as the WSPR stations'. Use a negative "
-                                          "number for a weaker antenna (a compromise portable antenna, say). A relative-gain "
-                                          "test on the My spots page can tell you the number.")
-        margin_db = st.slider("Safety margin (dB)", 0, 10, 3, key="cond_margin",
-                              help="Signals fade, so a path counts as good only when it beats the mode's threshold by this much.")
-        window = st.radio("Look back", [30, 60, 120], index=1, horizontal=True, key="cond_window",
-                          format_func=lambda m: f"{m} min" if m < 60 else f"{m // 60} h")
-        if st.button("Refresh now", width="stretch", key="cond_refresh"):
-            _nearby_spots.clear()
-    k = KM_PER_MILE if units == "mi" else 1.0
-    try:
-        if where == "My location":
-            geo = st.session_state.get("cond_geo")
-            if not geo:
-                st.info("Click **Use my location** in the sidebar and allow your browser to share it. If it can't, switch to "
-                        "**Callsign or grid**.")
-                return
-            lat, lon = geo
-            label = f"your location, grid {cond.latlon_to_maidenhead(lat, lon)}"
-        elif not (callsign or grid.strip()):
-            st.info("Enter your callsign or a grid square in the sidebar, or choose **My location**.")
-            return
-        else:
-            lat, lon, label = resolve_home(callsign, grid, skimmers)
-    except (RuntimeError, ValueError) as exc:
-        st.error(str(exc))
-        return
-    home = (lat, lon)
-    now = datetime.now(timezone.utc).replace(tzinfo=None, second=0, microsecond=0)
-    end = now.replace(minute=now.minute - now.minute % 5)  # steady for five minutes so the cache can work
-    radius, widened = radius_choice, False
-    try:
-        with st.spinner("Asking wspr.live which stations near you were heard\u2026"):
-            while True:
-                spots, cut = _nearby_spots(lat, lon, float(radius), end.isoformat(), int(window))
-                if spots["tx"].nunique() >= 3 or radius >= 1490:
-                    break
-                radius, widened = min(1500.0, radius * 2), True
-    except WsprError as exc:
-        st.error(str(exc))
-        return
-    st.caption(f"\U0001F4CD {label} \u00b7 spots up to {end:%H:%M} UTC (WSPR reports arrive a few minutes late)")
-    if spots.empty:
-        st.warning(f"No WSPR station within {radius / k:,.0f} {units} of this spot was heard in the last {window} minutes, so there is "
-                   "nothing to base conditions on. Widen the area, or try again in a few minutes.")
-        return
-    if widened:
-        st.info(f"Only a few WSPR stations transmit near you, so I widened the area to {radius / k:,.0f} {units} to get enough data.")
-    if cut:
-        st.warning("That was more data than the limit, so the oldest spots are missing. Try a shorter look-back.")
-    result = cond.analyze(spots, home, power, mode, end, window, antenna_db, margin_db)
-    if result["bands"].empty:
-        st.warning("No receivers heard the stations near you in that time.")
-        return
-    st.markdown(f"**{result['n_tx']} WSPR stations** within {radius / k:,.0f} {units}, **{result['n_spots']:,} spots** in the last "
-                f"{window} minutes, restated for **{power:g} W {mode}**.")
-
+def _conditions_body(result, power, mode, margin_db, units, k, lat, lon, who):
+    """Everything under the headline numbers: the at-a-glance box, the band table, the regions, the farthest receivers and the map."""
+    dx_receivers = result["receivers"][result["receivers"]["region"].isin(cond.DX_REGIONS)]["rx"].nunique()
+    if dx_receivers < 5:
+        st.warning(f"Only {dx_receivers} receiver{'s' if dx_receivers != 1 else ''} outside the US and Canada heard these WSPR "
+                   "signals, so the DX figures rest on very little data. A wider area (up to about 900 miles) or a longer look-back "
+                   "can add some.")
     with st.container(border=True):
         st.markdown("**At a glance**")
         for line in cond.headline(result, power, mode, margin_db, units):
@@ -2697,8 +2612,26 @@ def conditions_page():
                "of the look-back with the first.")
 
     st.subheader("Where you would be heard")
-    view = st.radio("Show", ["Margin at your power", "Power you would need"], horizontal=True, key="cond_view")
-    if view == "Margin at your power":
+    view = st.radio("Show", ["Chance a receiver hears you", "Margin at your power", "Power you would need"], horizontal=True,
+                    key="cond_view")
+    if view == "Chance a receiver hears you":
+        odds = result["chance"].rename(columns=_REGION_NAME)
+        counts = result["regions_n"].rename(columns=_REGION_NAME)
+        thin = counts < cond.THIN
+        text = pd.DataFrame({col: [("" if pd.isna(p) else f"~{p:.0%} ({int(n)})" if n < cond.THIN else f"{p:.0%} ({int(n)})")
+                                   for p, n in zip(odds[col], counts[col])] for col in odds.columns}, index=odds.index)
+        colour = odds.copy().astype(object)
+        for col in odds.columns:  # a region with only one or two receivers is a hint, so it is greyed, not green or red
+            colour[col] = ["" if pd.isna(p) else "background-color:rgba(138,143,152,.25)" if t
+                           else "background-color:rgba(46,160,67,.35)" if p >= 0.7
+                           else "background-color:rgba(210,153,34,.35)" if p >= 0.4 else "background-color:rgba(248,81,73,.28)"
+                           for p, t in zip(odds[col], thin[col])]
+        st.dataframe(text.style.apply(lambda _: colour, axis=None), width="stretch")
+        st.caption("The share of receivers in each region that would hear you, allowing for the usual error in a prediction "
+                   f"(about {cond.SIGMA_DB:g} dB), with the number of receivers behind it in brackets. Green is 70% or more, "
+                   f"yellow 40 to 70%, red below. A grey figure with a ~ rests on only 1 or 2 receivers: in a week of checks, regions "
+                   "like that were really spotted only about 4 times in 10, so it is a hint, not a result.")
+    elif view == "Margin at your power":
         table = result["regions"].rename(columns=_REGION_NAME).round(0)
         shown = _color_cells(table, lambda v: ("background-color:rgba(46,160,67,.35)" if v >= margin_db
                                                else "background-color:rgba(210,153,34,.35)" if v >= 0
@@ -2739,7 +2672,7 @@ def conditions_page():
         view_choice = st.radio("How much of the world", list(views), index=2, horizontal=True, key=f"cond_map_view_{units}")
         view_km = views[view_choice]
         map_col, key_col = st.columns([3, 1])
-        map_col.pyplot(azimuth_map_figure(lat, lon, points, {"A": "", "B": ""}, callsign or "You", units, view_km, "dots", True,
+        map_col.pyplot(azimuth_map_figure(lat, lon, points, {"A": "", "B": ""}, who, units, view_km, "dots", True,
                                           (0, 20)), width="stretch")
         beyond = int((points["km"] > view_km).sum())
         if beyond:
@@ -2753,7 +2686,9 @@ def conditions_page():
             "Every WSPR report says: this station, at this power, was heard at this SNR. SNR moves dB for dB with power, so the "
             "report can be restated for your power: run 10 dB more and you would be 10 dB stronger there. Each mode needs a "
             "minimum SNR, and the gap between the two is the margin.\n\n"
-            "- **It is a guide, good to a few dB.** Fading alone moves a report by about 3 dB.\n"
+            f"- **It is a guide, good to about {cond.SIGMA_DB:g} dB.** Checked against RBN readings from two stations' activations, "
+            "predictions were off by about 6 dB within 1,000 miles and about 9 dB at 1,000 to 2,000 miles. I had no DX paths in "
+            "that check, so DX is the least tested part. The chance figures allow for that error.\n"
             "- **It only counts receivers that heard the nearby WSPR stations.** With more power than they used, you would be "
             "heard in more places than shown.\n"
             "- **WSPR receivers are often quiet sites.** A station you hope to work may have more noise, so keep a margin.\n"
@@ -2761,6 +2696,144 @@ def conditions_page():
             "- **It assumes your antenna matches theirs** unless you enter a difference.\n"
             "- **Reports lag by a few minutes**, so this shows the last half hour or so, not this second.")
 
+
+
+def conditions_page():
+    """Which bands are open and where a signal like yours would be heard, from the WSPR stations near you."""
+    st.title("\U0001F310 Band conditions now")
+    st.markdown('<p class="subtitle">Which bands are open and where you would be heard, worked out from the WSPR stations near '
+                'you in the last hour, restated for your power and mode.</p>', unsafe_allow_html=True)
+    skimmers, _ = skimmer_data()
+    saved = st.session_state.get("cfg") or load_settings()
+    with st.sidebar:
+        st.header("Where")
+        where = st.radio("Find me by", ["Callsign or grid", "My location"], horizontal=True, key="cond_where")
+        callsign, grid = "", ""
+        if where == "Callsign or grid":
+            callsign = st.text_input("Callsign", value=st.session_state.get("callsign_in", saved.get("callsign", "")),
+                                     key="cond_call").strip().upper()
+            grid = st.text_input("Grid square (optional)", value=saved.get("grid", ""), key="cond_grid",
+                                 placeholder="Looked up from your callsign",
+                                 help="Enter the grid you are activating from, such as a park, to see conditions there.")
+        else:
+            fix = _LOCATE(key="cond_locate", on_position_change=lambda: None, on_error_change=lambda: None)
+            if fix.position:
+                st.session_state["cond_geo"] = (float(fix.position["lat"]), float(fix.position["lon"]))
+            geo = st.session_state.get("cond_geo")
+            if geo:
+                st.caption(f"\U0001F4CD {geo[0]:.3f}, {geo[1]:.3f} \u00b7 grid {cond.latlon_to_maidenhead(*geo)}")
+            st.caption("Your browser asks before sharing. The position is used only to find WSPR stations near you and is not "
+                       "saved; only a box around it goes to wspr.live.")
+        source = st.radio("Learn from", ["Stations near me", "One transmitter"], horizontal=True, key="cond_source",
+                          help="Stations near me uses every WSPR transmitter inside the area below. One transmitter uses just "
+                               "your own WSPR transmitter, or a friend's, and treats it as you: its spots, at its own power, "
+                               "show where a station at that spot is being heard. It is the closest match to your own antenna.")
+        ref_call = ""
+        if source == "One transmitter":
+            ref_call = st.text_input("Transmitter callsign", value=st.session_state.get("callsign_in", saved.get("callsign", "")),
+                                     key="cond_ref_call", help="The callsign it sends in WSPR.").strip().upper()
+        units = st.radio("Distance units", ["mi", "km"], index=["mi", "km"].index(saved.get("units", "mi")), horizontal=True,
+                         key="cond_units")
+        if source == "One transmitter":
+            radius_choice = 500.0  # not used: the transmitter's own spots are the data
+        elif units == "mi":
+            radius_choice = st.slider("Area around you (miles)", 60, 930, 300, 25, key="cond_radius_mi",
+                                      help="WSPR stations inside this distance count as being near you. A wider area gives "
+                                           "more data where few stations transmit.") * KM_PER_MILE
+        else:
+            radius_choice = float(st.slider("Area around you (km)", 100, 1500, 500, 50, key="cond_radius_km",
+                                            help="WSPR stations inside this distance count as being near you. A wider area "
+                                                 "gives more data where few stations transmit."))
+        st.header("Your signal")
+        power = st.number_input("Power (watts)", 0.1, 1500.0, 5.0, step=1.0, key="cond_power")
+        mode = st.selectbox("Mode", list(cond.MODES), key="cond_mode",
+                            help="Each mode needs a minimum signal-to-noise ratio. These are approximate, in a 2,500 Hz "
+                                 + "bandwidth: " + ", ".join(f"{m} {v:+g} dB" for m, v in cond.MODES.items()) + ".")
+        antenna_db = st.number_input("Your antenna compared with theirs (dB)", -20.0, 20.0, 0.0, step=1.0, key="cond_antenna",
+                                     help="0 assumes your antenna is about as good as the WSPR stations'. Use a negative "
+                                          "number for a weaker antenna (a compromise portable antenna, say). A relative-gain "
+                                          "test on the My spots page can tell you the number.")
+        margin_db = st.slider("Safety margin (dB)", 0, 10, 3, key="cond_margin",
+                              help="Signals fade, so a path counts as good only when it beats the mode's threshold by this much.")
+        window = st.radio("Look back", [30, 60, 120], index=1, horizontal=True, key="cond_window",
+                          format_func=lambda m: f"{m} min" if m < 60 else f"{m // 60} h")
+        if st.button("Refresh now", width="stretch", key="cond_refresh"):
+            _nearby_spots.clear()
+    k = KM_PER_MILE if units == "mi" else 1.0
+    now = datetime.now(timezone.utc).replace(tzinfo=None, second=0, microsecond=0)
+    end = now.replace(minute=now.minute - now.minute % 5)  # steady for five minutes so the cache can work
+    if source == "One transmitter":
+        try:
+            if not ref_call:
+                st.info("Enter the transmitter's callsign in the sidebar.")
+                return
+            with st.spinner(f"Asking wspr.live where {ref_call} was heard\u2026"):
+                spots, cut = _station_spots(ref_call, end.isoformat(), int(window))
+        except WsprError as exc:
+            st.error(str(exc))
+            return
+        if spots.empty:
+            st.warning(f"{ref_call} had no WSPR spots in the last {window} minutes. Check the callsign, or look back further.")
+            return
+        lat, lon = float(spots["tx_lat"].median()), float(spots["tx_lon"].median())
+        home, label, radius, widened = (lat, lon), f"{ref_call}, grid {cond.latlon_to_maidenhead(lat, lon)}", 0.0, False
+        st.caption(f"\U0001F4CD {label} \u00b7 spots up to {end:%H:%M} UTC (WSPR reports arrive a few minutes late)")
+        if cut:
+            st.warning("That was more data than the limit, so the oldest spots are missing. Try a shorter look-back.")
+        result = cond.analyze(spots, home, power, mode, end, window, antenna_db, margin_db)
+        if result["bands"].empty:
+            st.warning("No receivers heard that transmitter in that time.")
+            return
+        st.markdown(f"**{ref_call}'s WSPR spots**, **{result['n_spots']:,}** in the last {window} minutes, restated for "
+                    f"**{power:g} W {mode}**. Its own antenna and location stand in for yours.")
+        _conditions_body(result, power, mode, margin_db, units, k, lat, lon, ref_call)
+        return
+    try:
+        if where == "My location":
+            geo = st.session_state.get("cond_geo")
+            if not geo:
+                st.info("Click **Use my location** in the sidebar and allow your browser to share it. If it can't, switch to "
+                        "**Callsign or grid**.")
+                return
+            lat, lon = geo
+            label = f"your location, grid {cond.latlon_to_maidenhead(lat, lon)}"
+        elif not (callsign or grid.strip()):
+            st.info("Enter your callsign or a grid square in the sidebar, or choose **My location**.")
+            return
+        else:
+            lat, lon, label = resolve_home(callsign, grid, skimmers)
+    except (RuntimeError, ValueError) as exc:
+        st.error(str(exc))
+        return
+    home = (lat, lon)
+    radius, widened = radius_choice, False
+    try:
+        with st.spinner("Asking wspr.live which stations near you were heard\u2026"):
+            while True:
+                spots, cut = _nearby_spots(lat, lon, float(radius), end.isoformat(), int(window))
+                if spots["tx"].nunique() >= 3 or radius >= 1490:
+                    break
+                radius, widened = min(1500.0, radius * 2), True
+    except WsprError as exc:
+        st.error(str(exc))
+        return
+    st.caption(f"\U0001F4CD {label} \u00b7 spots up to {end:%H:%M} UTC (WSPR reports arrive a few minutes late)")
+    if spots.empty:
+        st.warning(f"No WSPR station within {radius / k:,.0f} {units} of this spot was heard in the last {window} minutes, so there is "
+                   "nothing to base conditions on. Widen the area, or try again in a few minutes.")
+        return
+    if widened:
+        st.info(f"Only a few WSPR stations transmit near you, so I widened the area to {radius / k:,.0f} {units} to get enough data.")
+    if cut:
+        st.warning("That was more data than the limit, so the oldest spots are missing. Try a shorter look-back.")
+    result = cond.analyze(spots, home, power, mode, end, window, antenna_db, margin_db)
+    if result["bands"].empty:
+        st.warning("No receivers heard the stations near you in that time.")
+        return
+    st.markdown(f"**{result['n_tx']} WSPR stations** within {radius / k:,.0f} {units}, **{result['n_spots']:,} spots** in the last "
+                f"{window} minutes, restated for **{power:g} W {mode}**.")
+
+    _conditions_body(result, power, mode, margin_db, units, k, lat, lon, callsign or "You")
 
 def main():
     st.set_page_config(layout="wide", page_title="RBN Signal Mapper", page_icon="\U0001F4E1")
