@@ -20,25 +20,13 @@ See who heard you, how strong, and from where. Map the [Reverse Beacon Network](
 
 ![Where each antenna reached](images/direction-map.jpg)
 
-**Which side is stronger, by direction.** How much stronger one antenna was toward each compass direction, with the numbers beside it.
-
-![Stronger by direction](images/direction-rose.jpg)
-
 **Receiver by receiver.** Every station that heard both antennas, A's signal against B's, with a sortable table and the relative gain by direction and by distance.
 
 ![Receiver by receiver](images/receiver-by-receiver.jpg)
 
-**One receiver over time.** Every report from one station on both antennas, so fading and changes in the band show up instead of being averaged away.
-
-![One receiver over time](images/receiver-over-time.jpg)
-
 **Band conditions.** Which bands are open now, worked out from the WSPR stations near you in the last hour.
 
 ![Band conditions](images/band-conditions.jpg)
-
-**Where you would be heard.** The chance that a receiver in each region hears you at your power and mode, with how many receivers each figure rests on.
-
-![Chance a receiver hears you, by region](images/band-conditions-regions.jpg)
 
 ## Quick start
 
