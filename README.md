@@ -42,7 +42,7 @@ Your location comes from the grid you typed, else the RBN skimmer list, else the
 
 Tick **Compare two antennas or tests**. Name your antennas under *Name your antennas* if you like.
 
-### With WSPR (best for antennas)
+### With WSPR (the best way to test antennas)
 
 A WSPR transmission lasts about 110 seconds of each 2-minute slot, so there is a short break between transmissions. Flip the antenna switch in that break.
 
@@ -73,13 +73,52 @@ Send plenty of CQs on each side, at the same power and speed (or enter the power
 
 Differences are always shown as who is ahead and by how much (for example *B +2.0 dB*), never as a negative number.
 
+### How the comparison works
+
+The idea is simple: ask the same receivers about both antennas, so everything that is not the antenna cancels out. A receiver in Germany has its own noise level and its own path to you, but it has them for both A and B. Subtract its report for A from its report for B and what is left is the difference between the antennas at that receiver. That is the **relative gain** (B minus A, in dB, so A is the reference and B the test). Do it for every receiver that heard both and average the results, and you have one number for how much better or worse B is than A, with a 95% range showing how sure that number is. WSPR reports move dB for dB with your power, so a difference in transmit power is simply added or subtracted first.
+
+Only receivers that heard both antennas count, only receivers that were listening during both antennas' transmissions, and receivers at the same place are counted once, because they see the same sky and are not independent witnesses. The method comes from the work of [Dale, N3HXZ](https://www.n3hxz.net/), who compares antennas this way with WSPR.
+
+The one real choice is how to combine a receiver's several reports on the same antenna. There are two ways:
+
+- **dB, the default for quick tests.** Switch after every transmission. Each A transmission is paired with the B transmission next to it, a minute or two apart, and the dB difference is taken for each pair. A receiver's answer is the middle value of its differences. Because A and B are measured minutes apart, slow changes in the band mostly cancel, and a receiver that heard only a few pairs still counts. This is the right choice for a quick test of 8 to 16 transmissions.
+- **Linear power, for long tests.** Run each antenna for a block of 30 minutes to an hour, alternating over several hours. Each report is turned from dB into power (10 to the power of dB divided by 10), all of a receiver's reports on A are averaged as power, the same for B, and the ratio of the two averages is turned back into dB. This is the true average of the signal the receiver actually got, and it does not depend on any two particular transmissions matching. It needs many reports per receiver: this app aims for 20 or more on each antenna, and the published method keeps receivers with 40 or more. Over a long test the fading averages out and the band changes (an opening, a fade) are spread evenly across both antennas because they alternate.
+
+Why they can disagree: averaging in dB treats every report as equal (and the app uses the middle value of the dB reports), while averaging power lets the strong reports count for more. For example, reports of 0, 0, 0 and 20 dB have a middle value of 0 dB and a plain dB average of 5 dB, but as power they average to about 14 dB, because the one 20 dB report carries 100 times the power of each of the others. With a handful of reports that can swing the answer; with 20 or 40 reports per receiver it settles. Power averaging is also thrown off by reports sitting at WSPR's decoding floor (about -28 dB), which are the weakest signals that decode, so the app lets you drop them.
+
+On the **Linear average** tab, and in the table on **Receiver by receiver**, you can see both answers side by side and change the minimum number of reports a receiver needs. If the two agree within 1 dB, you can be confident. If they don't, trust the dB answer for a short test and the power answer for a long one, and collect more data before believing a small difference.
+
+#### The math
+
+For one receiver, call its reports on antenna A $a_1 \dots a_m$ and on antenna B $b_1 \dots b_n$, all SNRs in dB. If B was sent at a different power, its reports are first shifted by that many dB so the antennas are compared at equal power. The receiver's **relative gain** $G$ is B minus A:
+
+**dB method (quick tests).** Each B transmission is paired with the A transmission next to it, round $k$, and the receiver's answer is the middle value of those pair differences:
+
+$$G = \operatorname{median}_k \left( b_k - a_k \right)$$
+
+When blocks are long and there are no pairs, the same idea is used on the whole set: $G = \operatorname{median}(b) - \operatorname{median}(a)$.
+
+**Linear power method (long tests).** Each report is turned into power, a power average is taken for each antenna, and the ratio is turned back into dB:
+
+$$G = 10 \log_{10} \frac{\frac{1}{n} \sum_{j=1}^{n} 10^{\,b_j/10}}{\frac{1}{m} \sum_{i=1}^{m} 10^{\,a_i/10}}$$
+
+Because WSPR reports move dB for dB with transmit power, $G$ is the gain of B over A in dB however strong or weak that receiver is.
+
+**Combining receivers.** Receivers at the same place are merged into one, leaving $N$ independent sites with gains $G_1 \dots G_N$. The headline number is their mean, with a 95% range from the Student t distribution:
+
+$$\bar{G} = \frac{1}{N} \sum_{r=1}^{N} G_r \qquad \bar{G} \pm t_{0.975,\,N-1} \, \frac{s}{\sqrt{N}}$$
+
+where $s$ is the standard deviation of the $G_r$. A side is called ahead only when the whole range is on one side of zero and $|\bar{G}|$ is at least 1 dB; a smaller gap is called equal.
+
+**Worked example.** One receiver hears antenna A at 0, 0, 0 and 20 dB, and antenna B at 5, 5, 5 and 5 dB. In dB, the middle values are 0 and 5, so $G = +5$ dB. In power, A averages $(1 + 1 + 1 + 100)/4 = 25.75$ and B is $10^{0.5} = 3.16$, so $G = 10\log_{10}(3.16/25.75) = -9.1$ dB. The two methods disagree because A's one loud report dominates the power average, which is why the linear method needs many reports per receiver, and why the app shows both.
+
 ### How the verdict is decided
 
 - **Strength.** Only stations that heard both sides count, so each station is its own control. Each station's difference is averaged, with a 95% range. A side wins if the whole range favours it and the gap is at least 1 dB; a smaller gap is *equal*.
 - **Reach.** How many different stations heard each side. For WSPR it is judged one pair of transmissions at a time, because fading on your end moves every receiver together. Fewer than 6 pairs can't be called.
 - **Too close to call** means the data can't separate them; it is not the same as equal. If one side leads, the verdict gives the chance it really is ahead (for example about 88%), and for RBN how much more data would settle it.
 - **Direction and distance** are only called when at least 4 stations heard both sides there, the gap is at least 2 dB, and a stricter 99% range agrees.
-- **Two ways of averaging.** The default takes the dB difference at each receiver, a power ratio, and finds the typical difference. That works for short tests because A and B are measured minutes apart, but it adds up dB, and it depends on conditions being similar in neighbouring transmissions. The **Linear average** tab averages power instead: every report is turned from dB into power, each antenna's reports are averaged, and the ratio is turned back into dB. That is a true power average and doesn't rely on two particular transmissions matching, but it needs many reports per receiver (20 to 40, so hours of data), it is swung by a few strong reports (0, 0, 0 and 20 dB average to 14 dB, not 5), and it is thrown off by reports at WSPR's -28 dB decoding floor. For a short switched test, trust the default; for a long, time-averaged run, the power average; and if the two agree within 1 dB you can be more confident.
+- **Two ways of averaging.** The dB average and the linear (power) average are explained under *How the comparison works*, above. The **Linear average** tab shows both so you can check that they agree.
 - **Fairness.** For WSPR only receivers that were listening during both sides' transmissions count, and cycles heard by 2 or fewer receivers are ignored when normal cycles are heard by many more (usually one receiver with a wrong clock). A cycle with no partner on the other antenna is left out. Power differences are corrected (WSPR carries the power). Skimmers at the same place are counted once. If A and B were sent more than about 10 minutes apart, the verdict warns that the time of day could explain the difference.
 
 ## Band conditions now
@@ -128,6 +167,10 @@ Next time, just run the last command again. Open http://localhost:8501 if the br
 
 The skimmer list refreshes itself every 24 hours. To force it: `.venv\Scripts\python rbn_to_csv.py` (macOS/Linux: `.venv/bin/python rbn_to_csv.py`).
 
+## Help inside the app
+
+The **Help and README** page in the app shows this README, so the instructions are always at hand. The sidebar has a link to the README and code on GitHub.
+
 ## Troubleshooting
 
 | What you see | What to do |
@@ -164,7 +207,7 @@ The skimmer list refreshes itself every 24 hours. To force it: `.venv\Scripts\py
 
 ## Data sources and thanks
 
-Thanks to **Dale, N3HXZ** for the relative-gain method behind the Linear average and Relative gain views, and for his testing and feedback.
+Thanks to **Dale, N3HXZ** ([n3hxz.net](https://www.n3hxz.net/)) for the relative-gain method behind the Linear average and Relative gain views, and for his testing and feedback.
 
 [Natural Earth](https://www.naturalearthdata.com/) (public domain world outlines for the map), [Reverse Beacon Network](https://www.reversebeacon.net/), [wspr.live](https://wspr.live/) and [WSPRnet](https://wsprnet.org/), [callook.info](https://callook.info), [HamDB](https://hamdb.org), [country-files.com](https://www.country-files.com), Esri and OpenStreetMap map tiles. Built with [Streamlit](https://streamlit.io/), [Folium](https://python-visualization.github.io/folium/), [pandas](https://pandas.pydata.org/), [Matplotlib](https://matplotlib.org/) and [GeographicLib](https://geographiclib.sourceforge.io/).
 

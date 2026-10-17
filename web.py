@@ -2982,12 +2982,38 @@ def conditions_page():
 
     _conditions_body(result, power, mode, margin_db, units, k, lat, lon, callsign or "You")
 
+GITHUB_URL = "https://github.com/K5OHY/RBN_Map"
+
+
+def help_page():
+    """The README, shown in the app, with the links to the code and to Dale's site."""
+    st.title("Help and README")
+    st.markdown(f"This is the project's README, the same one that is on [GitHub]({GITHUB_URL}#readme), where the code lives "
+                "and where you can report a problem or suggest something. The relative gain, linear averaging and long "
+                "alternating blocks follow the method [Dale, N3HXZ](https://www.n3hxz.net/) publishes on his site.")
+    path = Path(__file__).parent / "README.md"
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError:
+        st.warning(f"The README file isn't here. It is on [GitHub]({GITHUB_URL}#readme).")
+        return
+    body = [line for line in text.splitlines()
+            if not line.startswith(("# ", "![")) and "online, nothing to install" not in line]
+    st.markdown("\n".join(body))
+    shot = Path(__file__).parent / "images" / "Screenshot.png"
+    if shot.exists():
+        st.image(str(shot), caption="The My spots page")
+
+
 def main():
     st.set_page_config(layout="wide", page_title="RBN Signal Mapper", page_icon="\U0001F4E1")
     st.markdown(CSS, unsafe_allow_html=True)
     pages = [st.Page(spots_page, title="My spots", icon="\U0001F4E1", url_path="spots", default=True),
-             st.Page(conditions_page, title="Band conditions", icon="\U0001F310", url_path="conditions")]
+             st.Page(conditions_page, title="Band conditions", icon="\U0001F310", url_path="conditions"),
+             st.Page(help_page, title="Help and README", icon="\u2753", url_path="help")]
     st.navigation(pages).run()
+    st.sidebar.divider()
+    st.sidebar.caption(f"[README and code on GitHub]({GITHUB_URL}#readme) \u00b7 method by [Dale, N3HXZ](https://www.n3hxz.net/)")
 
 
 if __name__ == "__main__":
