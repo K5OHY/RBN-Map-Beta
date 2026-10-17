@@ -1059,8 +1059,9 @@ def compare_report_pdf(ctx):
                     rows[:40], [0.28, 0.2, 0.13, 0.13, 0.13, 0.13])]
     if ctx["method"]:
         blocks += [("heading", "Linear average"), ("paragraph", ctx["method"]),
-                   ("note", "The default compares the same receiver in neighbouring transmissions, so it suits a short test. "
-                            "The power average suits long, time-averaged runs and needs many reports per receiver.")]
+                   ("note", "The default compares the same receiver in neighbouring transmissions, so it suits a short alternating test. "
+                            "The power average is a second measure for longer, well-balanced runs and needs many reports "
+                            "per receiver. If they disagree a lot, find out why before drawing a conclusion.")]
     if ctx["timeline"] is not None:
         blocks += [("heading", "Timeline"), ("figure", timeline_chart(*ctx["timeline"], names), 3.0)]
     meta = {"title": "Antenna comparison report", "callsign": ctx["callsign"], "subtitle": sub}
@@ -1665,7 +1666,7 @@ def _linear_average_view(spots_a, spots_b, an, names, noun, locs, home, kind, ca
     st.markdown(
         "Reports use dB, a logarithmic scale. The **SNR average** (the standard comparison) measures the **typical SNR difference "
         "at each receiver**. The **linear average** converts SNR to power ratios, averages them for each antenna, then converts back "
-        "to dB and subtracts. Linear power is the proper way to average signal strength over time, and it gives stronger "
+        "to dB and subtracts. Linear power averages signal power over time, and it gives stronger "
         "signals more weight, so it needs many reports per receiver. The SNR average is the typical dB difference, and one "
         "strong report can't dominate it, so it holds up better with few reports. Both compare **relative signal strength "
         "at the same receivers**, not absolute antenna gain.")

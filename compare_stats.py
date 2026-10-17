@@ -713,16 +713,17 @@ def build_verdict(an, names, exposure=None, rounds=None, receiver_word="receiver
                     + dir_note)
     elif rc in ("A", "B"):
         winner, level = rc, "success"
-        why = {"equal": "strength at shared receivers is about equal",
+        why = {"equal": "there is no meaningful strength difference at shared receivers",
                "inconclusive": "strength at shared receivers is too variable to call",
                "insufficient": f"too few {receiver_word}s heard both to compare strength"}[sc]
         headline = f"**{names[rc]} reached more {receiver_word}s;** {why}.{dir_note}"
     elif sc == "equal" and dir_note:
-        headline = (f"**About equal overall** (strength within ±{EQUAL_DB:g} dB; "
+        headline = (f"**No meaningful difference overall** (the strength gap is under {EQUAL_DB:g} dB; "
                     f"{reach_lean or 'same reach'}).{dir_note}")
     elif sc == "equal":
-        headline = (f"**Equal on strength.** Signal strength is the same within ±{EQUAL_DB:g} dB; {reach_lean}." if reach_lean
-                    else f"**These two are equal.** Same reach, and signal strength is the same within ±{EQUAL_DB:g} dB.")
+        headline = (f"**No meaningful difference in strength.** The average gap is under {EQUAL_DB:g} dB; {reach_lean}."
+                    if reach_lean else f"**No meaningful difference.** Same reach, and the average signal-strength gap is under "
+                    f"{EQUAL_DB:g} dB.")
     elif sc == "insufficient":
         headline = (f"**Too close to call.** Only {s['n']} {receiver_word}(s) heard both; need at least "
                     f"{MIN_SHARED} to compare strength, and {reach_lean or 'reach is about the same'}.{dir_note}")
@@ -761,8 +762,8 @@ def build_verdict(an, names, exposure=None, rounds=None, receiver_word="receiver
                else f"within normal variation (p = {r['p']:.2g})" if r["only_a"] + r["only_b"] >= MIN_DISCORDANT
                else "too few one-sided receivers to say")
     if rc == "tie" and r_lead and not math.isnan(r_chance) and r_chance >= REACH_LEAN_MIN:
-        sig += (f". {names[r_lead]} leads, but if the two really reached equally, a split this lopsided would still happen "
-                f"about {1 - r_chance:.0%} of the time: suggestive, not enough to call it")
+        sig += (f". {names[r_lead]} leads, but if the two really reached equally, a split this lopsided in that direction "
+                f"would still happen about {1 - r_chance:.0%} of the time: suggestive, not enough to call it")
     points.append(("\U0001F4E1", f"**Reach:** {recv(r['a'])} heard A and {recv(r['b'])} heard B "
                    f"({r['only_a']} only A, {r['only_b']} only B, {r['both']} both) — {sig}."))
 
@@ -775,7 +776,7 @@ def build_verdict(an, names, exposure=None, rounds=None, receiver_word="receiver
         elif sc == "equal":
             lean = f" {names[s['lean']]} is very slightly ahead, too little to matter." if s["lean"] else ""
             inside = s["lo"] >= -EQUAL_DB and s["hi"] <= EQUAL_DB
-            body = (f"**Equal strength:** at the {s['n']} shared {receiver_word}s the average difference is only "
+            body = (f"**No meaningful strength difference:** at the {s['n']} shared {receiver_word}s the average difference is only "
                     f"{abs(s['mean']):.1f} dB, and the 95% range runs from {_lead_text(names, s['lo'])} to "
                     f"{_lead_text(names, s['hi'])}"
                     + (f", inside ±{EQUAL_DB:g} dB." if inside else

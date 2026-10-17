@@ -88,7 +88,7 @@ Why they can disagree: averaging in dB treats every report as equal (and the app
 
 **A limit on weak signals.** WSPR decodes down to about -28 dB under good conditions. A signal weaker than that is never reported at all, so an average of the reports you do have is not an average of everything that was sent. The app can ignore reports near that floor as a check on how much they matter, but that does not correct for the missing ones. Compare how many receivers heard each antenna as well as how strong they were, especially when one antenna is much weaker.
 
-On the **Linear average** tab, and in the table on **Receiver by receiver**, you can see both answers side by side and change the minimum number of reports a receiver needs. If the two agree within 1 dB, that is a useful consistency check, but not independent proof, because both use the same reports. If they don't, trust the dB answer for a short test and the power answer for a long one, and collect more data before believing a small difference.
+On the **Linear average** tab, and in the table on **Receiver by receiver**, you can see both answers side by side and change the minimum number of reports a receiver needs. If the two agree within 1 dB, that is a useful consistency check, but not independent proof, because both use the same reports. If they disagree substantially, find out why before drawing a conclusion. For a short alternating test the paired dB method is generally preferable. For a longer, well-balanced test the linear-power method is another useful measure, though a few very strong reports can dominate it. Collect more data before believing a small difference.
 
 #### The math
 
@@ -104,21 +104,21 @@ When blocks are long and there are no pairs, the same idea is used on the whole 
 
 $$G = 10 \log_{10} \frac{\frac{1}{n} \sum_{j=1}^{n} 10^{\,b_j/10}}{\frac{1}{m} \sum_{i=1}^{m} 10^{\,a_i/10}}$$
 
-Because WSPR reports move dB for dB with transmit power, $G$ is the gain of B over A in dB however strong or weak that receiver is.
+Because WSPR reports move dB for dB with transmit power, $G$ is the relative signal-strength advantage of antenna B over A at that receiver, after accounting for any transmit-power difference, however strong or weak that receiver is. It measures real-world performance along that path, not absolute antenna gain.
 
 **Combining receivers.** Receivers at the same place are merged into one, leaving $N$ independent sites with gains $G_1 \dots G_N$. The headline number is their mean, each site counting equally:
 
 $$\bar{G} = \frac{1}{N} \sum_{r=1}^{N} G_r$$
 
-The 95% range says how uncertain that average is, and the app uses a few methods depending on the test. For the standard comparison it resamples the sites (a bootstrap). For an alternating test it also widens that range when needed to allow for fading from one pair of transmissions to the next, which moves every receiver together. For short unpaired tests and for the linear-power check it uses the Student t interval, $\bar{G} \pm t_{0.975,\,N-1}\, s/\sqrt{N}$, where $s$ is the standard deviation of the $G_r$ and $t$ is the exact Student t value for $N-1$ degrees of freedom. A range is not a guarantee that the true difference lies inside it, and a short test can still be fooled by changing propagation. A side is called ahead only when the whole range is on one side of zero and $|\bar{G}|$ is at least 1 dB. A smaller gap is called equal, which covers two cases: the whole range sits inside 1 dB, or a lead is probably real but under 1 dB. Neither proves the antennas are identical.
+The 95% range says how uncertain that average is, and the app uses a few methods depending on the test. For the standard comparison it resamples the sites (a bootstrap). For an alternating test it also widens that range when needed to allow for fading from one pair of transmissions to the next, which moves every receiver together. For short unpaired tests and for the linear-power check it uses the Student t interval, $\bar{G} \pm t_{0.975,\,N-1}\, s/\sqrt{N}$, where $s$ is the standard deviation of the $G_r$ and $t$ is the Student t critical value for $N-1$ degrees of freedom. A range is not a guarantee that the true difference lies inside it, and a short test can still be fooled by changing propagation. A side is called ahead only when the whole range is on one side of zero and $|\bar{G}|$ is at least 1 dB. A smaller gap is called no meaningful difference, which covers two cases: the whole range sits inside 1 dB, or a lead is probably real but under 1 dB. Neither proves the antennas are identical.
 
 **Worked example.** One receiver hears antenna A at 0, 0, 0 and 20 dB, and antenna B at 5, 5, 5 and 5 dB. In dB, the middle values are 0 and 5, so $G = +5$ dB. In power, A averages $(1 + 1 + 1 + 100)/4 = 25.75$ and B is $10^{0.5} = 3.16$, so $G = 10\log_{10}(3.16/25.75) = -9.1$ dB. The two methods disagree because A's one loud report dominates the power average, which is why the linear method needs many reports per receiver, and why the app shows both.
 
 ### How the verdict is decided
 
-- **Strength.** Only stations that heard both sides count, so each station is its own control. Each station's difference is averaged, with a 95% range. A side wins if the whole range favours it and the gap is at least 1 dB. A smaller gap is called *equal*, meaning either that the range sits inside 1 dB or that a lead is real but too small to matter; it does not prove the antennas are identical.
+- **Strength.** Only stations that heard both sides count, so each station is its own control. Each station's difference is averaged, with a 95% range. A side wins if the whole range favours it and the gap is at least 1 dB. A smaller gap is called *no meaningful difference*, meaning either that the range sits inside 1 dB or that a lead is real but too small to matter; it does not prove the antennas are identical.
 - **Reach.** How many different stations heard each side. For WSPR it is judged one pair of transmissions at a time, because fading on your end moves every receiver together. It needs at least 6 decisive pairs, ones where one antenna reached more stations (ties don't count), so a short test often can't call it.
-- **Too close to call** means the data aren't strong enough to separate the antennas. One may look ahead, but ordinary variation could explain the gap, and the verdict says how often a lead that size would appear by luck if the two were truly equal (for example about 12% of the time). That is not the same as the antennas being equal, and it is not the probability that one is better. For RBN it also says how much more data would settle it.
+- **Too close to call** means the data aren't strong enough to separate the antennas. One may look ahead, but ordinary variation could explain the gap, and the verdict says how often a lead that size, in that direction, would appear by luck if the two were truly equal (for example about 12% of the time). That is not the same as the antennas being equal, and it is not the probability that one is better. For RBN it also says how much more data would settle it.
 - **Direction and distance** are only called when at least 4 stations heard both sides there, the gap is at least 2 dB, and a stricter 99% range agrees. With this many sectors checked at once, treat a direction result as a lead to follow up, not a finding.
 - **Two ways of averaging.** The dB average and the linear (power) average are explained under *How the comparison works*, above. The **Linear average** tab shows both so you can check that they agree.
 - **Fairness.** For WSPR only receivers with evidence of listening during both sides' transmissions count, and cycles heard by 2 or fewer receivers are ignored when normal cycles are heard by many more (usually one receiver with a wrong clock). A cycle with no partner on the other antenna is left out. Power differences are corrected (WSPR carries the power). Skimmers at the same place are counted once. If A and B were sent more than about 10 minutes apart, the verdict warns that the time of day could explain the difference.
@@ -136,7 +136,7 @@ It is a guide good to a few dB, not a promise: it only counts receivers that hea
 
 ## Run it locally
 
-You need [Python 3.9+](https://www.python.org/downloads/).
+You need [Python 3.9+](https://www.python.org/downloads/). These steps install the stable version; the beta is at [github.com/K5OHY/RBN-Map-Beta](https://github.com/K5OHY/RBN-Map-Beta).
 
 **Windows (PowerShell).** Set it up once:
 
