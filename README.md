@@ -4,7 +4,37 @@ See who heard you, how strong, and from where. Map the [Reverse Beacon Network](
 
 **Try the beta online, nothing to install: [rbn-map-beta.streamlit.app](https://rbn-map-beta.streamlit.app/)** (the stable version is at [rbnmap.streamlit.app](https://rbnmap.streamlit.app/))
 
-![RBN Signal Mapper Screenshot](images/Screenshot.png)
+## What it looks like
+
+These screens are from a real test: K5OHY's WSPR transmitter on 20m on 4 October 2026, 12 transmissions switched between a 40m loop at 20 ft (A) and a 20m dipole at 40 ft (B). The dipole won clearly.
+
+**The verdict** comes first, in plain English: who reached more receivers, who was stronger and by how much, and whether changing conditions could explain it.
+
+![The compare result](images/compare-result.jpg)
+
+**Where each antenna reached.** A world map centred on the station, coloured by which antenna was stronger toward each direction and distance.
+
+![Where each antenna reached](images/direction-map.jpg)
+
+**Which side is stronger, by direction.** How much stronger one antenna was toward each compass direction, with the numbers beside it.
+
+![Stronger by direction](images/direction-rose.jpg)
+
+**Receiver by receiver.** Every station that heard both antennas, A's signal against B's, with a sortable table and the relative gain by direction and by distance.
+
+![Receiver by receiver](images/receiver-by-receiver.jpg)
+
+**One receiver over time.** Every report from one station on both antennas, so fading and changes in the band show up instead of being averaged away.
+
+![One receiver over time](images/receiver-over-time.jpg)
+
+**Band conditions.** Which bands are open now, worked out from the WSPR stations near you in the last hour.
+
+![Band conditions](images/band-conditions.jpg)
+
+**Where you would be heard.** The chance that a receiver in each region hears you at your power and mode, with how many receivers each figure rests on.
+
+![Chance a receiver hears you, by region](images/band-conditions-regions.jpg)
 
 ## Quick start
 

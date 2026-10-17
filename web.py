@@ -3000,12 +3000,24 @@ def help_page():
     except OSError:
         st.warning(f"The README file isn't here. It is on [GitHub]({GITHUB_URL}#readme).")
         return
-    body = [line for line in text.splitlines()
-            if not line.startswith(("# ", "![")) and "online, nothing to install" not in line]
-    st.markdown("\n".join(body))
-    shot = Path(__file__).parent / "images" / "Screenshot.png"
-    if shot.exists():
-        st.image(str(shot), caption="The My spots page")
+    chunk = []
+
+    def flush():
+        if chunk:
+            st.markdown("\n".join(chunk))
+            chunk.clear()
+
+    for line in text.splitlines():
+        if line.startswith("# ") or "online, nothing to install" in line:
+            continue
+        pic = re.fullmatch(r"!\[(.*?)\]\((images/[^)]+)\)", line.strip())
+        if pic:
+            flush()
+            if (Path(__file__).parent / pic[2]).exists():
+                st.image(str(Path(__file__).parent / pic[2]), caption=pic[1])
+        else:
+            chunk.append(line)
+    flush()
 
 
 def main():
