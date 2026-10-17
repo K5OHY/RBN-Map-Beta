@@ -96,13 +96,13 @@ For one receiver, call its reports on antenna A $a_1 \dots a_m$ and on antenna B
 
 **dB method (quick tests).** Each B transmission is paired with the A transmission next to it, round $k$, and the receiver's answer is the middle value of those pair differences:
 
-$$G = \operatorname{median}_k \left( b_k - a_k \right)$$
+$$G = \mathrm{median}_k \left( b_k - a_k \right)$$
 
-When blocks are long and there are no pairs, the same idea is used on the whole set: $G = \operatorname{median}(b) - \operatorname{median}(a)$.
+When blocks are long and there are no pairs, the same idea is used on the whole set: $G = \mathrm{median}(b) - \mathrm{median}(a)$.
 
 **Linear power method (long tests).** Each report is turned into power, a power average is taken for each antenna, and the ratio is turned back into dB:
 
-$$G = 10 \log_{10} \frac{\frac{1}{n} \sum_{j=1}^{n} 10^{\,b_j/10}}{\frac{1}{m} \sum_{i=1}^{m} 10^{\,a_i/10}}$$
+$$G = 10 \log_{10} \frac{\frac{1}{n} \sum_{j=1}^{n} 10^{b_j/10}}{\frac{1}{m} \sum_{i=1}^{m} 10^{a_i/10}}$$
 
 Because WSPR reports move dB for dB with transmit power, $G$ is the relative signal-strength advantage of antenna B over A at that receiver, after accounting for any transmit-power difference, however strong or weak that receiver is. It measures real-world performance along that path, not absolute antenna gain.
 
@@ -110,7 +110,7 @@ Because WSPR reports move dB for dB with transmit power, $G$ is the relative sig
 
 $$\bar{G} = \frac{1}{N} \sum_{r=1}^{N} G_r$$
 
-The 95% range says how uncertain that average is, and the app uses a few methods depending on the test. For the standard comparison it resamples the sites (a bootstrap). For an alternating test it also widens that range when needed to allow for fading from one pair of transmissions to the next, which moves every receiver together. For short unpaired tests and for the linear-power check it uses the Student t interval, $\bar{G} \pm t_{0.975,\,N-1}\, s/\sqrt{N}$, where $s$ is the standard deviation of the $G_r$ and $t$ is the Student t critical value for $N-1$ degrees of freedom. A range is not a guarantee that the true difference lies inside it, and a short test can still be fooled by changing propagation. A side is called ahead only when the whole range is on one side of zero and $|\bar{G}|$ is at least 1 dB. A smaller gap is called no meaningful difference, which covers two cases: the whole range sits inside 1 dB, or a lead is probably real but under 1 dB. Neither proves the antennas are identical.
+The 95% range says how uncertain that average is, and the app uses a few methods depending on the test. For the standard comparison it resamples the sites (a bootstrap). For an alternating test it also widens that range when needed to allow for fading from one pair of transmissions to the next, which moves every receiver together. For short unpaired tests and for the linear-power check it uses the Student t interval, $\bar{G} \pm t_{0.975,N-1} s/\sqrt{N}$, where $s$ is the standard deviation of the $G_r$ and $t$ is the Student t critical value for $N-1$ degrees of freedom. A range is not a guarantee that the true difference lies inside it, and a short test can still be fooled by changing propagation. A side is called ahead only when the whole range is on one side of zero and $|\bar{G}|$ is at least 1 dB. A smaller gap is called no meaningful difference, which covers two cases: the whole range sits inside 1 dB, or a lead is probably real but under 1 dB. Neither proves the antennas are identical.
 
 **Worked example.** One receiver hears antenna A at 0, 0, 0 and 20 dB, and antenna B at 5, 5, 5 and 5 dB. In dB, the middle values are 0 and 5, so $G = +5$ dB. In power, A averages $(1 + 1 + 1 + 100)/4 = 25.75$ and B is $10^{0.5} = 3.16$, so $G = 10\log_{10}(3.16/25.75) = -9.1$ dB. The two methods disagree because A's one loud report dominates the power average, which is why the linear method needs many reports per receiver, and why the app shows both.
 
