@@ -37,6 +37,7 @@ from compare_stats import (
     locate as skimmer_location,
     median_power_dbm,
     power_method,
+    t_crit,
     receiver_table,
     _farthest,
     _lead_text,
@@ -776,7 +777,7 @@ def _gain_interval(snr_a, snr_b):
     if se == 0:
         return diff, diff, diff
     df = (va + vb) ** 2 / (va ** 2 / (len(a) - 1) + vb ** 2 / (len(b) - 1))
-    t_value = 1.96 + 2.4 / max(df, 1.0) + 3.0 / max(df, 1.0) ** 2  # Student's t for 95%, close enough without SciPy
+    t_value = t_crit(df)
     return diff, diff - t_value * se, diff + t_value * se
 
 
@@ -1635,7 +1636,7 @@ def _sector_detail(shared, adv, label, width_deg, names, noun):
     d = shared[sector == int(round(center / width_deg))]["delta"].to_numpy()
     text = f"**{label}: {n} {noun}{'s' if n != 1 else ''} heard both.** {_lead_text(names, float(d.mean()))}."
     if n >= 3:
-        t_value = 1.96 + 2.4 / (n - 1) + 3.0 / (n - 1) ** 2
+        t_value = t_crit(n - 1)
         half = t_value * float(d.std(ddof=1)) / np.sqrt(n)
         text += f" 95% range: {_range_text(names, float(d.mean()) - half, float(d.mean()) + half)}."
     else:
@@ -1710,14 +1711,15 @@ def _linear_average_view(spots_a, spots_b, an, names, noun, locs, home, kind, ca
     gap = abs(s_["mean"] - pm["mean"]) if not np.isnan(s_["mean"]) else np.nan
     if not np.isnan(gap):
         if gap < 1.0:
-            st.success(f"The two agree within 1 dB ({gap:.1f} dB apart), so the answer doesn't depend on how it is averaged.")
+            st.success(f"The two agree within 1 dB ({gap:.1f} dB apart), so how it is averaged isn't driving the answer. That is a consistency check, not proof.")
         else:
             st.warning(f"The two are {gap:.1f} dB apart. That usually means a few strong reports, or {noun}s with only one or "
                        "two reports each, are pulling the linear average. Try raising the minimum reports above.")
     if pm["near_floor"] >= 0.1:
         st.warning(f"{pm['near_floor']:.0%} of the reports are at or below {WSPR_FLOOR_DB} dB, the edge of what WSPR can decode. "
-                   "Weak decodes are unreliable and the weaker antenna's weakest reports may be missing, which can shrink the "
-                   "apparent difference. Try ticking the box to ignore them.")
+                   "Signals too weak to decode never appear at all, so the weaker antenna's weakest reports are missing, which can "
+                   "shrink the apparent difference. Ticking the box to ignore these reports is a check on how much they matter, "
+                   "not a correction. Compare how many receivers heard each antenna too.")
     elif pm["dropped"]:
         st.caption(f"{pm['dropped']} reports at or below {WSPR_FLOOR_DB} dB were ignored.")
 

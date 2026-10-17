@@ -13,6 +13,7 @@ How the answer is reached
 * Power: if the two tests ran at different power, B's SNR is shifted to A's power first (WSPR reports its
   power; for RBN you can tell the app).
 """
+import functools
 import math
 from functools import lru_cache
 
@@ -164,7 +165,7 @@ def mean_interval(values):
     mean = float(g.mean())
     if len(g) < 2:
         return mean, math.nan, math.nan
-    t_value = 1.96 + 2.4 / (len(g) - 1) + 3.0 / (len(g) - 1) ** 2  # Student's t for 95%, close enough without SciPy
+    t_value = t_crit(len(g) - 1)
     half = t_value * float(g.std(ddof=1)) / math.sqrt(len(g))
     return mean, mean - half, mean + half
 
@@ -235,7 +236,7 @@ def power_method(spots_a, spots_b, locs, home, min_spots=1, floor=None, offset=0
     mean = float(g.mean())
     sd = float(g.std(ddof=1)) if n >= 2 else math.nan
     if n >= 2:
-        t_value = 1.96 + 2.4 / (n - 1) + 3.0 / (n - 1) ** 2
+        t_value = t_crit(n - 1)
         lo, hi = mean - t_value * sd / math.sqrt(n), mean + t_value * sd / math.sqrt(n)
     else:
         lo = hi = math.nan
@@ -268,11 +269,27 @@ def _t_two_sided_p(t, df, steps=4000):
     t = abs(t)
     if t == 0:
         return 1.0
-    pdf = lambda x: (math.gamma((df + 1) / 2) / (math.sqrt(df * math.pi) * math.gamma(df / 2))  # noqa: E731
-                     * (1 + x * x / df) ** (-(df + 1) / 2))
+    norm = math.exp(math.lgamma((df + 1) / 2) - math.lgamma(df / 2)) / math.sqrt(df * math.pi)
+    pdf = lambda x: norm * (1 + x * x / df) ** (-(df + 1) / 2)  # noqa: E731
     h = t / steps
     total = pdf(0) + pdf(t) + sum((4 if i % 2 else 2) * pdf(i * h) for i in range(1, steps))
     return max(0.0, min(1.0, 1 - 2 * total * h / 3))
+
+
+@lru_cache(maxsize=512)
+def _t_crit(df, level):
+    if df > 300:  # close enough to the normal curve
+        return 1.96 + 2.4 / df if level == 0.95 else 2.576 + 4.0 / df
+    lo, hi = 0.0, 200.0
+    for _ in range(36):  # bisection: the p-value falls as t rises
+        mid = (lo + hi) / 2
+        lo, hi = (mid, hi) if _t_two_sided_p(mid, df, steps=800) > 1 - level else (lo, mid)
+    return (lo + hi) / 2
+
+
+def t_crit(df, level=0.95):
+    """The exact two-sided Student t critical value for `df` degrees of freedom (12.71 for 1, 4.30 for 2, 2.78 for 4 at 95%)."""
+    return _t_crit(round(max(float(df), 1.0), 2), level)
 
 
 def mcnemar_exact(n_a, n_b):
@@ -329,7 +346,7 @@ def widen_for_fading(lo, hi, mean, round_means):
     n = len(round_means)
     if n >= 4:
         se = float(round_means.std(ddof=1)) / math.sqrt(n)
-        t = 1.96 + 2.4 / (n - 1) + 3.0 / (n - 1) ** 2  # close to the t value for n - 1 degrees of freedom
+        t = t_crit(n - 1)
     else:
         se, t = SLOT_NOISE_DB / math.sqrt(max(n, 1)), 1.96
     return min(lo, mean - t * se), max(hi, mean + t * se)
@@ -494,7 +511,7 @@ def analyze(spots_a, spots_b, locs, home, power_a=None, power_b=None, normalize=
     sd = float(d.std(ddof=1)) if n >= 2 else math.nan
     if not paired and 2 <= n < 40:
         # with only a few stations the bootstrap range comes out too narrow; use the t interval instead
-        t_value = 1.96 + 2.4 / (n - 1) + 3.0 / (n - 1) ** 2
+        t_value = t_crit(n - 1)
         lo, hi = mean - t_value * sd / math.sqrt(n), mean + t_value * sd / math.sqrt(n)
     if paired and n >= 2:
         lo, hi = widen_for_fading(lo, hi, mean, round_means)
@@ -502,8 +519,7 @@ def analyze(spots_a, spots_b, locs, home, power_a=None, power_b=None, normalize=
     wins_a, wins_b = int((gap > 0).sum()), int((gap < 0).sum())
     p_ahead = math.nan  # how likely it is that the side the average favours really is ahead
     if n >= 2 and hi > lo:
-        t_crit = 1.96 + 2.4 / (n - 1) + 3.0 / (n - 1) ** 2
-        se = (hi - lo) / (2 * t_crit)
+        se = (hi - lo) / (2 * t_crit(n - 1))
         p_ahead = 1 - _t_two_sided_p(abs(mean) / se, n - 1) / 2 if se > 0 else 1.0
     if n < MIN_SHARED:
         strength_call = "insufficient"
@@ -745,8 +761,8 @@ def build_verdict(an, names, exposure=None, rounds=None, receiver_word="receiver
                else f"within normal variation (p = {r['p']:.2g})" if r["only_a"] + r["only_b"] >= MIN_DISCORDANT
                else "too few one-sided receivers to say")
     if rc == "tie" and r_lead and not math.isnan(r_chance) and r_chance >= REACH_LEAN_MIN:
-        sig += (f". The chance that {names[r_lead]} really reaches more is about {r_chance:.0%}: better than a coin flip, "
-                "but short of the 95% needed to call it")
+        sig += (f". {names[r_lead]} leads, but if the two really reached equally, a split this lopsided would still happen "
+                f"about {1 - r_chance:.0%} of the time: suggestive, not enough to call it")
     points.append(("\U0001F4E1", f"**Reach:** {recv(r['a'])} heard A and {recv(r['b'])} heard B "
                    f"({r['only_a']} only A, {r['only_b']} only B, {r['both']} both) — {sig}."))
 
@@ -758,9 +774,12 @@ def build_verdict(an, names, exposure=None, rounds=None, receiver_word="receiver
                     f"{s['n']} {receiver_word}s that heard both (95% range {lo:.1f} to {hi:.1f} dB).")
         elif sc == "equal":
             lean = f" {names[s['lean']]} is very slightly ahead, too little to matter." if s["lean"] else ""
+            inside = s["lo"] >= -EQUAL_DB and s["hi"] <= EQUAL_DB
             body = (f"**Equal strength:** at the {s['n']} shared {receiver_word}s the average difference is only "
                     f"{abs(s['mean']):.1f} dB, and the 95% range runs from {_lead_text(names, s['lo'])} to "
-                    f"{_lead_text(names, s['hi'])}, inside ±{EQUAL_DB:g} dB.{lean}")
+                    f"{_lead_text(names, s['hi'])}"
+                    + (f", inside ±{EQUAL_DB:g} dB." if inside else
+                       f", so the small lead is probably real.") + lean)
         elif sc == "inconclusive":
             if s["lo"] > 0 or s["hi"] < 0:
                 side = "A" if s["mean"] > 0 else "B"
@@ -776,8 +795,8 @@ def build_verdict(an, names, exposure=None, rounds=None, receiver_word="receiver
                     f"too few to judge.")
         chance = ""
         if sc == "inconclusive" and not math.isnan(s["p_ahead"]) and s["p_ahead"] >= 0.7:
-            chance = (f" The chance that {names['A' if s['mean'] > 0 else 'B']} really is ahead is about "
-                      f"{s['p_ahead']:.0%}: better than a coin flip, but short of the 95% needed to call it.")
+            chance = (f" {names['A' if s['mean'] > 0 else 'B']} leads, but if the two were really equal, a lead this big "
+                      f"would still show up about {1 - s['p_ahead']:.0%} of the time: suggestive, not enough to call it.")
         points.append(("\U0001F4F6", body + chance + f" A was stronger at {s['wins_a']}, B at {s['wins_b']}, "
                        f"tied at {s['ties']}."))
     else:
