@@ -1229,6 +1229,10 @@ def _separate_by_log(spots):
              "More is steadier: 8 or more (4 pairs) is a solid test, 12 to 16 for differences under 1 dB. "
              "Use whole rounds (a multiple of 2, or of 4 for A B B A): an odd count leaves one transmission without a partner."))
     n_cycles = min(n_cycles, len(all_stamps))
+    if len(all_stamps) >= 20 and n_cycles < len(all_stamps) // 2:
+        st.info(f"The data holds **{len(all_stamps)} transmissions**, but this quick test uses only the latest **{n_cycles}**. "
+                "If you ran a long test with one antenna for 30 minutes or an hour at a time, choose **In long blocks** above "
+                "to use all of it.")
     multi_day = all_stamps[0].date() != all_stamps[-1].date()
     fmt = (lambda t: f"{t:%d %b %H:%M}") if multi_day else (lambda t: f"{t:%H:%M}")
     LATEST = "Latest"
@@ -1835,6 +1839,10 @@ def _data_used(all_spots, spots, map_a, map_b, spots_a, spots_b, an, ta_all, tb_
         left.append(f"{len(unlocated)} {noun}{'s' if len(unlocated) != 1 else ''} with no known position")
     if len(spots) - in_test > 0:
         left.append(f"{n(len(spots) - in_test)} spots outside the test")
+    total_tx, used_tx = spots["time"].nunique(), pd.concat([map_a["time"], map_b["time"]]).nunique()
+    if sep.get("time_based") and not sep.get("blocks") and total_tx >= 20 and used_tx < total_tx / 2:
+        lines.insert(1, f"⚠ This quick test uses {used_tx} of the {total_tx} transmissions in the data. For a long test with "
+                        "one antenna at a time for 30 minutes or more, choose In long blocks.")
     lines.append("Left out: " + "; ".join(left) + "." if left else "Nothing was left out.")
     label = (f"Data used: {n(compared)} spots from {len(set(spots_a['spotter']) | set(spots_b['spotter']))} {noun}s, "
              f"{counted_once} compared")
