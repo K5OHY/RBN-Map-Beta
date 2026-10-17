@@ -1014,7 +1014,10 @@ def compare_report_pdf(ctx):
               ("bar", [r["only_a"], r["both"], r["only_b"]], [f"Only {names['A']}", "Heard both", f"Only {names['B']}"],
                [COLOR_A, "#6b7280", COLOR_B]),
               ("note", f"Each {noun} is counted once, however many times it spotted you."),
-              ("paragraph", ctx["counts_note"])]
+              ("paragraph", ctx["counts_note"]),
+              ("heading", "Data used"),
+              ("table", [""] + [names["A"], names["B"]], [[k] + v for k, v in ctx["data_used"]["rows"].items()], [0.5, 0.25, 0.25]),
+              ("bullets", ctx["data_used"]["lines"])]
     cols = ["", "A", "B", "Both", "Stronger by", "Better"]
     widths = [0.26, 0.09, 0.09, 0.09, 0.2, 0.27]
     if ctx["means_a"].notna().any() or ctx["means_b"].notna().any():
@@ -1182,6 +1185,7 @@ def _without_ghost_cycles(spots):
     """Throw out cycles that only one or two receivers reported when ordinary cycles are heard by many more. They are
     nearly always one receiver with a wrong clock reporting your transmission under the next time slot, so they are
     not real transmissions. On a weak band, where every cycle has few reports, nothing is thrown out."""
+    st.session_state["ghost_cycles"] = 0
     heard = spots.groupby("time")["spotter"].nunique()
     typical = heard[heard > GHOST_MAX].median()
     if pd.isna(typical) or typical < GHOST_MIN_TYPICAL:
@@ -1189,6 +1193,7 @@ def _without_ghost_cycles(spots):
     ghosts = heard[heard <= GHOST_MAX].index
     if len(ghosts) == 0:
         return spots
+    st.session_state["ghost_cycles"] = len(ghosts)
     st.caption(f"Left out {len(ghosts)} cycle{'s' if len(ghosts) > 1 else ''} that {GHOST_MAX} or fewer receivers heard, "
                f"when typical cycles were heard by about {typical:.0f}. A cycle that thin says little about an antenna, and "
                "it is often one receiver with a wrong clock reporting your signal under the wrong time slot.")
@@ -1296,6 +1301,50 @@ def _separate_by_log(spots):
             "default": {"A": "A", "B": "B"}}
 
 
+def _clock(text):
+    """(hour, minute) from a typed time such as 12:30, 1230, 12.30, 12 30 or 930, or None."""
+    m = re.fullmatch(r"(\d{1,2})[:.\s]?(\d{2})", re.sub(r"\s*(utc|z)$", "", (text or "").strip(), flags=re.IGNORECASE))
+    if m and int(m[1]) < 24 and int(m[2]) < 60:
+        return int(m[1]), int(m[2])
+    return None
+
+
+def _cell_time(text, day0):
+    """A block's From or To cell as a Timestamp: a clock time, with +1 (or +1d) after it for the next UTC day. `day0` is the date
+    of the first block. Returns None when the cell isn't a time."""
+    m = re.fullmatch(r"\s*(.*?)\s*(?:\+\s*(\d+)\s*d?)?\s*", str(text or ""))
+    clock = _clock(m[1]) if m else None
+    if clock is None:
+        return None
+    return pd.Timestamp(day0) + pd.Timedelta(days=int(m[2] or 0), hours=clock[0], minutes=clock[1])
+
+
+def _parse_schedule(text, day0, pattern):
+    """Blocks from pasted lines such as '16:40-17:12 A', one per line (the antenna is optional and then follows the A, B pattern;
+    a block that starts earlier in the day than the one before it is taken to be on the next UTC day).
+    Returns ([(antenna, lo, hi)], [problem lines])."""
+    blocks, problems, day, last_lo = [], [], pd.Timestamp(day0).normalize(), None
+    for line in (text or "").splitlines():
+        if not line.strip():
+            continue
+        m = re.fullmatch(r"\s*(\d{1,2}[:.]?\d{2})\s*(?:-|\u2013|to)\s*(\d{1,2}[:.]?\d{2})\s*([AaBb])?\s*", line)
+        lo_c, hi_c = (_clock(m[1]), _clock(m[2])) if m else (None, None)
+        if not m or lo_c is None or hi_c is None:
+            problems.append(line.strip())
+            continue
+        lo = day + pd.Timedelta(hours=lo_c[0], minutes=lo_c[1])
+        if last_lo is not None and lo < last_lo:
+            day += pd.Timedelta(days=1)
+            lo += pd.Timedelta(days=1)
+        hi = day + pd.Timedelta(hours=hi_c[0], minutes=hi_c[1])
+        if hi <= lo:
+            hi += pd.Timedelta(days=1)
+        antenna = m[3].upper() if m[3] else pattern[len(blocks) % len(pattern)]
+        blocks.append((antenna, lo, hi))
+        last_lo = lo
+    return blocks, problems
+
+
 def _block_start(label, all_stamps, fmt):
     """The start of a long test, from a transmission picked in the list or a time typed in. Times can be typed as 12:30, 1230,
     12.30, 12 30, 930 or 1230z, and a date can come first (08 Oct 12:30). Returns a Timestamp, or None if the text isn't a
@@ -1350,34 +1399,70 @@ def _blocks_test(spots, all_stamps):
         c3.caption(f"⚠ Couldn't read '{start_label}'. Type a time like 12:30; using {fmt(all_stamps[0])} for now.")
         t0 = all_stamps[0]
     pattern = patterns[order]
-    rows = []
-    for k in range(n_blocks):
-        lo, hi = t0 + pd.Timedelta(minutes=k * block_min), t0 + pd.Timedelta(minutes=(k + 1) * block_min)
-        inside = [t for t in all_stamps if lo <= t < hi]
-        rows.append({"Block": k + 1, "Antenna": pattern[k % len(pattern)], "From (UTC)": f"{lo:%H:%M}",
-                     "To (UTC)": f"{hi:%H:%M}", "Transmissions": len(inside),
-                     "Receivers": int(spots[spots["time"].isin(inside)]["spotter"].nunique()) if inside else 0, "_lo": lo, "_hi": hi})
-    table = pd.DataFrame(rows)
+    day0 = t0.normalize()
+    with st.expander("Paste a schedule instead (for uneven blocks)"):
+        pasted = st.text_area("One block per line, like 16:40-17:12 A", key=f"blk_paste_{sig}", height=110,
+                              help="Use this when the blocks are not all the same length, or when a switch came a cycle early or "
+                                   "late. The antenna letter is optional: leave it off and the blocks follow your A, B order. "
+                                   "A line that starts earlier than the one above it is taken to be after midnight UTC.")
+    schedule, bad_lines = _parse_schedule(pasted, day0, pattern)
+    if bad_lines:
+        st.warning("Couldn't read: " + "; ".join(bad_lines[:3]) + (" and more" if len(bad_lines) > 3 else "")
+                   + ". Use lines like 16:40-17:12 A.")
+    if not schedule:
+        schedule = [(pattern[k % len(pattern)], t0 + pd.Timedelta(minutes=k * block_min),
+                     t0 + pd.Timedelta(minutes=(k + 1) * block_min)) for k in range(n_blocks)]
+    stamp = lambda ts: f"{ts:%H:%M}" + (f" +{(ts.normalize() - day0).days}d" if ts.normalize() > day0 else "")
+    table = pd.DataFrame({"Block": range(1, len(schedule) + 1), "Antenna": [a for a, _, _ in schedule],
+                          "From (UTC)": [stamp(lo) for _, lo, _ in schedule], "To (UTC)": [stamp(hi) for _, _, hi in schedule]})
     st.caption("Each block is one antenna for its whole time. Change an Antenna cell if you switched differently, or clear it to "
-               "leave a block out. Blocks with no transmissions are ignored.")
+               "leave a block out. The From and To times can be edited too, for blocks that ran a little long or short; add +1 "
+               "after a time that falls on the next UTC day.")
     edited = st.data_editor(
-        table.drop(columns=["_lo", "_hi"]), hide_index=True, width="stretch",
-        key=f"blocks_{pattern}_{block_min}_{n_blocks}_{t0:%d%H%M}",
-        disabled=["Block", "From (UTC)", "To (UTC)", "Transmissions", "Receivers"],
+        table, hide_index=True, width="stretch",
+        key=f"blocks_{pattern}_{block_min}_{n_blocks}_{t0:%d%H%M}_{abs(hash(pasted)) % 10**8}", disabled=["Block"],
         column_config={"Antenna": st.column_config.SelectboxColumn("Antenna", options=["A", "B"],
-                                                                   help="A, B, or empty to leave this block out.")})
+                                                                   help="A, B, or empty to leave this block out."),
+                       "From (UTC)": st.column_config.TextColumn("From (UTC)", help="Like 12:30, or 00:10 +1 for the next day."),
+                       "To (UTC)": st.column_config.TextColumn("To (UTC)", help="Like 13:00, or 00:40 +1 for the next day.")})
+    blocks, problems = [], []
+    for n, row in edited.iterrows():
+        if row["Antenna"] not in ("A", "B"):
+            continue
+        lo, hi = _cell_time(row["From (UTC)"], day0), _cell_time(row["To (UTC)"], day0)
+        if lo is None or hi is None:
+            problems.append(f"block {int(row['Block'])}")
+            continue
+        if hi <= lo:  # a To that is not later than its From is taken to be after midnight
+            hi += pd.Timedelta(days=1)
+        blocks.append((int(row["Block"]), row["Antenna"], lo, hi))
+    if problems:
+        st.warning("Couldn't read the times for " + ", ".join(problems[:5]) + ". Use a time like 12:30; those blocks are left out.")
+    overlaps = [(x[0], y[0]) for i, x in enumerate(blocks) for y in blocks[i + 1:] if x[2] < y[3] and y[2] < x[3]]
+    if overlaps:
+        st.warning(f"Blocks {overlaps[0][0]} and {overlaps[0][1]} overlap, so a transmission in the overlap counts for the first one.")
     labels = {}
-    for (_, row), antenna in zip(table.iterrows(), edited["Antenna"]):
-        if antenna in ("A", "B"):
-            for t in all_stamps:
-                if row["_lo"] <= t < row["_hi"]:
-                    labels[t] = antenna
+    for t in all_stamps:
+        for _, antenna, lo, hi in blocks:
+            if lo <= t < hi:
+                labels[t] = antenna
+                break
+    with st.expander("What each block caught"):
+        caught = pd.DataFrame([{"Block": n, "Antenna": a, "From (UTC)": stamp(lo), "To (UTC)": stamp(hi),
+                                "Transmissions": sum(lo <= t < hi for t in all_stamps),
+                                "Receivers": int(spots[(spots["time"] >= lo) & (spots["time"] < hi)]["spotter"].nunique())}
+                               for n, a, lo, hi in blocks])
+        st.dataframe(caught, hide_index=True, width="stretch")
     if "A" not in labels.values() or "B" not in labels.values():
         st.warning("There are no transmissions in at least one antenna's blocks. Check the start time, block length and "
                    "number of blocks against your notes.")
         return None
-    if t0 + pd.Timedelta(minutes=block_min * n_blocks) > all_stamps[-1] + pd.Timedelta(minutes=2):
+    sched_start, sched_end = min(b[2] for b in blocks), max(b[3] for b in blocks)
+    if sched_end > all_stamps[-1] + pd.Timedelta(minutes=2):
         st.caption("\u26a0 The last block runs past the newest transmission in the data, so it may be cut short.")
+        if sched_end.normalize() > all_stamps[-1].normalize() or all_stamps[-1].hour >= 23:
+            st.info("This test runs past midnight UTC but the spots loaded stop there. In the sidebar choose **Date range** and "
+                    "set **To** to the next day, then click **Load spots** again.")
     in_test = spots[spots["time"].isin(list(labels))]
     in_test = in_test.assign(antenna=in_test["time"].map(labels))
     spots_a, spots_b = in_test[in_test["antenna"] == "A"], in_test[in_test["antenna"] == "B"]
@@ -1387,11 +1472,10 @@ def _blocks_test(spots, all_stamps):
         st.caption(f"{spots_a['time'].nunique()} transmissions on A and {spots_b['time'].nunique()} on B. At the "
                    f"{len(both)} receivers that heard both, the middle receiver has {int(per_a[both].median())} reports on A and "
                    f"{int(per_b[both].median())} on B. A long test aims for {DALE_MIN_SPOTS} or more on each; the published method keeps only receivers with {DALE_SITE_MIN}.")
+    lengths = [(hi - lo).total_seconds() / 60 for _, _, lo, hi in blocks]
     return {"a": spots_a, "b": spots_b, "time_based": True, "alternating": False, "labeled": False, "blocks": True,
-            "t0": t0, "block_min": block_min, "n_blocks_set": n_blocks,
-            "n_blocks": int(len(set(row["Block"] for (_, row), ant in zip(table.iterrows(), edited["Antenna"]) if ant in ("A", "B")))),
-            "default": {"A": "A", "B": "B"}}
-
+            "t0": sched_start, "t_end": sched_end, "block_min": int(round(float(np.median(lengths)))), "n_blocks_set": len(blocks),
+            "n_blocks": len(blocks), "default": {"A": "A", "B": "B"}}
 
 def _azimuth_points(ta_all, tb_all, an):
     """One row per receiver for the world map: where it is (km, bearing), whether only A, only B or both heard it, how much
@@ -1715,6 +1799,48 @@ def _gain_text(v):
     return "-" if pd.isna(v) or abs(v) < 0.05 else f"{'A' if v > 0 else 'B'} +{abs(v):.1f}"
 
 
+def _data_used(all_spots, spots, map_a, map_b, spots_a, spots_b, an, ta_all, tb_all, noun, sep, unpaired, listening_note, ghosts):
+    """What went into a comparison and what was left out, as a short table and a few sentences, for the screen and the PDF."""
+    n = lambda x: f"{int(x):,}"  # noqa: E731
+    in_test, compared = len(map_a) + len(map_b), len(spots_a) + len(spots_b)
+    heard_a, heard_b = set(map_a["spotter"]), set(map_b["spotter"])
+    both_all = heard_a & heard_b
+    shared = an["shared_all"]
+    counted_once = int(an["strength"]["n"])
+    unlocated = (heard_a | heard_b) - (set(ta_all.index) | set(tb_all.index))
+    reports = pd.concat([spots_a.groupby("spotter").size().reindex(shared.index),
+                         spots_b.groupby("spotter").size().reindex(shared.index)], axis=1).min(axis=1).fillna(0)
+    enough = {t: int((reports >= t).sum()) for t in (5, 20, 40)}
+    rows = {"Spots in the test": [n(len(map_a)), n(len(map_b))],
+            "Spots used in the comparison": [n(len(spots_a)), n(len(spots_b))],
+            f"{noun.capitalize()}s that heard it": [n(len(heard_a)), n(len(heard_b))]}
+    if sep.get("time_based"):
+        rows["Transmissions"] = [n(map_a["time"].nunique()), n(map_b["time"].nunique())]
+    lines = [f"{n(len(all_spots))} spots were loaded; {n(len(spots))} remain after your filters; {n(in_test)} are in the test and "
+             f"{n(compared)} were used in the comparison.",
+             f"{len(heard_a)} {noun}s heard A and {len(heard_b)} heard B; {len(both_all)} heard both. {len(shared)} of those have a "
+             f"known position and were compared, and {counted_once} remain after counting {noun}s at the same place once.",
+             f"With at least 5, 20 and 40 reports on each antenna: {enough[5]}, {enough[20]} and {enough[40]} {noun}s."
+             + (f" A long test aims for {DALE_MIN_SPOTS} or more, and the published method keeps {DALE_SITE_MIN}."
+                if sep.get("blocks") else "")]
+    left = []
+    if unpaired:
+        left.append(f"{unpaired} transmission{'s' if unpaired != 1 else ''} with no partner on the other antenna")
+    if ghosts:
+        left.append(f"{ghosts} cycle{'s' if ghosts != 1 else ''} heard by only 1 or 2 receivers")
+    if listening_note and listening_note["kept"] < listening_note["total"]:
+        gone = listening_note["total"] - listening_note["kept"]
+        left.append(f"{gone} {noun}{'s' if gone != 1 else ''} not listening during both sides")
+    if unlocated:
+        left.append(f"{len(unlocated)} {noun}{'s' if len(unlocated) != 1 else ''} with no known position")
+    if len(spots) - in_test > 0:
+        left.append(f"{n(len(spots) - in_test)} spots outside the test")
+    lines.append("Left out: " + "; ".join(left) + "." if left else "Nothing was left out.")
+    label = (f"Data used: {n(compared)} spots from {len(set(spots_a['spotter']) | set(spots_b['spotter']))} {noun}s, "
+             f"{counted_once} compared")
+    return {"label": label, "rows": rows, "lines": lines}
+
+
 def compare_view(spots, locs, home, label, callsign, file_date, tiles, show_all, units, split, gap_khz,
                  scale, noun, kind, all_spots):
     """Compare mode: separate `spots` into an A side and a B side (by frequency, time window, timed blocks,
@@ -1731,6 +1857,7 @@ def compare_view(spots, locs, home, label, callsign, file_date, tiles, show_all,
         st.warning("One side has no spots. Adjust the selection above, or the filters in the sidebar.")
         return
     map_a, map_b = spots_a, spots_b  # the maps and timeline show everything that was heard
+    unpaired = 0
     if kind == "WSPR" and sep.get("time_based"):
         if sep.get("labeled") and count_pairs(spots_a, spots_b) >= 1:
             # An alternating test is judged pair by pair, and a pair has exactly one transmission on each antenna, so
@@ -1859,7 +1986,9 @@ def compare_view(spots, locs, home, label, callsign, file_date, tiles, show_all,
         ]
         st.markdown(verdict_card_html(verdict), unsafe_allow_html=True)
         n_a, n_b = map_a["time"].nunique(), map_b["time"].nunique()
-        pdf_ctx = dict(
+        used = _data_used(all_spots, spots, map_a, map_b, spots_a, spots_b, an, ta_all, tb_all, noun, sep, unpaired,
+                          listening_note, st.session_state.get("ghost_cycles", 0))
+        pdf_ctx = dict(data_used=used, 
             names=names, an=an, verdict=verdict, noun=noun, units=units, score_rows=score_rows, callsign=callsign, label=label,
             file_date=file_date, source="WSPR" if kind == "WSPR" else "Reverse Beacon Network",
             bands=", ".join(sorted(set(map_a["band"]) | set(map_b["band"]))),
@@ -1873,6 +2002,10 @@ def compare_view(spots, locs, home, label, callsign, file_date, tiles, show_all,
         st.download_button("\u2B07\ufe0f Download report (PDF)", data=lambda: compare_report_pdf(pdf_ctx),
                            file_name=f"RBN_compare_{callsign}_{file_date}.pdf", mime="application/pdf",
                            help="The verdict, scoreboard and every chart and table, as a PDF you can keep or share.")
+        with st.expander(used["label"]):
+            st.dataframe(pd.DataFrame(used["rows"], index=[names["A"], names["B"]]).T, width="stretch")
+            for line in used["lines"]:
+                st.markdown(f"- {line}")
         st.markdown(scoreboard_html(names["A"], names["B"], score_rows), unsafe_allow_html=True)
 
         st.markdown(f"##### Who heard you on each {'side' if sep.get('time_based') else 'frequency'}?")
@@ -2006,12 +2139,18 @@ def compare_view(spots, locs, home, label, callsign, file_date, tiles, show_all,
                 st.subheader(f"One {noun} over time")
                 reports_a, reports_b = spots_a.groupby("spotter").size(), spots_b.groupby("spotter").size()
                 kk = KM_PER_MILE if units == "mi" else 1
-                ranked = sorted(every.index, key=lambda r: (-min(reports_a.get(r, 0), reports_b.get(r, 0)), every.at[r, "km_a"]))
+                sort_by = st.radio("Sort the list by", ["A\u2013Z", "Distance", "Direction", "Most reports"], horizontal=True,
+                                   key="rx_sort", help="You can also click the box and type part of a callsign to find it.")
+                order_key = {"A\u2013Z": lambda r: r,
+                             "Distance": lambda r: every.at[r, "km_a"],
+                             "Direction": lambda r: every.at[r, "bearing_a"],
+                             "Most reports": lambda r: (-min(reports_a.get(r, 0), reports_b.get(r, 0)), every.at[r, "km_a"])}[sort_by]
+                ranked = sorted(every.index, key=order_key)
                 pick = st.selectbox(
                     f"Pick a {noun}", ranked,
-                    format_func=lambda r: (f"{r} \u00b7 {every.at[r, 'km_a'] / kk:,.0f} {units} \u00b7 "
-                                           f"{reports_a.get(r, 0)} on A, {reports_b.get(r, 0)} on B"),
-                    help=f"The {noun}s with the most reports on both antennas are first.")
+                    format_func=lambda r: (f"{r} \u00b7 {every.at[r, 'km_a'] / kk:,.0f} {units} "
+                                           f"{COMPASS_16[int(((every.at[r, 'bearing_a'] + 11.25) % 360) // 22.5)]} \u00b7 "
+                                           f"{reports_a.get(r, 0)} on A, {reports_b.get(r, 0)} on B"))
                 offset = an["power"]["offset"]
                 st.pyplot(receiver_time_chart(spots_a, spots_b, pick, names, offset, linear=method_label == "Linear power"),
                           width="stretch")
@@ -2035,7 +2174,7 @@ def compare_view(spots, locs, home, label, callsign, file_date, tiles, show_all,
                     st.subheader("Relative gain over time")
                     block_min = sep["block_min"]
                     t_start = sep["t0"]
-                    t_end = t_start + pd.Timedelta(minutes=block_min * sep["n_blocks_set"])
+                    t_end = sep.get("t_end") or t_start + pd.Timedelta(minutes=block_min * sep["n_blocks_set"])
                     multiples = [m for m in (2, 4, 6, 8) if m * block_min <= (t_end - t_start).total_seconds() / 60]
                     c_len, c_min = st.columns(2)
                     mult = c_len.selectbox("Window length", multiples or [2], index=min(1, max(len(multiples) - 1, 0)),
