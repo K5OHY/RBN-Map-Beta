@@ -3013,6 +3013,10 @@ def help_page():
         i += 1
         if line.startswith("# ") or "online, nothing to install" in line:
             continue
+        if line.startswith("## What it looks like"):  # the screenshots are for GitHub, not for the app itself
+            while i < len(lines) and not lines[i].startswith("## "):
+                i += 1
+            continue
         if line.strip() == "<details>":  # a folded section: the first line inside is its <summary>
             end = next((k for k in range(i, len(lines)) if lines[k].strip() == "</details>"), len(lines))
             inside = lines[i:end]
@@ -3022,13 +3026,7 @@ def help_page():
             with st.expander(title):
                 st.markdown("\n".join(inside[1:]))
             continue
-        pic = re.fullmatch(r"!\[(.*?)\]\((images/[^)]+)\)", line.strip())
-        if pic:
-            flush()
-            if (Path(__file__).parent / pic[2]).exists():
-                st.image(str(Path(__file__).parent / pic[2]), caption=pic[1])
-        else:
-            chunk.append(line)
+        chunk.append(line)
     flush()
 
 
