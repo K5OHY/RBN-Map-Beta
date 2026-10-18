@@ -1705,10 +1705,12 @@ def _linear_average_view(spots_a, spots_b, an, names, noun, locs, home, kind, ca
                    + (f"{strict['n']} {noun}s qualify: linear average {_lead_text(names, strict['mean'])}."
                       if strict["n"] >= 2 else f"too few {noun}s qualify ({strict['n']}), so a long test is needed for that."))
     m1, m2 = st.columns(2)
-    m1.metric("SNR average: typical dB difference at the same receiver", _lead_text(names, s_["mean"]))
+    m1.metric("SNR average: typical dB difference at the same receiver", _card_lead(s_["mean"]))
     m1.caption(f"{s_['n']} {noun}s counted once per place. 95% range: {_range_text(names, s_['lo'], s_['hi'])}.")
-    m2.metric("Linear average: each receiver's average power, A against B", _lead_text(names, pm["mean"]))
+    m2.metric("Linear average: each receiver's average power, A against B", _card_lead(pm["mean"]))
     m2.caption(f"{pm['n']} {noun}s counted once per place. 95% range: {_range_text(names, pm['lo'], pm['hi'])}.")
+    if names["A"] != "A" or names["B"] != "B":
+        st.caption(f"A is {names['A']}. B is {names['B']}.")
     gap = abs(s_["mean"] - pm["mean"]) if not np.isnan(s_["mean"]) else np.nan
     if not np.isnan(gap):
         if gap < 1.0:
@@ -1804,6 +1806,13 @@ def _range_text(names, lo, hi):
 
 def _gain_text(v):
     return "-" if pd.isna(v) or abs(v) < 0.05 else f"{'A' if v > 0 else 'B'} +{abs(v):.1f}"
+
+
+def _card_lead(v):
+    """A short value for a big summary card, such as 'B +4.9 dB', so a long antenna name can't cut it off."""
+    if pd.isna(v) or abs(v) < 0.05:
+        return "no difference"
+    return f"{'A' if v > 0 else 'B'} +{abs(v):.1f} dB"
 
 
 def _data_used(all_spots, spots, map_a, map_b, spots_a, spots_b, an, ta_all, tb_all, noun, sep, unpaired, listening_note, ghosts):
@@ -2169,12 +2178,12 @@ def compare_view(spots, locs, home, label, callsign, file_date, tiles, show_all,
                 one_b = spots_b[spots_b["spotter"] == pick]["snr"].to_numpy(float) + offset
                 m_a, m_b, m_gain = st.columns(3)
                 for col, label, values in ((m_a, names["A"], one_a), (m_b, names["B"], one_b)):
-                    col.metric(label, f"{_linear_db(values):.1f} dB linear average")
-                    col.caption(f"{len(values)} reports \u00b7 dB average {values.mean():.1f} \u00b7 middle {np.median(values):g} "
+                    col.metric(label, f"{_linear_db(values):.1f} dB")
+                    col.caption(f"Linear average \u00b7 {len(values)} reports \u00b7 dB average {values.mean():.1f} \u00b7 middle {np.median(values):g} "
                                 f"\u00b7 spread (std) {values.std(ddof=1) if len(values) > 1 else float('nan'):.1f} dB")
                 diff, lo, hi = _gain_interval(one_a, one_b)
-                m_gain.metric("Relative gain B \u2212 A", f"{_linear_db(one_b) - _linear_db(one_a):+.1f} dB linear")
-                m_gain.caption(f"dB averages: {diff:+.1f} dB"
+                m_gain.metric("Relative gain B \u2212 A", f"{_linear_db(one_b) - _linear_db(one_a):+.1f} dB")
+                m_gain.caption(f"Linear power. dB averages: {diff:+.1f} dB"
                                + (f", 95% range {lo:+.1f} to {hi:+.1f} dB" if not np.isnan(lo) else ", too few reports for a range"))
                 st.caption(f"Each dot is one report from this {noun}; the line is each antenna's average "
                            f"({'linear power' if method_label == 'Linear power' else 'middle of the dB reports'}). "
