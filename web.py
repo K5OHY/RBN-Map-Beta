@@ -2780,7 +2780,8 @@ def _conditions_body(result, power, mode, margin_db, units, k, lat, lon, who):
         st.caption("The share of receivers in each region that would hear you, allowing for the usual error in a prediction "
                    f"(about {cond.SIGMA_DB:g} dB), with the number of receivers behind it in brackets. Green is 70% or more, "
                    f"yellow 40 to 70%, red below. A grey figure with a ~ rests on only 1 or 2 receivers: in a week of checks, regions "
-                   "like that were really spotted only about 4 times in 10, so it is a hint, not a result.")
+                   "like that were really spotted only about 4 times in 10, so it is a hint, not a result. These are estimates, not "
+                   "measured success rates: they are good for comparing bands and directions.")
     elif view == "Margin at your power":
         table = result["regions"].rename(columns=_REGION_NAME).round(0)
         shown = _color_cells(table, lambda v: ("background-color:rgba(46,160,67,.35)" if v >= margin_db
@@ -2992,8 +2993,9 @@ def help_page():
     """The README, shown in the app, with the links to the code and to Dale's site."""
     st.title("Help and README")
     st.markdown(f"This is the project's README, the same one that is on [GitHub]({GITHUB_URL}#readme), where the code lives "
-                "and where you can report a problem or suggest something. The relative gain, linear averaging and long "
-                "alternating blocks follow the method [Dale, N3HXZ](https://www.n3hxz.net/) publishes on his site.")
+                "and where you can report a problem or suggest something. The long-test method (relative gain at each "
+                "receiver, linear averaging and long alternating blocks) follows the work of "
+                "[Dale, N3HXZ](https://www.n3hxz.net/), published on his site. The quick paired test is this app's own.")
     path = Path(__file__).parent / "README.md"
     try:
         text = path.read_text(encoding="utf-8")
@@ -3038,7 +3040,7 @@ def main():
              st.Page(help_page, title="Help and README", icon="\u2753", url_path="help")]
     st.navigation(pages).run()
     st.sidebar.divider()
-    st.sidebar.caption(f"[README and code on GitHub]({GITHUB_URL}#readme) \u00b7 method by [Dale, N3HXZ](https://www.n3hxz.net/)")
+    st.sidebar.caption(f"[README and code on GitHub]({GITHUB_URL}#readme) \u00b7 long-test method by [Dale, N3HXZ](https://www.n3hxz.net/)")
 
 
 if __name__ == "__main__":
