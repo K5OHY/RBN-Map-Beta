@@ -112,9 +112,41 @@ Why they can disagree: averaging in dB treats every report as equal (and the app
 
 On the **Linear average** tab, and in the table on **Receiver by receiver**, you can see both answers side by side and change the minimum number of reports a receiver needs. If the two agree within 1 dB, that is a useful consistency check, but not independent proof, because both use the same reports. If they disagree substantially, find out why before drawing a conclusion. For a short alternating test the paired dB method is generally preferable. For a longer, well-balanced test the linear-power method is another useful measure, though a few very strong reports can dominate it. Collect more data before believing a small difference.
 
-#### The math
+#### The math, step by step
 
-For one receiver, call its reports on antenna A $a_1 \dots a_m$ and on antenna B $b_1 \dots b_n$, all SNRs in dB. If B was sent at a different power, its reports are first shifted by that many dB so the antennas are compared at equal power. The receiver's **relative gain** $G$ is B minus A:
+For each receiver we work out one number: how many dB better (or worse) antenna B did than antenna A at that receiver. We call it **G**, for gain. Then we combine the G values from all the receivers. If B was sent at a different power, its readings are first shifted by that many dB so the antennas are compared at equal power. G measures real-world performance along those paths, not absolute antenna gain. (Inside the program the subtraction is done the other way round, A minus B, and shown as who is ahead and by how much.)
+
+A few words used below. A *reading* is one SNR report in dB. The *middle value* (the median) is what you get when you line the numbers up and pick the one in the middle, so one wild reading can't move it.
+
+**Method 1: the dB way (quick tests)**
+
+1. For each A, B pair of transmissions, subtract A's reading from B's.
+2. Line up those differences and take the middle value. That is G.
+
+*Example.* A receiver's five pairs give +4, +6, +5, +20 and +5 dB. Lined up they are 4, 5, 5, 6, 20, so the middle is **+5 dB**. The odd +20 doesn't distort the answer. For long blocks with no pairs, the middle of all B's readings minus the middle of all A's is used instead.
+
+**Method 2: the power way (long tests)**
+
+1. Turn each reading from dB into a power number: 0 dB is 1, 10 dB is 10, 20 dB is 100, and -10 dB is 0.1. (The rule is 10 to the power of dB divided by 10.)
+2. Average A's power numbers, and average B's power numbers.
+3. Divide B's average by A's average.
+4. Turn the answer back into dB. That is G.
+
+*Example.* A's readings are 0, 0, 0 and 20 dB, which are powers 1, 1, 1 and 100, averaging 25.75. B's are 5, 5, 5 and 5 dB, each 3.16, so B averages 3.16. Dividing gives 0.123, which is **-9.1 dB**. A's one loud report dominates, which is why this method needs many reports from each receiver.
+
+**Combining the receivers**
+
+1. Count receivers at the same place once, because they see the same sky and are not independent witnesses.
+2. Add up the G values and divide by how many there are.
+
+*Example.* Four receivers give +5, +3, +6 and +2 dB. The total is 16, and 16 divided by 4 is **+4 dB**, so B is about 4 dB better.
+
+**How sure is that number?** The app also gives a 95% range. Suppose B comes out +4 dB with a range of +3 to +5: you can be fairly confident the real advantage is in there. If the range ran from -1 to +9, it would be too wide to call. A side is declared ahead only when the whole range is on its side of zero and the gap is at least 1 dB. A smaller gap is called no meaningful difference, which covers two cases: the whole range sits inside 1 dB, or a lead is probably real but under 1 dB. Neither proves the antennas are identical, and a short test can still be fooled by changing propagation.
+
+<details>
+<summary><b>For the math-minded: the formulas</b></summary>
+
+**Symbols.** For one receiver, $a_1 \dots a_m$ are its readings on antenna A and $b_1 \dots b_n$ its readings on antenna B, all in dB. $G$ is the relative gain, B minus A. $N$ is the number of independent sites, and $\Sigma$ means "add up".
 
 **dB method (quick tests).** Each B transmission is paired with the A transmission next to it, round $k$, and the receiver's answer is the middle value of those pair differences:
 
@@ -122,19 +154,19 @@ $$G = \mathrm{median}_k \left( b_k - a_k \right)$$
 
 When blocks are long and there are no pairs, the same idea is used on the whole set: $G = \mathrm{median}(b) - \mathrm{median}(a)$.
 
-**Linear power method (long tests).** Each report is turned into power, a power average is taken for each antenna, and the ratio is turned back into dB:
+**Linear power method (long tests).** Each report is turned into a power ratio, a power average is taken for each antenna, and the ratio is turned back into dB:
 
 $$G = 10 \log_{10} \frac{\frac{1}{n} \sum_{j=1}^{n} 10^{b_j/10}}{\frac{1}{m} \sum_{i=1}^{m} 10^{a_i/10}}$$
 
-Because WSPR reports move dB for dB with transmit power, $G$ is the relative signal-strength advantage of antenna B over A at that receiver, after accounting for any transmit-power difference, however strong or weak that receiver is. It measures real-world performance along that path, not absolute antenna gain.
+Because WSPR reports move dB for dB with transmit power, $G$ is the relative signal-strength advantage of antenna B over A at that receiver, however strong or weak that receiver is.
 
-**Combining receivers.** Receivers at the same place are merged into one, leaving $N$ independent sites with gains $G_1 \dots G_N$. The headline number is their mean, each site counting equally:
+**Combining sites.** Receivers at the same place are merged into one, leaving $N$ independent sites with gains $G_1 \dots G_N$. The headline number is their mean, each site counting equally:
 
 $$\bar{G} = \frac{1}{N} \sum_{r=1}^{N} G_r$$
 
-The 95% range says how uncertain that average is, and the app uses a few methods depending on the test. For the standard comparison it resamples the sites (a bootstrap). For an alternating test it also widens that range when needed to allow for fading from one pair of transmissions to the next, which moves every receiver together. For short unpaired tests and for the linear-power check it uses the Student t interval, $\bar{G} \pm t_{0.975,N-1} s/\sqrt{N}$, where $s$ is the standard deviation of the $G_r$ and $t$ is the Student t critical value for $N-1$ degrees of freedom. A range is not a guarantee that the true difference lies inside it, and a short test can still be fooled by changing propagation. A side is called ahead only when the whole range is on one side of zero and $|\bar{G}|$ is at least 1 dB. A smaller gap is called no meaningful difference, which covers two cases: the whole range sits inside 1 dB, or a lead is probably real but under 1 dB. Neither proves the antennas are identical.
+**The 95% range** says how uncertain that average is, and the app uses a few methods depending on the test. For the standard comparison it resamples the sites (a bootstrap). For an alternating test it also widens that range when needed to allow for fading from one pair of transmissions to the next, which moves every receiver together. For short unpaired tests and for the linear-power check it uses the Student t interval, $\bar{G} \pm t_{0.975,N-1} s/\sqrt{N}$, where $s$ is the standard deviation of the $G_r$ and $t$ is the Student t critical value for $N-1$ degrees of freedom. A range is not a guarantee that the true difference lies inside it.
 
-**Worked example.** One receiver hears antenna A at 0, 0, 0 and 20 dB, and antenna B at 5, 5, 5 and 5 dB. In dB, the middle values are 0 and 5, so $G = +5$ dB. In power, A averages $(1 + 1 + 1 + 100)/4 = 25.75$ and B is $10^{0.5} = 3.16$, so $G = 10\log_{10}(3.16/25.75) = -9.1$ dB. The two methods disagree because A's one loud report dominates the power average, which is why the linear method needs many reports per receiver, and why the app shows both.
+</details>
 
 ### How the verdict is decided
 

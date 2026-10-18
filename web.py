@@ -3007,8 +3007,20 @@ def help_page():
             st.markdown("\n".join(chunk))
             chunk.clear()
 
-    for line in text.splitlines():
+    lines, i = text.splitlines(), 0
+    while i < len(lines):
+        line = lines[i]
+        i += 1
         if line.startswith("# ") or "online, nothing to install" in line:
+            continue
+        if line.strip() == "<details>":  # a folded section: the first line inside is its <summary>
+            end = next((k for k in range(i, len(lines)) if lines[k].strip() == "</details>"), len(lines))
+            inside = lines[i:end]
+            i = end + 1
+            flush()
+            title = re.sub(r"<[^>]+>", "", inside[0]).strip() if inside else "More"
+            with st.expander(title):
+                st.markdown("\n".join(inside[1:]))
             continue
         pic = re.fullmatch(r"!\[(.*?)\]\((images/[^)]+)\)", line.strip())
         if pic:
