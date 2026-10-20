@@ -244,6 +244,34 @@ def power_method(spots_a, spots_b, locs, home, min_spots=1, floor=None, offset=0
             "sd": sd, "near_floor": near_floor, "dropped": dropped}
 
 
+GAIN_OCTANTS = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"]  # centred on the compass points, like the direction charts
+GAIN_QUADRANTS = ["N", "E", "S", "W"]
+
+
+def gain_summary(every, by="octant", edges_km=None, labels=None):
+    """The average relative gain (B minus A) of the receivers that heard both antennas, grouped by direction or by distance.
+    `every` is the per-receiver table the gain charts use (it needs gap, km_a and bearing_a). Receivers at the same place are
+    counted once. `by` is 'octant' (8 directions), 'quadrant' (4) or 'distance'; for distance, `edges_km` are the cut points
+    (so two cuts make three bands) and `labels` names the bands. Returns a table with one row per group: its receivers, the
+    average gain and the 95% range (NaN when a group has none, or only one for the range)."""
+    sites = _one_per_site(every) if len(every) > 1 else every
+    gain = -sites["gap"].to_numpy(float)
+    if by == "distance":
+        edges = sorted(edges_km)
+        group = np.searchsorted(edges, sites["km_a"].to_numpy(float), side="right")
+        names = list(labels) if labels else [f"Band {i + 1}" for i in range(len(edges) + 1)]
+    else:
+        width = 45 if by == "octant" else 90
+        group = (((sites["bearing_a"].to_numpy(float) + width / 2) % 360) // width).astype(int)
+        names = GAIN_OCTANTS if by == "octant" else GAIN_QUADRANTS
+    rows = []
+    for k, name in enumerate(names):
+        values = gain[group == k]
+        mean, low, high = mean_interval(values) if len(values) else (math.nan, math.nan, math.nan)
+        rows.append({"group": name, "receivers": int(len(values)), "mean": mean, "low": low, "high": high})
+    return pd.DataFrame(rows)
+
+
 def direction_advantage(shared, width_deg=45):
     """Which side is stronger in each direction sector, at the stations that heard both: one row per sector with the number
     of stations and the average A-minus-B difference (positive = A stronger). `width_deg` is 45, 30 or 15."""

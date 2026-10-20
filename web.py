@@ -23,6 +23,7 @@ from compare_stats import (
     station_gains,
     gain_by_window,
     DIRECTION_EDGE_DB,
+    gain_summary,
     WSPR_FLOOR_DB,
     SECTOR_NAMES,
     EQUAL_DB,
@@ -572,12 +573,15 @@ def _themed_axes(fig, polar=False):
     return ax
 
 
-def sector_means(table):
-    """Average per-skimmer SNR in each of the 8 compass directions (NaN where no skimmer heard you)."""
+def sector_means(table, min_receivers=1):
+    """Average per-skimmer SNR in each of the 8 compass directions (NaN where no skimmer heard you, or fewer than
+    `min_receivers` did, so one far-off outlier can't stretch the chart)."""
     if table.empty:
         return pd.Series(np.nan, index=range(8))
     sector = ((table["bearing"] + 22.5) % 360 // 45).astype(int)
-    return table.groupby(sector)["snr"].mean().reindex(range(8))
+    grouped = table.groupby(sector)["snr"]
+    means, counts = grouped.mean().reindex(range(8)), grouped.size().reindex(range(8)).fillna(0)
+    return means.where(counts >= min_receivers)
 
 
 def direction_chart(means_a, means_b, name_a, name_b):
@@ -1053,6 +1057,14 @@ def compare_report_pdf(ctx):
                    ("figure", relative_gain_chart(every, names, units, "distance"), 3.0),
                    ("note", f"Relative gain is B's SNR minus A's SNR at the same {noun}: above zero the second antenna "
                             "gave more signal. Treat A as the reference and B as the test."),
+                   *([("heading", "Average relative gain by direction and distance"),
+                      ("table", list(ctx["gain_summary"]["direction"].columns), ctx["gain_summary"]["direction"].astype(str).values.tolist(),
+                       [0.22, 0.14, 0.24, 0.22, 0.18]),
+                      ("table", list(ctx["gain_summary"]["distance"].columns), ctx["gain_summary"]["distance"].astype(str).values.tolist(),
+                       [0.3, 0.12, 0.22, 0.2, 0.16]),
+                      ("note", f"The average of B minus A at the {noun}s in each group, {noun}s at the same place counted once, with "
+                               f"a 95% range. A group with fewer than {BIN_MIN_SHARED} {noun}s is a hint, not a result.")]
+                     if ctx.get("gain_summary") else []),
                    ("note", f"{len(every)} {noun}s heard both sides, shown farthest first (up to 40). "
                             + ctx.get("rx_note", "Each SNR is the median of that station's spots.")),
                    ("table", [noun.capitalize(), f"Distance ({units})", "A SNR", "B SNR", "Stronger", "B − A (dB)"],
@@ -1415,27 +1427,50 @@ def _blocks_test(spots, all_stamps):
     if bad_lines:
         st.warning("Couldn't read: " + "; ".join(bad_lines[:3]) + (" and more" if len(bad_lines) > 3 else "")
                    + ". Use lines like 16:40-17:12 A.")
+    pasted_used = bool(schedule)
     if not schedule:
         schedule = [(pattern[k % len(pattern)], t0 + pd.Timedelta(minutes=k * block_min),
                      t0 + pd.Timedelta(minutes=(k + 1) * block_min)) for k in range(n_blocks)]
+    chain = False if pasted_used else st.checkbox(
+        "Each block ends when the next one starts", value=True, key=f"blk_chain_{sig}",
+        help="Then you only have to edit the From times: the To of a block follows the From of the next one, and the last block "
+             "runs for the block length. Untick it to set every end time yourself, for blocks with a gap between them.")
     stamp = lambda ts: f"{ts:%H:%M}" + (f" +{(ts.normalize() - day0).days}d" if ts.normalize() > day0 else "")
-    table = pd.DataFrame({"Block": range(1, len(schedule) + 1), "Antenna": [a for a, _, _ in schedule],
-                          "From (UTC)": [stamp(lo) for _, lo, _ in schedule], "To (UTC)": [stamp(hi) for _, _, hi in schedule]})
-    st.caption("Each block is one antenna for its whole time. Change an Antenna cell if you switched differently, or clear it to "
-               "leave a block out. The From and To times can be edited too, for blocks that ran a little long or short; add +1 "
-               "after a time that falls on the next UTC day.")
+    columns = {"Block": range(1, len(schedule) + 1), "Antenna": [a for a, _, _ in schedule],
+               "From (UTC)": [stamp(lo) for _, lo, _ in schedule]}
+    if not chain:
+        columns["To (UTC)"] = [stamp(hi) for _, _, hi in schedule]
+    table = pd.DataFrame(columns)
+    if chain:
+        st.caption("Each block is one antenna until the next block starts, so you only need to edit the From times (the last block "
+                   "runs for the block length). Change an Antenna cell if you switched differently, or clear it to leave a block "
+                   "out. A time after midnight UTC is shown with +1d.")
+    else:
+        st.caption("Each block is one antenna for its whole time. Change an Antenna cell if you switched differently, or clear it to "
+                   "leave a block out. The From and To times can be edited too, for blocks that ran a little long or short; add +1 "
+                   "after a time that falls on the next UTC day.")
+    config = {"Antenna": st.column_config.SelectboxColumn("Antenna", options=["A", "B"],
+                                                          help="A, B, or empty to leave this block out."),
+              "From (UTC)": st.column_config.TextColumn("From (UTC)", help="Like 12:30, or 00:10 +1 for the next day.")}
+    if not chain:
+        config["To (UTC)"] = st.column_config.TextColumn("To (UTC)", help="Like 13:00, or 00:40 +1 for the next day.")
     edited = st.data_editor(
         table, hide_index=True, width="stretch",
-        key=f"blocks_{pattern}_{block_min}_{n_blocks}_{t0:%d%H%M}_{abs(hash(pasted)) % 10**8}", disabled=["Block"],
-        column_config={"Antenna": st.column_config.SelectboxColumn("Antenna", options=["A", "B"],
-                                                                   help="A, B, or empty to leave this block out."),
-                       "From (UTC)": st.column_config.TextColumn("From (UTC)", help="Like 12:30, or 00:10 +1 for the next day."),
-                       "To (UTC)": st.column_config.TextColumn("To (UTC)", help="Like 13:00, or 00:40 +1 for the next day.")})
+        key=f"blocks_{pattern}_{block_min}_{n_blocks}_{t0:%d%H%M}_{abs(hash(pasted)) % 10**8}_{int(chain)}", disabled=["Block"],
+        column_config=config)
     blocks, problems = [], []
-    for n, row in edited.iterrows():
+    rows_list = list(edited.iterrows())
+    los = [_cell_time(r["From (UTC)"], day0) for _, r in rows_list]
+    if chain:
+        his = []
+        for i, lo in enumerate(los):
+            later = [x for x in los[i + 1:] if x is not None and lo is not None and x > lo]
+            his.append(later[0] if later else (lo + pd.Timedelta(minutes=block_min) if lo is not None else None))
+    else:
+        his = [_cell_time(r["To (UTC)"], day0) for _, r in rows_list]
+    for (n, row), lo, hi in zip(rows_list, los, his):
         if row["Antenna"] not in ("A", "B"):
             continue
-        lo, hi = _cell_time(row["From (UTC)"], day0), _cell_time(row["To (UTC)"], day0)
         if lo is None or hi is None:
             problems.append(f"block {int(row['Block'])}")
             continue
@@ -1808,6 +1843,21 @@ def _gain_text(v):
     return "-" if pd.isna(v) or abs(v) < 0.05 else f"{'A' if v > 0 else 'B'} +{abs(v):.1f}"
 
 
+def _gain_summary_view(summary, first_col, noun):
+    """A gain_summary table as text for the screen and the PDF: the group, how many receivers, the average and its range."""
+    def fmt(v):
+        return "\u2013" if pd.isna(v) else f"{v:+.1f}"
+
+    def rng(row):
+        return "\u2013" if pd.isna(row["low"]) else f"{row['low']:+.1f} to {row['high']:+.1f}"
+
+    return pd.DataFrame({
+        first_col: summary["group"], f"{noun.capitalize()}s": summary["receivers"],
+        "Average gain B \u2212 A (dB)": [fmt(v) for v in summary["mean"]],
+        "95% range": [rng(r) for _, r in summary.iterrows()],
+        "Note": ["" if n >= BIN_MIN_SHARED else ("none" if n == 0 else f"only {n}, a hint") for n in summary["receivers"]]})
+
+
 def _card_lead(v):
     """A short value for a big summary card, such as 'B +4.9 dB', so a long antenna name can't cut it off."""
     if pd.isna(v) or abs(v) < 0.05:
@@ -2080,6 +2130,12 @@ def compare_view(spots, locs, home, label, callsign, file_date, tiles, show_all,
                               "the average-SNR chart below, there is nothing to subtract in your head.")
         if means_a.notna().any() or means_b.notna().any():
             st.subheader("Average SNR by direction")
+            min_dir = int(st.slider(f"Only directions with at least this many {noun}s", 1, 20, 1, key="snr_dir_min",
+                                    help="A direction with only one or two receivers can stretch the chart. Raise this to leave "
+                                         "those directions out of the chart (the table keeps them)."))
+            if min_dir > 1:
+                means_a, means_b = sector_means(ta_all, min_dir), sector_means(tb_all, min_dir)
+                pdf_ctx["means_a"], pdf_ctx["means_b"] = means_a, means_b
             chart_col, table_col = st.columns([1, 1])
             chart_col.pyplot(direction_chart(means_a, means_b, names["A"], names["B"]), width="stretch")
             table_col.dataframe(breakdown_table(an["direction"], names, "Direction", noun), width="stretch", hide_index=True,
@@ -2156,6 +2212,33 @@ def compare_view(spots, locs, home, label, callsign, file_date, tiles, show_all,
                 gain_dir.pyplot(relative_gain_chart(every, names, units, "direction"), width="stretch")
                 gain_dist.pyplot(relative_gain_chart(every, names, units, "distance"), width="stretch")
 
+                st.markdown("##### Average relative gain by direction and distance")
+                c_groups, c_short, c_medium = st.columns([2, 1, 1])
+                groups = c_groups.radio("Group directions as", ["Octants (8)", "Quadrants (4)"], horizontal=True, key="gs_groups",
+                                        help="Each direction is centred on its compass point, like the direction charts: N covers "
+                                             "337\u00b0 to 22\u00b0 for octants, and 315\u00b0 to 45\u00b0 for quadrants.")
+                kk_gs = KM_PER_MILE if units == "mi" else 1.0
+                short_max = float(c_short.number_input(f"Short ends at ({units})", min_value=50, max_value=20000,
+                                                       value=1000 if units == "mi" else 1500, step=100, key=f"gs_short_{units}"))
+                medium_max = float(c_medium.number_input(f"Medium ends at ({units})", min_value=100, max_value=20000,
+                                                         value=2500 if units == "mi" else 4000, step=100, key=f"gs_med_{units}"))
+                if medium_max <= short_max:
+                    st.warning("Medium has to end beyond where Short ends. Using the two numbers in order.")
+                    short_max, medium_max = sorted((short_max, medium_max))
+                dir_sum = gain_summary(every, "octant" if groups.startswith("Octants") else "quadrant")
+                dist_labels = [f"Short: under {short_max:,.0f} {units}", f"Medium: {short_max:,.0f} to {medium_max:,.0f} {units}",
+                               f"Long: over {medium_max:,.0f} {units}"]
+                dist_sum = gain_summary(every, "distance", [short_max * kk_gs, medium_max * kk_gs], dist_labels)
+                gs_dir = _gain_summary_view(dir_sum, "Direction", noun)
+                gs_dist = _gain_summary_view(dist_sum, "Distance", noun)
+                pdf_ctx["gain_summary"] = {"direction": gs_dir, "distance": gs_dist}
+                t_dir, t_dist = st.columns(2)
+                t_dir.dataframe(gs_dir, width="stretch", hide_index=True, height=35 * (len(gs_dir) + 1) + 3)
+                t_dist.dataframe(gs_dist, width="stretch", hide_index=True, height=35 * (len(gs_dist) + 1) + 3)
+                st.caption(f"The average of B \u2212 A at the {noun}s in each group, with {noun}s at the same place counted once and "
+                           f"a 95% range. Above zero, B was stronger there. A group with fewer than {BIN_MIN_SHARED} {noun}s is a "
+                           f"hint, not a result. It uses the same averaging ({method_label}) and minimum reports as the charts above.")
+
                 st.subheader(f"One {noun} over time")
                 reports_a, reports_b = spots_a.groupby("spotter").size(), spots_b.groupby("spotter").size()
                 kk = KM_PER_MILE if units == "mi" else 1
@@ -2198,8 +2281,9 @@ def compare_view(spots, locs, home, label, callsign, file_date, tiles, show_all,
                     multiples = [m for m in (2, 4, 6, 8) if m * block_min <= (t_end - t_start).total_seconds() / 60]
                     c_len, c_min = st.columns(2)
                     mult = c_len.selectbox("Window length", multiples or [2], index=min(1, max(len(multiples) - 1, 0)),
-                                           format_func=lambda m: (f"{m * block_min / 60:g} hour{'s' if m * block_min != 60 else ''}"
-                                                                  if m * block_min >= 60 else f"{m * block_min} minutes"),
+                                           format_func=lambda m: (f"{m * block_min // 60} hour{'s' if m * block_min != 60 else ''}"
+                                                                  if m * block_min >= 60 and m * block_min % 60 == 0
+                                                                  else f"{m * block_min:g} minutes"),
                                            key=f"rx_win_len_{block_min}",
                                            help="A window should hold whole A and B blocks so both antennas get equal time. "
                                                 "Two hours (four 30-minute blocks) balances either block order.")
