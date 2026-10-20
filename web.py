@@ -2828,7 +2828,7 @@ def _color_cells(frame, rule):
     return frame.style.map(lambda v: "" if pd.isna(v) else rule(v))
 
 
-def _conditions_body(result, power, mode, margin_db, units, k, lat, lon, who):
+def _conditions_body(result, power, mode, margin_db, units, k, lat, lon, who, window=60):
     """Everything under the headline numbers: the at-a-glance box, the band table, the regions, the farthest receivers and the map."""
     dx_receivers = result["receivers"][result["receivers"]["region"].isin(cond.DX_REGIONS)]["rx"].nunique()
     if dx_receivers < 5:
@@ -2837,7 +2837,7 @@ def _conditions_body(result, power, mode, margin_db, units, k, lat, lon, who):
                    "can add some.")
     with st.container(border=True):
         st.markdown("**At a glance**")
-        for line in cond.headline(result, power, mode, margin_db, units):
+        for line in cond.headline(result, power, mode, margin_db, units, window):
             st.markdown(line)
 
     st.subheader("Band by band")
@@ -2874,7 +2874,9 @@ def _conditions_body(result, power, mode, margin_db, units, k, lat, lon, who):
                    f"(about {cond.SIGMA_DB:g} dB), with the number of receivers behind it in brackets. Green is 70% or more, "
                    f"yellow 40 to 70%, red below. A grey figure with a ~ rests on only 1 or 2 receivers: in a week of checks, regions "
                    "like that were really spotted only about 4 times in 10, so it is a hint, not a result. These are estimates, not "
-                   "measured success rates: they are good for comparing bands and directions.")
+                   "measured success rates: they are good for comparing bands and directions, but they run high for being spotted "
+                   "by a skimmer. In a week of one station's CW activations, of the skimmers that the figures said could hear him, "
+                   "about 2 in 10 spotted him at a margin of 0 to 5 dB, 4 in 10 at 5 to 10 dB, and about 7 in 10 even at 20 dB or more.")
     elif view == "Margin at your power":
         table = result["regions"].rename(columns=_REGION_NAME).round(0)
         shown = _color_cells(table, lambda v: ("background-color:rgba(46,160,67,.35)" if v >= margin_db
@@ -2886,16 +2888,25 @@ def _conditions_body(result, power, mode, margin_db, units, k, lat, lon, who):
                    "receiver there heard the nearby stations.")
     else:
         table = result["power_needed"].rename(columns=_REGION_NAME)
-
-        def power_cell(w):
-            return ("background-color:rgba(46,160,67,.35)" if w <= power else "background-color:rgba(210,153,34,.35)"
-                    if w <= power * 4 else "background-color:rgba(248,81,73,.28)")
+        counts = result["regions_n"].rename(columns=_REGION_NAME)
+        thin = counts < cond.THIN
 
         def power_text(w):
             return "" if pd.isna(w) else "<0.1" if w < 0.1 else ">1500" if w > 1500 else f"{w:.1f}" if w < 10 else f"{w:.0f}"
-        st.dataframe(_color_cells(table, power_cell).format(power_text), width="stretch")
-        st.caption(f"Watts of {mode} a typical receiver in each region would need to hear you with your {margin_db} dB margin. "
-                   f"Green is at or below your {power:g} W, yellow is up to four times that, red is more.")
+
+        text = pd.DataFrame({col: [("" if pd.isna(w) else ("~" if n < cond.THIN else "") + f"{power_text(w)} ({int(n)})")
+                                   for w, n in zip(table[col], counts[col])] for col in table.columns}, index=table.index)
+        colour = table.copy().astype(object)
+        for col in table.columns:  # a region with only one or two receivers is a hint, so it is greyed, not green or red
+            colour[col] = ["" if pd.isna(w) else "background-color:rgba(138,143,152,.25)" if t
+                           else "background-color:rgba(46,160,67,.35)" if w <= power
+                           else "background-color:rgba(210,153,34,.35)" if w <= power * 4 else "background-color:rgba(248,81,73,.28)"
+                           for w, t in zip(table[col], thin[col])]
+        st.dataframe(text.style.apply(lambda _: colour, axis=None), width="stretch")
+        st.caption(f"Watts of {mode} a typical receiver in each region would need to hear you with your {margin_db} dB margin, "
+                   f"with the number of receivers behind it in brackets. Green is at or below your {power:g} W, yellow is up to "
+                   "four times that, red is more. A grey figure with a ~ rests on only 1 or 2 receivers, so it is a hint, not "
+                   "a number to plan around: one receiver with a quiet or noisy site can make it look far too easy or too hard.")
 
     st.subheader("Farthest receivers that would hear you")
     dx = result["dx"]
@@ -2946,7 +2957,7 @@ def conditions_page():
     """Which bands are open and where a signal like yours would be heard, from the WSPR stations near you."""
     st.title("\U0001F310 Band conditions now")
     st.markdown('<p class="subtitle">Which bands are open and where you would be heard, worked out from the WSPR stations near '
-                'you in the last hour, restated for your power and mode.</p>', unsafe_allow_html=True)
+                'you in the last half hour, restated for your power and mode.</p>', unsafe_allow_html=True)
     skimmers, _ = skimmer_data()
     saved = st.session_state.get("cfg") or load_settings()
     with st.sidebar:
@@ -2971,7 +2982,8 @@ def conditions_page():
         source = st.radio("Learn from", ["Stations near me", "One transmitter"], horizontal=True, key="cond_source",
                           help="Stations near me uses every WSPR transmitter inside the area below. One transmitter uses just "
                                "your own WSPR transmitter, or a friend's, and treats it as you: its spots, at its own power, "
-                               "show where a station at that spot is being heard. It is the closest match to your own antenna.")
+                               "show where a station at that spot is being heard. It is the closest match to your own antenna. A single transmitter "
+                               "sends each band only now and then, so a look-back of an hour or two gives it more to go on.")
         ref_call = ""
         if source == "One transmitter":
             ref_call = st.text_input("Transmitter callsign", value=st.session_state.get("callsign_in", saved.get("callsign", "")),
@@ -2989,7 +3001,7 @@ def conditions_page():
                                             help="WSPR stations inside this distance count as being near you. A wider area "
                                                  "gives more data where few stations transmit."))
         st.header("Your signal")
-        power = st.number_input("Power (watts)", 0.1, 1500.0, 5.0, step=1.0, key="cond_power")
+        power = st.number_input("Power (watts)", 0.1, 1500.0, 100.0, step=1.0, key="cond_power")
         mode = st.selectbox("Mode", list(cond.MODES), key="cond_mode",
                             help="Each mode needs a minimum signal-to-noise ratio. These are approximate, in a 2,500 Hz "
                                  + "bandwidth: " + ", ".join(f"{m} {v:+g} dB" for m, v in cond.MODES.items()) + ".")
@@ -2999,7 +3011,7 @@ def conditions_page():
                                           "test on the My spots page can tell you the number.")
         margin_db = st.slider("Safety margin (dB)", 0, 10, 3, key="cond_margin",
                               help="Signals fade, so a path counts as good only when it beats the mode's threshold by this much.")
-        window = st.radio("Look back", [30, 60, 120], index=1, horizontal=True, key="cond_window",
+        window = st.radio("Look back", [30, 60, 120], index=0, horizontal=True, key="cond_window",
                           format_func=lambda m: f"{m} min" if m < 60 else f"{m // 60} h")
         if st.button("Refresh now", width="stretch", key="cond_refresh"):
             _nearby_spots.clear()
@@ -3030,7 +3042,7 @@ def conditions_page():
             return
         st.markdown(f"**{ref_call}'s WSPR spots**, **{result['n_spots']:,}** in the last {window} minutes, restated for "
                     f"**{power:g} W {mode}**. Its own antenna and location stand in for yours.")
-        _conditions_body(result, power, mode, margin_db, units, k, lat, lon, ref_call)
+        _conditions_body(result, power, mode, margin_db, units, k, lat, lon, ref_call, window)
         return
     try:
         if where == "My location":
@@ -3077,7 +3089,7 @@ def conditions_page():
     st.markdown(f"**{result['n_tx']} WSPR stations** within {radius / k:,.0f} {units}, **{result['n_spots']:,} spots** in the last "
                 f"{window} minutes, restated for **{power:g} W {mode}**.")
 
-    _conditions_body(result, power, mode, margin_db, units, k, lat, lon, callsign or "You")
+    _conditions_body(result, power, mode, margin_db, units, k, lat, lon, callsign or "You", window)
 
 GITHUB_URL = "https://github.com/K5OHY/RBN_Map"
 

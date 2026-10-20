@@ -157,7 +157,7 @@ def _watts(w):
     return "under 0.1 W" if w < 0.1 else f"{w:.1f} W" if w < 10 else f"{w:.0f} W"
 
 
-def headline(result, power_w, mode, margin_db, units="mi"):
+def headline(result, power_w, mode, margin_db, units="mi", window_min=60):
     """The conditions in a few plain sentences, DX first. Returns a list of markdown strings."""
     reg, count, need, bands, dx = (result["regions"], result["regions_n"], result["power_needed"], result["bands"], result["dx"])
     odds = result["chance"]
@@ -183,10 +183,13 @@ def headline(result, power_w, mode, margin_db, units="mi"):
                      + ", ".join(f"{b} to {_where(r)}" for b, r, m in hints[:4])
                      + ". Each rests on 1 or 2 receivers, and in a week of checks only about 4 in 10 such regions were really "
                      "spotted, so treat these as hints.")
-    elif cells:
-        band, region, m = max(cells, key=lambda c: c[2])
+    elif solid:
+        band, region, m = max(solid, key=lambda c: c[2])
         lines.append(f"🌍 **DX is hard at {power_w:g} W {mode} right now.** The best chance is {band} to {_where(region)}, "
                      f"which would need about {_watts(float(need.at[band, region]))}.")
+    elif cells:
+        lines.append(f"🌍 **DX is hard at {power_w:g} W {mode} right now.** The only receivers outside North America that heard "
+                     "the stations near you are 1 or 2 per region, too few to say how much power would be needed.")
     else:
         lines.append(f"🌍 **No DX paths show up yet:** nobody outside North America heard the stations near you. "
                      "Check again later or widen the area.")
@@ -194,8 +197,8 @@ def headline(result, power_w, mode, margin_db, units="mi"):
         far = dx.iloc[0]
         lines.append(f"The farthest receiver that would hear you is **{far['rx']}** in {_where(far['region'])}, "
                      f"{far['km'] / k:,.0f} {units} away on {far['band']}.")
-    if good and cells:
-        need_more = [c for c in cells if c[2] < margin_db and c[2] >= margin_db - 10]
+    if good and solid:
+        need_more = [c for c in solid if c[2] < margin_db and c[2] >= margin_db - 10]
         if need_more:
             band, region, m = max(need_more, key=lambda c: c[2])
             lines.append(f"With more power: {band} to {_where(region)} would need about {_watts(float(need.at[band, region]))}.")
@@ -214,6 +217,11 @@ def headline(result, power_w, mode, margin_db, units="mi"):
     moves = ([f"{', '.join(rising)} {'is' if len(rising) == 1 else 'are'} opening up"] if rising else []) +             ([f"{', '.join(falling)} {'is' if len(falling) == 1 else 'are'} fading"] if falling else [])
     if moves:
         lines.append("Right now " + " and ".join(moves) + ".")
+    if rising:
+        lines.append(f"{', '.join(rising)} {'is' if len(rising) == 1 else 'are'} rising, and the figures are an average of the "
+                     f"last {window_min} minutes, so " + ("expect "
+                     if window_min <= 30 else "try the 30 minute look-back, and expect ")
+                     + ("it" if len(rising) == 1 else "them") + " to be a little stronger now than shown.")
     home = [r for r in DOMESTIC if r in reg.columns]
     if home:
         avg = reg[home].mean(axis=1).dropna()
