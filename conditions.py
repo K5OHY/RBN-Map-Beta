@@ -22,11 +22,12 @@ from wspr_data import BAND_CODES, HEADERS, MAX_ROWS, WSPR_URL, WsprError, clean_
 
 # The SNR (dB, in a 2,500 Hz bandwidth) a mode needs for a solid contact. Approximate: CW and voice depend on the operator.
 # "CW spot" is how strong you need to be on this scale for an RBN skimmer to report you, which is what puts you on the spotting
-# sites that POTA hunters watch. It was set from two stations' activations on 16 Oct 2026 (K5OHY and WB0RLJ, each with a WSPR
-# transmitter at the same spot): skimmers reported them from about 3 dB on RBN's own scale, and RBN's scale read about 11 dB
-# above the WSPR-based figure (+12.5 dB for an OCF dipole at 75 W on one day; +7.0 dB for a quarter-wave vertical at 100 W over a
-# week, 354 receivers, day medians 3 to 9 dB, spread 7 dB). Taking about +10 dB, 3 - 10 = -7 dB here.
-MODES = {"CW": -5.0, "CW spot": -7.0, "SSB": 8.0, "FT8": -21.0, "FT4": -17.0, "JS8": -24.0, "WSPR": -28.0}
+# sites that POTA hunters watch. Skimmers report a station from about 3 dB on RBN's own scale, and RBN's scale reads above the
+# WSPR-based figure by an amount that depends on the station. First set from two stations on 16 Oct 2026 (K5OHY +12.5 dB with an
+# OCF dipole at 75 W; WB0RLJ +7 dB with a vertical at 100 W). Re-set on 20 Oct 2026 from a week (13 to 19 Oct) of four stations'
+# RBN spots against the local WSPR stations, with 100 W assumed: WB0RLJ +9.0 dB (749 matches), AE0YM +7.0 (106, 20m only),
+# K4NYM +5.0 (255), WC1D +2.5 (326), each with a spread of about 7 to 9 dB, so about +6 dB. 3 - 6 = -3 dB here.
+MODES = {"CW": -5.0, "CW spot": -3.0, "SSB": 8.0, "FT8": -21.0, "FT4": -17.0, "JS8": -24.0, "WSPR": -28.0}
 CODE_TO_BAND = {code: band for band, code in BAND_CODES.items()}
 EARTH_KM = 6371.0
 

@@ -2876,7 +2876,8 @@ def _conditions_body(result, power, mode, margin_db, units, k, lat, lon, who, wi
                    "like that were really spotted only about 4 times in 10, so it is a hint, not a result. These are estimates, not "
                    "measured success rates: they are good for comparing bands and directions, but they run high for being spotted "
                    "by a skimmer. In a week of one station's CW activations, of the skimmers that the figures said could hear him, "
-                   "about 2 in 10 spotted him at a margin of 0 to 5 dB, 4 in 10 at 5 to 10 dB, and about 7 in 10 even at 20 dB or more.")
+                   "about 1 in 10 spotted him below the CW spot threshold, 4 in 10 at a margin of 0 to 5 dB, 5 in 10 at 5 to 10 dB and "
+                   "about 7 in 10 at 15 dB or more.")
     elif view == "Margin at your power":
         table = result["regions"].rename(columns=_REGION_NAME).round(0)
         shown = _color_cells(table, lambda v: ("background-color:rgba(46,160,67,.35)" if v >= margin_db
