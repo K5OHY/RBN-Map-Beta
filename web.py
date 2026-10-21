@@ -49,6 +49,10 @@ from report_pdf import build_pdf
 from world_map import MAX_KM, MIN_CELL, azimuth_map_figure
 import session_report as sr
 import conditions as cond
+import space_weather as sw
+import dashboard as dash
+import ionosphere as iono
+from contextlib import nullcontext
 from rbn_data import (
     get_band,
     load_skimmers,
@@ -2828,116 +2832,155 @@ def _color_cells(frame, rule):
     return frame.style.map(lambda v: "" if pd.isna(v) else rule(v))
 
 
-def _conditions_body(result, power, mode, margin_db, units, k, lat, lon, who, window=60):
-    """Everything under the headline numbers: the at-a-glance box, the band table, the regions, the farthest receivers and the map."""
-    dx_receivers = result["receivers"][result["receivers"]["region"].isin(cond.DX_REGIONS)]["rx"].nunique()
-    if dx_receivers < 5:
-        st.warning(f"Only {dx_receivers} receiver{'s' if dx_receivers != 1 else ''} outside the US and Canada heard these WSPR "
-                   "signals, so the DX figures rest on very little data. A wider area (up to about 900 miles) or a longer look-back "
-                   "can add some.")
-    with st.container(border=True):
-        st.markdown("**At a glance**")
-        for line in cond.headline(result, power, mode, margin_db, units, window):
-            st.markdown(line)
+def _dx_badge(result, units, k):
+    """A short label and tone for the top card: how many receivers outside North America heard the stations near you."""
+    n = result["receivers"][result["receivers"]["region"].isin(cond.DX_REGIONS)]["rx"].nunique()
+    if n < 5:
+        return ("Thin DX evidence", "ta", f"Only {n} receiver{'s' if n != 1 else ''} outside the US and Canada heard these WSPR "
+                "signals, so the DX figures rest on very little data. A wider area (up to about 900 miles) or a longer look-back "
+                "can add some.")
+    return ("DX evidence good", "tg", f"{n} receivers outside the US and Canada heard these WSPR signals.")
 
-    st.subheader("Band by band")
-    bands = result["bands"]
-    summary = pd.DataFrame({
-        "Status": [_STATUS[s] for s in bands["Status"]], "Trend": [_TREND[t] for t in bands["Trend"]],
-        "Receivers hearing it": bands["Receivers"], "Good": bands["Good"], "Marginal": bands["Marginal"],
-        f"Farthest good ({units})": [f"{km / k:,.0f}" if pd.notna(km) else "" for km in bands["Farthest good (km)"]],
-        "Farthest receiver": [f"{c} ({r})" if c else "" for c, r in zip(bands["Farthest good receiver"],
-                                                                         bands["Farthest good region"])],
-    }, index=bands.index)
-    st.dataframe(summary, width="stretch")
-    st.caption("Good means the middle of that receiver's reports, restated for your power, beats the mode's threshold by your "
-               "safety margin. Marginal is above the threshold but by less than the margin. Trend compares the second half "
-               "of the look-back with the first.")
 
-    st.subheader("Where you would be heard")
-    view = st.radio("Show", ["Chance a receiver hears you", "Margin at your power", "Power you would need"], horizontal=True,
-                    key="cond_view")
-    if view == "Chance a receiver hears you":
-        odds = result["chance"].rename(columns=_REGION_NAME)
-        counts = result["regions_n"].rename(columns=_REGION_NAME)
-        thin = counts < cond.THIN
-        text = pd.DataFrame({col: [("" if pd.isna(p) else f"~{p:.0%} ({int(n)})" if n < cond.THIN else f"{p:.0%} ({int(n)})")
-                                   for p, n in zip(odds[col], counts[col])] for col in odds.columns}, index=odds.index)
-        colour = odds.copy().astype(object)
-        for col in odds.columns:  # a region with only one or two receivers is a hint, so it is greyed, not green or red
-            colour[col] = ["" if pd.isna(p) else "background-color:rgba(138,143,152,.25)" if t
-                           else "background-color:rgba(46,160,67,.35)" if p >= 0.7
-                           else "background-color:rgba(210,153,34,.35)" if p >= 0.4 else "background-color:rgba(248,81,73,.28)"
-                           for p, t in zip(odds[col], thin[col])]
-        st.dataframe(text.style.apply(lambda _: colour, axis=None), width="stretch")
-        st.caption("The share of receivers in each region that would hear you, allowing for the usual error in a prediction "
-                   f"(about {cond.SIGMA_DB:g} dB), with the number of receivers behind it in brackets. Green is 70% or more, "
-                   f"yellow 40 to 70%, red below. A grey figure with a ~ rests on only 1 or 2 receivers: in a week of checks, regions "
-                   "like that were really spotted only about 4 times in 10, so it is a hint, not a result. These are estimates, not "
-                   "measured success rates: they are good for comparing bands and directions, but they run high for being spotted "
-                   "by a skimmer. In a week of one station's CW activations, of the skimmers that the figures said could hear him, "
-                   "about 1 in 10 spotted him below the CW spot threshold, 4 in 10 at a margin of 0 to 5 dB, 5 in 10 at 5 to 10 dB and "
-                   "about 7 in 10 at 15 dB or more.")
-    elif view == "Margin at your power":
-        table = result["regions"].rename(columns=_REGION_NAME).round(0)
-        shown = _color_cells(table, lambda v: ("background-color:rgba(46,160,67,.35)" if v >= margin_db
-                                               else "background-color:rgba(210,153,34,.35)" if v >= 0
-                                               else "background-color:rgba(248,81,73,.28)")).format("{:+.0f}", na_rep="")
-        st.dataframe(shown, width="stretch")
-        st.caption(f"dB above the {mode} threshold at a typical receiver in each region (the 75th percentile, so not the best "
-                   f"one). Green clears your {margin_db} dB margin, yellow is above the threshold, red is below. Blank means no "
-                   "receiver there heard the nearby stations.")
-    else:
-        table = result["power_needed"].rename(columns=_REGION_NAME)
-        counts = result["regions_n"].rename(columns=_REGION_NAME)
-        thin = counts < cond.THIN
+def _conditions_body(result, power, mode, margin_db, units, k, lat, lon, who, window=60, area=""):
+    """The dashboard: the summary, a tile for each band, the sun and MUF, the regions, the map and the highlights,
+    with the detailed tables in tabs underneath."""
+    lines = cond.headline(result, power, mode, margin_db, units, window)
+    bands, dx = result["bands"], result["dx"]
+    data, est = _space_weather(), iono.estimate(lat, lon, _ionosondes())
+    badge, badge_tone, badge_help = _dx_badge(result, units, k)
+    setup = f"{power:g} W {mode} from {cond.latlon_to_maidenhead(lat, lon)}"
+    if len(dx):
+        far = dx.iloc[0]
+        setup += f" \u00b7 farthest: {far['rx']}, {far['km'] / k:,.0f} {units} on {far['band']}"
+    st.html(dash.CSS)
+    st.html(dash.top_html(setup, f"{result['n_spots']:,} WSPR spots from {result['n_tx']} stations{area}, last {window} minutes",
+                          badge, badge_tone, badge_help))
+    st.html(dash.tiles_html(bands, result["series"]))
+    st.html(dash.strip_html(sw.readings(data), est))
 
-        def power_text(w):
-            return "" if pd.isna(w) else "<0.1" if w < 0.1 else ">1500" if w > 1500 else f"{w:.1f}" if w < 10 else f"{w:.0f}"
-
-        text = pd.DataFrame({col: [("" if pd.isna(w) else ("~" if n < cond.THIN else "") + f"{power_text(w)} ({int(n)})")
-                                   for w, n in zip(table[col], counts[col])] for col in table.columns}, index=table.index)
-        colour = table.copy().astype(object)
-        for col in table.columns:  # a region with only one or two receivers is a hint, so it is greyed, not green or red
-            colour[col] = ["" if pd.isna(w) else "background-color:rgba(138,143,152,.25)" if t
-                           else "background-color:rgba(46,160,67,.35)" if w <= power
-                           else "background-color:rgba(210,153,34,.35)" if w <= power * 4 else "background-color:rgba(248,81,73,.28)"
-                           for w, t in zip(table[col], thin[col])]
-        st.dataframe(text.style.apply(lambda _: colour, axis=None), width="stretch")
-        st.caption(f"Watts of {mode} a typical receiver in each region would need to hear you with your {margin_db} dB margin, "
-                   f"with the number of receivers behind it in brackets. Green is at or below your {power:g} W, yellow is up to "
-                   "four times that, red is more. A grey figure with a ~ rests on only 1 or 2 receivers, so it is a hint, not "
-                   "a number to plan around: one receiver with a quiet or noisy site can make it look far too easy or too hard.")
-
-    st.subheader("Farthest receivers that would hear you")
-    dx = result["dx"]
-    if dx.empty:
-        st.caption("None at this power and mode right now.")
-    else:
-        st.dataframe(pd.DataFrame({
-            "Band": dx["band"], "Receiver": dx["rx"], "Region": dx["region"], f"Distance ({units})": (dx["km"] / k).round(0).astype(int),
-            "Margin (dB)": dx["margin"].round(0).astype(int)}), width="stretch", hide_index=True)
+    left, right = st.columns([1.5, 1])
+    with left.container(border=True):
+        st.html(dash.grid_html(result["chance"], result["regions_n"]))
+    with right.container(border=True):
+        st.html(dash.highlights_html(cond.short_highlights(result, power, mode, margin_db, units, window)))
 
     good = result["receivers"][result["receivers"]["margin"] >= 0]
-    if len(good):
-        st.subheader("Map of receivers that would hear you")
-        points = pd.DataFrame({"km": good["km"].to_numpy(), "bearing": good["bearing"].to_numpy(), "group": "single",
-                               "gap": float("nan"), "snr_a": good["margin"].to_numpy(), "snr_b": float("nan"),
-                               "color": [BAND_COLORS.get(b, "#8a8f98") for b in good["band"]]})
-        views = _views(units)
-        view_choice = st.radio("How much of the world", list(views), index=2, horizontal=True, key=f"cond_map_view_{units}")
-        view_km = views[view_choice]
-        map_col, key_col = st.columns([3, 1])
-        map_col.pyplot(azimuth_map_figure(lat, lon, points, {"A": "", "B": ""}, who, units, view_km, "dots", True,
-                                          (0, 20)), width="stretch")
-        beyond = int((points["km"] > view_km).sum())
-        if beyond:
-            map_col.caption(f"{beyond} receiver{'s' if beyond != 1 else ''} beyond this view.")
-        key_col.markdown("**Band colours**\n\n" + "\n\n".join(
-            f"<span style='color:{BAND_COLORS.get(b, '#8a8f98')}'>\u25CF</span> {b}" for b in sorted(
-                set(good["band"]), key=lambda b: list(BAND_COLORS).index(b) if b in BAND_COLORS else 99)), unsafe_allow_html=True)
+    with st.container(border=True):
+        st.html('<div class="cd"><p class="cd-h">Map of receivers that would hear you</p>'
+                f'<p class="cd-sub">{len(good)} receiver and band pairs with a good signal. Pick a band or two to show only those; pick none to show all.</p></div>')
+        if len(good):
+            map_col, side_col = st.columns([2.2, 1])
+            band_order = [b for b in BAND_COLORS if b in set(good["band"])] + sorted(set(good["band"]) - set(BAND_COLORS))
+            with side_col:
+                picked = st.pills("Bands", band_order, selection_mode="multi", key="cond_map_bands",
+                                  label_visibility="collapsed") or band_order
+                views = _views(units)
+                view_choice = st.selectbox("How much of the world", list(views), index=2, key=f"cond_map_view_{units}",
+                                           label_visibility="collapsed")
+                st.html(dash.farthest_html(result["dx"][result["dx"]["band"].isin(picked)], units, k))
+            shown = good[good["band"].isin(picked)]
+            points = pd.DataFrame({"km": shown["km"].to_numpy(), "bearing": shown["bearing"].to_numpy(), "group": "single",
+                                   "gap": float("nan"), "snr_a": shown["margin"].to_numpy(), "snr_b": float("nan"),
+                                   "color": [BAND_COLORS.get(b, "#8a8f98") for b in shown["band"]]})
+            map_col.pyplot(azimuth_map_figure(lat, lon, points, {"A": "", "B": ""}, who, units, views[view_choice], "dots", True,
+                                              (0, 20)), width="stretch")
+            beyond = int((points["km"] > views[view_choice]).sum())
+            if beyond:
+                map_col.caption(f"{beyond} receiver{'s' if beyond != 1 else ''} beyond this view.")
+            side_col.html('<div class="cd cd-key">' + "".join(
+                f"<span style='color:{BAND_COLORS.get(b, '#8a8f98')}'>\u25CF</span> {b}&nbsp;&nbsp;" for b in band_order) + "</div>")
+        else:
+            st.caption("No receiver would hear you at this power and mode right now.")
+    st.caption("Estimated from WSPR reports, not measured: good for comparing bands and directions, but the percentages run high "
+               "for being spotted by a skimmer. The tabs below have the numbers behind this and how far to trust them.")
 
-    with st.expander("How this works, and how far to trust it"):
+    t_band, t_margin, t_sun, t_far, t_how = st.tabs(["Band by band", "Margin and power needed", "Sun and MUF", "Farthest receivers",
+                                                      "How this works"])
+    with t_band:
+        bands = result["bands"]
+        summary = pd.DataFrame({
+            "Status": [_STATUS[s] for s in bands["Status"]], "Trend": [_TREND[t] for t in bands["Trend"]],
+            "Receivers hearing it": bands["Receivers"], "Good": bands["Good"], "Marginal": bands["Marginal"],
+            f"Farthest good ({units})": [f"{km / k:,.0f}" if pd.notna(km) else "" for km in bands["Farthest good (km)"]],
+            "Farthest receiver": [f"{c} ({r})" if c else "" for c, r in zip(bands["Farthest good receiver"],
+                                                                             bands["Farthest good region"])],
+        }, index=bands.index)
+        st.dataframe(summary, width="stretch")
+        st.caption("Good means the middle of that receiver's reports, restated for your power, beats the mode's threshold by your "
+                   "safety margin. Marginal is above the threshold but by less than the margin. Trend compares the second half "
+                   "of the look-back with the first.")
+
+    with t_margin:
+        view = st.radio("Show", ["Chance a receiver hears you", "Margin at your power", "Power you would need"], horizontal=True,
+                        key="cond_view")
+        if view == "Chance a receiver hears you":
+            odds = result["chance"].rename(columns=_REGION_NAME)
+            counts = result["regions_n"].rename(columns=_REGION_NAME)
+            thin = counts < cond.THIN
+            text = pd.DataFrame({col: [("" if pd.isna(p) else f"~{p:.0%} ({int(n)})" if n < cond.THIN else f"{p:.0%} ({int(n)})")
+                                       for p, n in zip(odds[col], counts[col])] for col in odds.columns}, index=odds.index)
+            colour = odds.copy().astype(object)
+            for col in odds.columns:  # a region with only one or two receivers is a hint, so it is greyed, not green or red
+                colour[col] = ["" if pd.isna(p) else "background-color:rgba(138,143,152,.25)" if t
+                               else "background-color:rgba(46,160,67,.35)" if p >= 0.7
+                               else "background-color:rgba(210,153,34,.35)" if p >= 0.4 else "background-color:rgba(248,81,73,.28)"
+                               for p, t in zip(odds[col], thin[col])]
+            st.dataframe(text.style.apply(lambda _: colour, axis=None), width="stretch")
+            st.caption("The share of receivers in each region that would hear you, allowing for the usual error in a prediction "
+                       f"(about {cond.SIGMA_DB:g} dB), with the number of receivers behind it in brackets. Green is 70% or more, "
+                       f"yellow 40 to 70%, red below. A grey figure with a ~ rests on only 1 or 2 receivers: in a week of checks, regions "
+                       "like that were really spotted only about 4 times in 10, so it is a hint, not a result. These are estimates, not "
+                       "measured success rates: they are good for comparing bands and directions, but they run high for being spotted "
+                       "by a skimmer. In a week of one station's CW activations, of the skimmers that the figures said could hear him, "
+                       "about 1 in 10 spotted him below the CW spot threshold, 4 in 10 at a margin of 0 to 5 dB, 5 in 10 at 5 to 10 dB and "
+                       "about 7 in 10 at 15 dB or more.")
+        elif view == "Margin at your power":
+            table = result["regions"].rename(columns=_REGION_NAME).round(0)
+            shown = _color_cells(table, lambda v: ("background-color:rgba(46,160,67,.35)" if v >= margin_db
+                                                   else "background-color:rgba(210,153,34,.35)" if v >= 0
+                                                   else "background-color:rgba(248,81,73,.28)")).format("{:+.0f}", na_rep="")
+            st.dataframe(shown, width="stretch")
+            st.caption(f"dB above the {mode} threshold at a typical receiver in each region (the 75th percentile, so not the best "
+                       f"one). Green clears your {margin_db} dB margin, yellow is above the threshold, red is below. Blank means no "
+                       "receiver there heard the nearby stations.")
+        else:
+            table = result["power_needed"].rename(columns=_REGION_NAME)
+            counts = result["regions_n"].rename(columns=_REGION_NAME)
+            thin = counts < cond.THIN
+
+            def power_text(w):
+                return "" if pd.isna(w) else "<0.1" if w < 0.1 else ">1500" if w > 1500 else f"{w:.1f}" if w < 10 else f"{w:.0f}"
+
+            text = pd.DataFrame({col: [("" if pd.isna(w) else ("~" if n < cond.THIN else "") + f"{power_text(w)} ({int(n)})")
+                                       for w, n in zip(table[col], counts[col])] for col in table.columns}, index=table.index)
+            colour = table.copy().astype(object)
+            for col in table.columns:  # a region with only one or two receivers is a hint, so it is greyed, not green or red
+                colour[col] = ["" if pd.isna(w) else "background-color:rgba(138,143,152,.25)" if t
+                               else "background-color:rgba(46,160,67,.35)" if w <= power
+                               else "background-color:rgba(210,153,34,.35)" if w <= power * 4 else "background-color:rgba(248,81,73,.28)"
+                               for w, t in zip(table[col], thin[col])]
+            st.dataframe(text.style.apply(lambda _: colour, axis=None), width="stretch")
+            st.caption(f"Watts of {mode} a typical receiver in each region would need to hear you with your {margin_db} dB margin, "
+                       f"with the number of receivers behind it in brackets. Green is at or below your {power:g} W, yellow is up to "
+                       "four times that, red is more. A grey figure with a ~ rests on only 1 or 2 receivers, so it is a hint, not "
+                       "a number to plan around: one receiver with a quiet or noisy site can make it look far too easy or too hard.")
+
+    with t_sun:
+        if sw.interpret(data):
+            _space_weather_card(boxed=False)
+        if est:
+            _muf_card(lat, lon, boxed=False)
+    with t_far:
+        dx = result["dx"]
+        if dx.empty:
+            st.caption("None at this power and mode right now.")
+        else:
+            st.dataframe(pd.DataFrame({
+                "Band": dx["band"], "Receiver": dx["rx"], "Region": dx["region"], f"Distance ({units})": (dx["km"] / k).round(0).astype(int),
+                "Margin (dB)": dx["margin"].round(0).astype(int)}), width="stretch", hide_index=True)
+
+    with t_how:
         st.markdown(
             "Every WSPR report says: this station, at this power, was heard at this SNR. SNR moves dB for dB with power, so the "
             "report can be restated for your power: run 10 dB more and you would be 10 dB stronger there. Each mode needs a "
@@ -2954,9 +2997,78 @@ def _conditions_body(result, power, mode, margin_db, units, k, lat, lon, who, wi
 
 
 
+
+
+@st.cache_data(ttl=900, show_spinner=False)
+def _space_weather():
+    """NOAA's current space weather, cached for 15 minutes."""
+    return sw.fetch()
+
+
+def _space_weather_card(boxed=True):
+    """The sun and the magnetic field right now, as a few numbers and a short plain reading. Shows nothing if NOAA can't be reached."""
+    data = _space_weather()
+    lines = sw.interpret(data)
+    if not lines:
+        return
+    items = [(label, value, help_) for label, value, help_ in (
+        ("Solar flux", None if data["flux"] is None else f"{data['flux']:.0f}",
+         "The 10.7 cm radio flux, measured daily at noon in Penticton. Higher means better HF: about 70 is poor, 120 good, 150 or more very good."),
+        ("Sunspots", None if data["ssn"] is None else f"{data['ssn']:.0f}",
+         "The sunspot number of the latest complete day. More spots usually means a more active sun and better HF."),
+        ("Kp index", None if data["kp"] is None else f"{data['kp']:.1f}",
+         "How disturbed Earth's magnetic field is, 0 to 9, updated every 3 hours. Under 3 is quiet, 5 or more is a storm."),
+        ("A index", None if data["a_index"] is None else f"{data['a_index']:.0f}",
+         "The day's average disturbance of the magnetic field at middle latitudes (yesterday's). Under 8 is quiet, 30 or more is a storm."),
+        ("X-ray", sw.xray_class(data["xray"]),
+         "The flare level from the GOES satellite. A and B are quiet, C is minor, M can cause a brief radio fade-out, X a strong one."),
+        ("Wind (km/s)", None if data["wind"] is None else f"{data['wind']:.0f}",
+         "The speed of the wind reaching Earth. Around 400 is calm, 500 or more is elevated, 600 or more is fast."),
+        ("Bz (nT)", None if data["bz"] is None else f"{data['bz']:+.0f}",
+         "The north-south direction of the solar wind's magnetic field. Negative (south) lets the wind stir Earth's field."))
+        if value is not None]
+    with st.container(border=True) if boxed else nullcontext():
+        if boxed:
+            st.markdown("**\u2600\ufe0f Space weather right now**")
+        for start in range(0, len(items), 4):
+            row = items[start:start + 4]
+            for col, (label, value, help_) in zip(st.columns(4)[:len(row)], row):
+                col.metric(label, value, help=help_)
+        st.markdown("\n".join(f"- {line}" for line in lines))
+        flux_t, kp_t = sw.when_text(data["times"].get("flux"), "%d %b"), sw.when_text(data["times"].get("kp"), "%H:%M")
+        st.caption("From NOAA's Space Weather Prediction Center. Solar flux is the daily noon reading"
+                   + (f" (latest {flux_t})" if flux_t else "") + ", Kp is for the 3-hour period"
+                   + (f" starting {kp_t} UTC" if kp_t else "") + ", and the rest update every few minutes.")
+
+
+@st.cache_data(ttl=900, show_spinner=False)
+def _ionosondes():
+    """The working ionosondes with a fresh reading, cached for 15 minutes."""
+    return iono.fetch()
+
+
+def _muf_card(lat, lon, boxed=True):
+    """The MUF and foF2 near the user, estimated from the nearest working ionosondes. Shows nothing if none is close enough."""
+    est = iono.estimate(lat, lon, _ionosondes())
+    if not est:
+        return
+    with st.container(border=True) if boxed else nullcontext():
+        st.markdown("**\U0001F4E1 MUF near you** (MHz)" if boxed else "MHz:")
+        shown = [(f"{d:,} km", f"{est['muf'][d]:.0f}", f"The highest frequency expected to work over a {d:,} km path. "
+                  "Shorter paths cannot use as high a frequency, because the signal meets the ionosphere at a steeper angle.")
+                 for d in (3000, 2000, 1000, 500)]
+        shown.append(("NVIS (foF2)", f"{est['fof2']:.1f}", "The critical frequency: the highest frequency that still bounces straight "
+                      "back for local contacts. Above it, signals pass up and out and skip over nearby stations."))
+        for col, (label, value, help_) in zip(st.columns(len(shown)), shown):
+            col.metric(label, value, help=help_)
+        st.markdown("\n".join(f"- {line}" for line in iono.interpret(est)))
+        st.caption("Measured by ionosondes (ionospheric radars) collected by GIRO and republished by Andrew KC2G at prop.kc2g.com. "
+                   "Only a few dozen report at any time, so this is an estimate for your location, not a measurement.")
+
+
 def conditions_page():
     """Which bands are open and where a signal like yours would be heard, from the WSPR stations near you."""
-    st.title("\U0001F310 Band conditions now")
+    st.header("\U0001F310 Band conditions now")
     st.markdown('<p class="subtitle">Which bands are open and where you would be heard, worked out from the WSPR stations near '
                 'you in the last half hour, restated for your power and mode.</p>', unsafe_allow_html=True)
     skimmers, _ = skimmer_data()
@@ -3041,8 +3153,7 @@ def conditions_page():
         if result["bands"].empty:
             st.warning("No receivers heard that transmitter in that time.")
             return
-        st.markdown(f"**{ref_call}'s WSPR spots**, **{result['n_spots']:,}** in the last {window} minutes, restated for "
-                    f"**{power:g} W {mode}**. Its own antenna and location stand in for yours.")
+        st.caption(f"{ref_call}'s own antenna and location stand in for yours.")
         _conditions_body(result, power, mode, margin_db, units, k, lat, lon, ref_call, window)
         return
     try:
@@ -3087,10 +3198,9 @@ def conditions_page():
     if result["bands"].empty:
         st.warning("No receivers heard the stations near you in that time.")
         return
-    st.markdown(f"**{result['n_tx']} WSPR stations** within {radius / k:,.0f} {units}, **{result['n_spots']:,} spots** in the last "
-                f"{window} minutes, restated for **{power:g} W {mode}**.")
 
-    _conditions_body(result, power, mode, margin_db, units, k, lat, lon, callsign or "You", window)
+    _conditions_body(result, power, mode, margin_db, units, k, lat, lon, callsign or "You", window,
+                     area=f" within {radius / k:,.0f} {units}")
 
 GITHUB_URL = "https://github.com/K5OHY/RBN_Map"
 
