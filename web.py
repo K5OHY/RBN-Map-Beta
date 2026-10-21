@@ -1492,7 +1492,7 @@ def _blocks_test(spots, all_stamps):
             if lo <= t < hi:
                 labels[t] = antenna
                 break
-    with st.expander("What each block caught"):
+    with st.expander("The blocks as the test will use them (From, To and what each caught)", expanded=True):
         caught = pd.DataFrame([{"Block": n, "Antenna": a, "From (UTC)": stamp(lo), "To (UTC)": stamp(hi),
                                 "Transmissions": sum(lo <= t < hi for t in all_stamps),
                                 "Receivers": int(spots[(spots["time"] >= lo) & (spots["time"] < hi)]["spotter"].nunique())}
@@ -1698,7 +1698,8 @@ def _shared_counts_note(an, noun):
     return text
 
 
-def _linear_average_view(spots_a, spots_b, an, names, noun, locs, home, kind, callsign, paired=None):
+def _linear_average_view(spots_a, spots_b, an, names, noun, locs, home, kind, callsign, paired=None, floor=None, min_km=0.0,
+                         default_min=1):
     """The SNR average (the standard comparison) next to the same comparison worked out by averaging power instead of dB,
     overall and by direction, and
     when to use which."""
@@ -1717,19 +1718,14 @@ def _linear_average_view(spots_a, spots_b, an, names, noun, locs, home, kind, ca
             "4. Subtract the two. That is the relative gain of A against B.\n\n"
             "Example: reports of 0, 0, 0 and 20 dB are powers of 1, 1, 1 and 100. Their average is 25.75, which is **14.1 dB**. "
             "Averaging the dB numbers directly gives 5 dB. The single strong report counts for much more in power.")
-    c1, c2 = st.columns(2)
-    min_spots = c1.slider(f"Only {noun}s with at least this many reports on each antenna", 1, 60, 1, key="pm_min_spots",
+    min_spots = st.slider(f"Only {noun}s with at least this many reports on each antenna", 1, 60, default_min,
+                          key=f"pm_min_spots_{default_min}",
                           help=f"A long test aims for {DALE_MIN_SPOTS} or more per receiver on each antenna, and the published "
                                f"method keeps only receivers with {DALE_SITE_MIN} or more. A short test can't reach that, but "
                                "raising this drops receivers heard only once or twice, whose single reports can swing a power "
                                "average.")
-    floor = None
-    if kind == "WSPR" and c2.checkbox(f"Ignore reports at or below {WSPR_FLOOR_DB} dB", key="pm_floor",
-                                      help="WSPR can only decode down to about -28 dB. A report at that edge is unreliable, and "
-                                           "the weaker antenna's weakest reports are often missing altogether."):
-        floor = WSPR_FLOOR_DB
     s_ = an["strength"]
-    pm = power_method(spots_a, spots_b, locs, home, min_spots=min_spots, floor=floor, offset=an["power"]["offset"])
+    pm = power_method(spots_a, spots_b, locs, home, min_spots=min_spots, floor=floor, offset=an["power"]["offset"], min_km=min_km)
     if paired is not None and (paired[0]["time"].nunique() + paired[1]["time"].nunique()
                                != spots_a["time"].nunique() + spots_b["time"].nunique()):
         st.caption(f"The linear average uses every transmission ({spots_a['time'].nunique()} on A, {spots_b['time'].nunique()} on B), "
@@ -1739,7 +1735,8 @@ def _linear_average_view(spots_a, spots_b, an, names, noun, locs, home, kind, ca
         st.info(f"Too few {noun}s heard both antennas with that many reports each. Lower the setting above.")
         return
     if min_spots < DALE_SITE_MIN:
-        strict = power_method(spots_a, spots_b, locs, home, min_spots=DALE_SITE_MIN, floor=floor, offset=an["power"]["offset"])
+        strict = power_method(spots_a, spots_b, locs, home, min_spots=DALE_SITE_MIN, floor=floor, offset=an["power"]["offset"],
+                              min_km=min_km)
         st.caption(f"With the published minimum of {DALE_SITE_MIN} reports on each antenna, "
                    + (f"{strict['n']} {noun}s qualify: linear average {_lead_text(names, strict['mean'])}."
                       if strict["n"] >= 2 else f"too few {noun}s qualify ({strict['n']}), so a long test is needed for that."))
@@ -1747,7 +1744,8 @@ def _linear_average_view(spots_a, spots_b, an, names, noun, locs, home, kind, ca
     m1.metric("SNR average: typical dB difference at the same receiver", _card_lead(s_["mean"]))
     m1.caption(f"{s_['n']} {noun}s counted once per place. 95% range: {_range_text(names, s_['lo'], s_['hi'])}.")
     m2.metric("Linear average: each receiver's average power, A against B", _card_lead(pm["mean"]))
-    m2.caption(f"{pm['n']} {noun}s counted once per place. 95% range: {_range_text(names, pm['lo'], pm['hi'])}.")
+    m2.caption(f"{pm['n']} {noun}s counted once per place. 95% range: {_range_text(names, pm['lo'], pm['hi'])}."
+               + (" Reports or receivers you left out above are left out here, but not from the SNR average." if floor is not None or min_km else ""))
     if names["A"] != "A" or names["B"] != "B":
         st.caption(f"A is {names['A']}. B is {names['B']}.")
     gap = abs(s_["mean"] - pm["mean"]) if not np.isnan(s_["mean"]) else np.nan
@@ -2038,6 +2036,21 @@ def compare_view(spots, locs, home, label, callsign, file_date, tiles, show_all,
     r, s_, dx = an["reach"], an["strength"], an["dx"]
     k = KM_PER_MILE if units == "mi" else 1
     means_a, means_b = sector_means(ta_all), sector_means(tb_all)
+    with st.expander("Leave out some reports or receivers (for the averages)"):
+        f1, f2 = st.columns(2)
+        floor_on = kind == "WSPR" and f1.checkbox(
+            f"Ignore reports at or below {WSPR_FLOOR_DB} dB", key="avg_floor",
+            help="WSPR can only decode down to about -28 dB. A report at that edge is unreliable, and the weaker antenna's "
+                 "weakest reports are often missing altogether.")
+        near = float(f2.number_input(f"Leave out receivers closer than ({units})", 0, 5000, 0, step=10, key=f"avg_near_{units}",
+                                     help="Close stations can hear you by ground wave, which says little about the antenna's "
+                                          "take-off angle. Leave at 0 to keep every receiver."))
+        st.caption("This changes the averages on the Receiver by receiver tab and the linear average on the Linear average tab. "
+                   "The verdict, the SNR average and the other tabs are not changed.")
+    avg_floor = WSPR_FLOOR_DB if floor_on else None
+    avg_min_km = near * (KM_PER_MILE if units == "mi" else 1.0)
+    avg_note = ", ".join(([f"reports at or below {WSPR_FLOOR_DB} dB left out"] if floor_on else [])
+                         + ([f"receivers closer than {near:g} {units} left out"] if near else []))
     tab_result, tab_where, tab_each, tab_method, tab_maps = st.tabs(
         ["\U0001F4CA Result", "\U0001F9ED Direction & distance", "\U0001F4CB Receiver by receiver",
          "\U0001F4D0 Linear average", "\U0001F5FA️ Maps"])
@@ -2170,15 +2183,20 @@ def compare_view(spots, locs, home, label, callsign, file_date, tiles, show_all,
                      "time and suits a long test with many reports per station; the dB middle is steadier when a station "
                      "has only a few reports.")
             min_reports = int(ctrl_min.slider(
-                f"Only {noun}s with at least this many reports on each antenna", 1, 60, 1, key="rx_min_reports",
+                f"Only {noun}s with at least this many reports on each antenna", 1, 60, DALE_MIN_SPOTS if blocks_mode else 1,
+                key=f"rx_min_reports_{'blk' if blocks_mode else 'pair'}",
                 help="Raising this drops stations with few reports. The far, weak ones go first, but each station left has a "
                      "steadier average, and the answer settling as you raise it is a sign it can be trusted."))
-            plain = method_label == "SNR (dB)" and min_reports == 1
+            plain = method_label == "SNR (dB)" and min_reports == 1 and avg_floor is None and not avg_min_km
+            if avg_note:
+                st.caption("Averages here have " + avg_note + ".")
+            fa = spots_a if avg_floor is None else spots_a[spots_a["snr"] > avg_floor]
+            fb = spots_b if avg_floor is None else spots_b[spots_b["snr"] > avg_floor]
             if plain:
                 every, scatter_src = an["shared_all"], an["shared"]
             else:
                 every = station_gains(spots_a, spots_b, locs, home, "linear" if method_label == "Linear power" else "snr",
-                                      min_reports, an["power"]["offset"])
+                                      min_reports, an["power"]["offset"], avg_floor, avg_min_km)
                 scatter_src = every
             if every.empty:
                 st.info(f"No {noun} has {min_reports} or more reports on both antennas. Lower the number above.")
@@ -2244,7 +2262,7 @@ def compare_view(spots, locs, home, label, callsign, file_date, tiles, show_all,
                            f"hint, not a result. It uses the same averaging ({method_label}) and minimum reports as the charts above.")
 
                 st.subheader(f"One {noun} over time")
-                reports_a, reports_b = spots_a.groupby("spotter").size(), spots_b.groupby("spotter").size()
+                reports_a, reports_b = fa.groupby("spotter").size(), fb.groupby("spotter").size()
                 kk = KM_PER_MILE if units == "mi" else 1
                 sort_by = st.radio("Sort the list by", ["A\u2013Z", "Distance", "Direction", "Most reports"], horizontal=True,
                                    key="rx_sort", help="You can also click the box and type part of a callsign to find it.")
@@ -2259,10 +2277,10 @@ def compare_view(spots, locs, home, label, callsign, file_date, tiles, show_all,
                                            f"{COMPASS_16[int(((every.at[r, 'bearing_a'] + 11.25) % 360) // 22.5)]} \u00b7 "
                                            f"{reports_a.get(r, 0)} on A, {reports_b.get(r, 0)} on B"))
                 offset = an["power"]["offset"]
-                st.pyplot(receiver_time_chart(spots_a, spots_b, pick, names, offset, linear=method_label == "Linear power"),
+                st.pyplot(receiver_time_chart(fa, fb, pick, names, offset, linear=method_label == "Linear power"),
                           width="stretch")
-                one_a = spots_a[spots_a["spotter"] == pick]["snr"].to_numpy(float)
-                one_b = spots_b[spots_b["spotter"] == pick]["snr"].to_numpy(float) + offset
+                one_a = fa[fa["spotter"] == pick]["snr"].to_numpy(float)
+                one_b = fb[fb["spotter"] == pick]["snr"].to_numpy(float) + offset
                 m_a, m_b, m_gain = st.columns(3)
                 for col, label, values in ((m_a, names["A"], one_a), (m_b, names["B"], one_b)):
                     col.metric(label, f"{_linear_db(values):.1f} dB")
@@ -2301,7 +2319,7 @@ def compare_view(spots, locs, home, label, callsign, file_date, tiles, show_all,
                         cursor += step
                     over_time = gain_by_window(spots_a, spots_b, locs, home, windows,
                                                "linear" if method_label == "Linear power" else "snr", win_min, offset,
-                                               receiver=pick)
+                                               receiver=pick, floor=avg_floor, min_km=avg_min_km)
                     if over_time["n"].sum() == 0:
                         st.caption("No window has enough reports at that minimum. Lower it.")
                     else:
@@ -2323,7 +2341,8 @@ def compare_view(spots, locs, home, label, callsign, file_date, tiles, show_all,
             st.info(f"No {noun} heard both sides, so there is nothing to compare receiver by receiver.")
 
     with tab_method:
-        _linear_average_view(map_a, map_b, an, names, noun, locs, home, kind, callsign, paired=(spots_a, spots_b))
+        _linear_average_view(map_a, map_b, an, names, noun, locs, home, kind, callsign, paired=(spots_a, spots_b),
+                             floor=avg_floor, min_km=avg_min_km, default_min=DALE_MIN_SPOTS if sep.get("blocks") else 1)
 
     with tab_maps:
         st.caption("Both maps use the same view, the same SNR scale and the same dot sizes.")
