@@ -184,67 +184,8 @@ def short_highlights(result, power_w, mode, margin_db, units="mi", window_min=60
                     f"Best: {good[0][0]} to {_where(good[0][1])}, {result['chance'].at[good[0][0], good[0][1]]:.0%} of "
                     f"{int(result['regions_n'].at[good[0][0], good[0][1]])} receivers."))
     elif hints:
-        out.append(("DX possible: " + ", ".join(f"{b} {_where(r)}" for b, r, _ in hints[:4]),
-                    "Low confidence: only 1 or 2 receivers per region."))
-    elif solid:
-        band, region, _ = max(solid, key=lambda c: c[2])
-        out.append((f"DX is hard at {power_w:g} W {mode}", f"Best chance is {band} to {_where(region)}, needing about "
-                    f"{_watts(float(need.at[band, region]))}."))
-    else:
-        out.append(("No DX paths yet", "Check again later or widen the area."))
-    if len(dx):
-        far = dx.iloc[0]
-        out.append((f"Farthest: {far['rx']}, {_where(far['region'])}", f"{far['km'] / k:,.0f} {units} away on {far['band']}."))
-    home = [r for r in DOMESTIC if r in reg.columns]
-    if home:
-        avg = reg[home].mean(axis=1).dropna().sort_values(ascending=False)
-        if len(avg):
-            near = [b for b in avg.index[1:3] if avg[b] >= avg.iloc[0] - 2]
-            out.append((f"US and Canada: {avg.index[0]}" + (f" (also {', '.join(near)})" if near else ""),
-                        f"Strongest, about {avg.iloc[0]:+.0f} dB over the threshold."))
-    rising = [b for b in bands.index if bands.at[b, "Trend"] == "opening" and bands.at[b, "Status"] != "Quiet"]
-    falling = [b for b in bands.index if bands.at[b, "Trend"] == "fading" and bands.at[b, "Status"] != "Quiet"]
-    if rising:
-        out.append((f"{', '.join(rising)} rising", f"These figures average the last {window_min} minutes, so expect it a little "
-                    "stronger now."))
-    if falling:
-        out.append((f"{', '.join(falling)} fading", "It is weaker now than the average shown."))
-    if good and solid:
-        need_more = [c for c in solid if c[2] < margin_db and c[2] >= margin_db - 10]
-        if need_more:
-            band, region, _ = max(need_more, key=lambda c: c[2])
-            out.append((f"More power: {band} {_where(region)}", f"Would need about {_watts(float(need.at[band, region]))}."))
-    return out
-
-
-def _dx_cells(result):
-    """The (band, region, margin) cells outside North America with at least one receiver, those with enough receivers to count
-    (`solid`), the solid ones likely to be heard (`good`, best first) and the thin ones likely to be (`hints`, most receivers first)."""
-    reg, count, odds = result["regions"], result["regions_n"], result["chance"]
-    cells = [(b, r, float(reg.at[b, r])) for b in reg.index for r in DX_REGIONS
-             if r in reg.columns and pd.notna(reg.at[b, r]) and count.at[b, r] >= 1]
-    solid = [c for c in cells if count.at[c[0], c[1]] >= THIN]
-    good = sorted((c for c in solid if odds.at[c[0], c[1]] >= 0.6), key=lambda c: -odds.at[c[0], c[1]])
-    hints = sorted((c for c in cells if count.at[c[0], c[1]] < THIN and odds.at[c[0], c[1]] >= 0.6),
-                   key=lambda c: -count.at[c[0], c[1]])
-    return cells, solid, good, hints
-
-
-def short_highlights(result, power_w, mode, margin_db, units="mi", window_min=60):
-    """The dashboard's highlights: a list of (headline, supporting sentence) pairs, each short enough to take in at a glance."""
-    reg, need, bands, dx = result["regions"], result["power_needed"], result["bands"], result["dx"]
-    if bands.empty:
-        return []
-    k = 1.609344 if units == "mi" else 1.0
-    cells, solid, good, hints = _dx_cells(result)
-    out = []
-    if good:
-        out.append(("DX likely: " + ", ".join(f"{b} {_where(r)}" for b, r, _ in good[:4]),
-                    f"Best: {good[0][0]} to {_where(good[0][1])}, {result['chance'].at[good[0][0], good[0][1]]:.0%} of "
-                    f"{int(result['regions_n'].at[good[0][0], good[0][1]])} receivers."))
-    elif hints:
-        out.append(("DX possible: " + ", ".join(f"{b} {_where(r)}" for b, r, _ in hints[:4]),
-                    "Low confidence: only 1 or 2 receivers per region."))
+        out.append(("No solid DX yet", "Only hints, from 1 or 2 receivers each (" + ", ".join(
+            f"{b} {_where(r)}" for b, r, _ in hints[:3]) + "). Expect a hard contact."))
     elif solid:
         band, region, _ = max(solid, key=lambda c: c[2])
         out.append((f"DX is hard at {power_w:g} W {mode}", f"Best chance is {band} to {_where(region)}, needing about "

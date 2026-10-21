@@ -76,6 +76,44 @@ def _map_image(lat0, lon0, radius_km, px=900, supersample=2):
     return (np.dstack([rgb, inside]) * 255).astype(np.uint8)  # 8-bit keeps each cached map small
 
 
+def _sun_position(when):
+    """(declination, longitude) in degrees of the point on Earth where the sun is overhead at `when` (naive UTC). Good to about
+    a degree, which is plenty for a day and night line."""
+    day = when.timetuple().tm_yday
+    hours = when.hour + when.minute / 60
+    b = 2 * math.pi * (day - 81) / 364
+    eot = 9.87 * math.sin(2 * b) - 7.53 * math.cos(b) - 1.5 * math.sin(b)  # the equation of time, in minutes
+    return -23.44 * math.cos(2 * math.pi * (day + 10) / 365), -15 * (hours - 12 + eot / 60)
+
+
+def _daylight(lat0, lon0, radius_km, when, n=240):
+    """The sine of the sun's height above the horizon over the disk of the map (NaN outside it), on an n by n grid, north up,
+    with the x and y positions in km, for shading the night side and drawing the line between day and night."""
+    x = np.linspace(-radius_km, radius_km, n, dtype=np.float64)
+    xx, yy = np.meshgrid(x, -x)
+    rr = np.hypot(xx, yy)
+    c, az, p0 = rr / EARTH_KM, np.arctan2(xx, yy), math.radians(lat0)
+    lat = np.arcsin(np.clip(math.sin(p0) * np.cos(c) + math.cos(p0) * np.sin(c) * np.cos(az), -1, 1))
+    lon = math.radians(lon0) + np.arctan2(np.sin(az) * np.sin(c), math.cos(p0) * np.cos(c) - math.sin(p0) * np.sin(c) * np.cos(az))
+    decl, sun_lon = _sun_position(when)
+    sin_h = np.sin(lat) * math.sin(math.radians(decl)) + np.cos(lat) * math.cos(math.radians(decl)) * np.cos(lon - math.radians(sun_lon))
+    return xx, yy, np.where(rr <= radius_km, sin_h, np.nan)
+
+
+def _terminator(lat0, lon0, radius_km, when):
+    """x and y (km from the station, north up) of the line between day and night: the circle 90 degrees from the point where the
+    sun is overhead. Points outside the map are NaN, so the line breaks there."""
+    decl, sun_lon = _sun_position(when)
+    th = np.linspace(0, 2 * np.pi, 721)
+    cos_d, sin_d = math.cos(math.radians(decl)), math.sin(math.radians(decl))
+    lat = np.arcsin(cos_d * np.cos(th))
+    lon = sun_lon + np.degrees(np.arctan2(np.sin(th) * cos_d, -sin_d * np.sin(lat)))
+    d, az = _forward(lat0, lon0, np.degrees(lat), lon)
+    x, y = d * np.sin(az), d * np.cos(az)
+    outside = d > radius_km
+    return np.where(outside, np.nan, x), np.where(outside, np.nan, y)
+
+
 def _ring_step(radius_units):
     for step in (250, 500, 1000, 2000, 2500, 5000):
         if radius_units / step <= 6:
@@ -109,11 +147,12 @@ def _cells(points, layer, radius_km, sector):
 
 
 def azimuth_map_figure(lat0, lon0, points, names, callsign, units="mi", radius_km=MAX_KM, layer="dots", show_dots=True,
-                       snr_range=(-28, 2), size=7.2):
+                       snr_range=(-28, 2), size=7.2, when=None):
     """The map. `points` is a DataFrame with `km`, `bearing` (degrees), `group` ('both', 'only_a', 'only_b' or 'single'), `gap`
     (A's SNR minus B's, for stations that heard both), `snr_a` and `snr_b` (each antenna's SNR at the station; for one antenna,
     `snr_a`) and optionally `color`. `layer` colours direction-and-distance cells: 'advantage', 'snr_a', 'snr_b', 'snr',
-    'reach', or 'dots' for none. Returns a matplotlib Figure."""
+    'reach', or 'dots' for none. With `when` (naive UTC) the night side is shaded and the line between day and night drawn.
+    Returns a matplotlib Figure."""
     radius_km = min(float(radius_km), MAX_KM)
     km_per_unit = 1.609344 if units == "mi" else 1.0
     single = len(points) > 0 and bool((points["group"] == "single").all())
@@ -126,6 +165,14 @@ def azimuth_map_figure(lat0, lon0, points, names, callsign, units="mi", radius_k
     ax.imshow(_map_image(round(lat0, 1), round(lon0, 1), round(R)), extent=[-R, R, -R, R], origin="upper", interpolation="bilinear",
               zorder=1)
     theta = np.linspace(0, 2 * np.pi, 400)
+    if when is not None:  # the night side, and the gray line between night and day
+        xx, yy, sin_h = _daylight(lat0, lon0, R, when)
+        shade = np.zeros(sin_h.shape + (4,))
+        shade[..., :3] = (4 / 255, 7 / 255, 18 / 255)
+        shade[..., 3] = np.where(np.isnan(sin_h), 0.0, np.clip(-sin_h / 0.12, 0, 1) * 0.5)
+        ax.imshow(shade, extent=[-R, R, -R, R], origin="upper", interpolation="bilinear", zorder=2)
+        gx, gy = _terminator(lat0, lon0, R, when)
+        ax.plot(gx, gy, color="#ffd166", linewidth=1.2, alpha=0.9, zorder=4)
     # the cells, drawn first so the rings and dots sit on top
     cells = _cells(points, layer, R, 30) if layer != "dots" and len(points) else []
     cbar = None

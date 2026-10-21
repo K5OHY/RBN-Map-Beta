@@ -11,6 +11,9 @@ import conditions as cond
 
 MHZ = {"160m": "1.8", "80m": "3.5", "60m": "5.3", "40m": "7", "30m": "10.1", "20m": "14", "17m": "18.1", "15m": "21",
        "12m": "24.9", "10m": "28", "6m": "50"}
+# The colours of the band dots on the receiver map, brighter than the RBN website's so every band shows on its dark background.
+MAP_COLORS = {"160m": "#ffe000", "80m": "#35d07f", "60m": "#aaaaaa", "40m": "#ffa500", "30m": "#ff4136", "20m": "#b45cff",
+              "17m": "#4da3ff", "15m": "#d9d9d9", "12m": "#00e5ff", "10m": "#ff4fd8", "6m": "#ffc0cb"}
 REGION_NAME = {"Mexico, Caribbean & Central America": "Mexico / Caribbean"}
 TONE_CLASS = {"good": "tg", "ok": "tn", "warn": "ta", "bad": "tr", "quiet": "tm"}
 
@@ -21,7 +24,7 @@ CSS = """<style>
   background:var(--card); border-radius:12px; padding:10px 16px; margin:0 0 12px 0; }
 .cd-top b { font-size:16px; } .cd-top small { display:block; opacity:.7; font-size:13px; }
 .cd-badge { border:1px solid var(--line); border-radius:8px; padding:4px 10px; font-size:13px; white-space:nowrap; }
-.cd-tiles { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:10px; margin:0 0 12px 0; }
+.cd-tiles { display:grid; grid-template-columns:repeat(auto-fit,minmax(118px,1fr)); gap:10px; margin:0 0 12px 0; }
 .cd-tile { border:1px solid var(--line); background:var(--card); border-radius:12px; padding:12px 14px; }
 .cd-tile.tg-b { border-color:var(--g); background:rgba(63,185,80,.09); }
 .cd-tile.ta-b { border-color:var(--a); background:rgba(210,153,34,.10); }
@@ -30,7 +33,7 @@ CSS = """<style>
 .cd-band { font-size:26px; font-weight:600; line-height:1.1; } .cd-mhz { font-size:13px; opacity:.75; }
 .cd-bars { display:flex; gap:2px; align-items:flex-end; height:20px; margin-top:4px; }
 .cd-bars i { width:4px; border-radius:1px; background:currentColor; } .cd-bars i.off { opacity:.25; }
-.cd-pill { display:inline-block; border:1px solid currentColor; border-radius:999px; padding:2px 14px; font-size:14px; margin:8px 0 4px; }
+.cd-pill { display:inline-block; border:1px solid currentColor; border-radius:999px; padding:2px 10px; font-size:14px; margin:8px 0 4px; white-space:nowrap; }
 .cd-spark { display:flex; gap:2px; align-items:flex-end; height:24px; } .cd-spark i { width:5px; border-radius:1px; background:currentColor; opacity:.8; }
 .cd-conf { font-size:13px; opacity:.8; }
 .cd-strip { display:grid; grid-template-columns:repeat(auto-fit,minmax(130px,1fr)); border:1px solid var(--line);
@@ -45,6 +48,7 @@ CSS = """<style>
 .cd-grid td { text-align:center; padding:7px 2px; border-radius:3px; }
 .c0 { opacity:.55; } .c1 { background:rgba(248,81,73,.38); } .c2 { background:rgba(210,153,34,.45); }
 .c3 { background:rgba(63,185,80,.42); } .c4 { background:rgba(63,185,80,.72); } .cth { background:rgba(138,143,152,.22); font-style:italic; }
+.cd-w { display:block; font-size:12px; opacity:.85; }
 .cd-key { font-size:12px; opacity:.75; margin-top:8px; }
 .cd-key i { display:inline-block; width:10px; height:10px; border-radius:2px; margin:0 4px 0 10px; vertical-align:-1px; }
 .cd-item b { font-weight:600; } .cd-item { padding:9px 0; border-top:1px solid var(--line); font-size:14px; line-height:1.45; } .cd-item:first-of-type { border-top:0; }
@@ -163,16 +167,47 @@ def grid_html(chance, counts):
             f'would hear you</p><table class="cd-grid"><tr><th>Region</th>{head}</tr>{rows}</table>{key}</div>')
 
 
+def _watts(w):
+    return "<0.1 W" if w < 0.1 else ">1500 W" if w > 1500 else f"{w:.1f} W" if w < 10 else f"{w:.0f} W"
+
+
+def detail_grid_html(margin, need, counts, margin_db):
+    """Regions down the side, bands across the top: the margin over the mode's threshold at a typical receiver, and under it the
+    watts needed to reach that receiver with your margin to spare. A cell with fewer than THIN receivers shows only its count:
+    the receivers that heard anything there are the lucky ones, so a figure from one or two would look far too easy."""
+    margin, need, counts = (t.drop(columns=["Other"], errors="ignore").rename(columns=REGION_NAME) for t in (margin, need, counts))
+    head = "".join(f"<th>{_e(b)}</th>" for b in margin.index)
+    rows = []
+    for region in margin.columns:
+        cells = []
+        for band in margin.index:
+            m, n = margin.at[band, region], int(counts.at[band, region])
+            if pd.isna(m):
+                cells.append('<td class="c0">\u2013</td>')
+            elif n < cond.THIN:
+                cells.append(f'<td class="cth" title="Only {n} receiver{"s" if n != 1 else ""}, so too few for a figure">{n} RX</td>')
+            else:
+                level = "c3" if m >= margin_db else "c2" if m >= 0 else "c1"
+                cells.append(f'<td class="{level}" title="{n} receivers"><b>{m:+.0f} dB</b>'
+                             f'<span class="cd-w">{_watts(float(need.at[band, region]))}</span></td>')
+        rows.append(f"<tr><td>{_e(region)}</td>{''.join(cells)}</tr>")
+    key = ('<div class="cd-key">Margin over the threshold at a typical receiver, and the watts it would take'
+           f'<i style="background:rgba(63,185,80,.42)"></i>clears your {margin_db} dB margin'
+           '<i style="background:rgba(210,153,34,.45)"></i>above the threshold<i style="background:rgba(248,81,73,.38)"></i>below'
+           '<i style="background:rgba(138,143,152,.3)"></i>1 RX or 2 RX: too few receivers, so no figure</div>')
+    return f'<div class="cd"><table class="cd-grid"><tr><th>Region</th>{head}</tr>{"".join(rows)}</table>{key}</div>'
+
+
 def highlights_html(items):
     """The highlights, each a short bold headline over one supporting sentence."""
     rows = "".join(f'<div class="cd-item"><b>{_e(head)}</b><br>{_e(support)}</div>' for head, support in items)
     return f'<div class="cd"><p class="cd-h">Highlights</p>{rows}</div>'
 
 
-def farthest_html(dx, units, k):
-    """The farthest receivers that would hear you, as a short list beside the map."""
-    if not len(dx):
-        return ""
-    rows = "".join(f'<div class="cd-item"><b>{_e(r["rx"])}</b> {_e(r["band"])}<br>{r["km"] / k:,.0f} {units}, '
-                   f'{_e(REGION_NAME.get(r["region"], r["region"]))}</div>' for _, r in dx.head(6).iterrows())
-    return f'<div class="cd"><p class="cd-h">Farthest</p>{rows}</div>'
+def band_buttons_css(key, bands):
+    """A coloured dot in front of each band button (st.pills with this `key`, in this order), the same colour as that band's dots
+    on the map."""
+    rules = "".join(f'.st-key-{key} button:nth-of-type({i}):before {{ content:""; display:inline-block; width:12px; height:12px; '
+                    f'border-radius:50%; background:{MAP_COLORS.get(band, "#8a8f98")}; margin-right:7px; }}'
+                    for i, band in enumerate(bands, 1))
+    return f"<style>.st-key-{key} button {{ font-size:15px; }}{rules}</style>"
