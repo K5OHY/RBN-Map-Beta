@@ -7,6 +7,9 @@ import pandas as pd
 import streamlit as st
 
 from charts import (
+    COLOR_A,
+    COLOR_B,
+    COLOR_TIE,
     COMPASS_16,
     _gain_interval,
     _linear_db,
@@ -57,6 +60,7 @@ from data_sources import load_listening
 from maps import build_map, compute_stats
 from pdfs import compare_report_pdf
 from ui_common import KM_PER_MILE, SPLIT_FREQ, _pretty_date, _views
+from views import test_link
 from world_map import MIN_CELL, azimuth_map_figure
 from wspr_data import WsprError
 
@@ -147,9 +151,11 @@ def _separate_by_log(spots):
     if mode == "In long blocks":
         return _blocks_test(spots, all_stamps)
     top = st.columns([4, 2, 3])
-    st.session_state.setdefault("test_cycles", 2)
+    most = max(2, min(len(all_stamps), 80))
+    # Two transmissions is a coin toss; start on 12 (six pairs) when the data has them, and never above what there is
+    st.session_state["test_cycles"] = max(2, min(st.session_state.get("test_cycles", 12 - 12 % 2), most - most % 2))
     n_cycles = int(top[0].number_input(
-        "Transmissions in your test", min_value=2, max_value=max(2, min(len(all_stamps), 80)), step=2,
+        "Transmissions in your test", min_value=2, max_value=most, step=2,
         key="test_cycles",
         help="Count every 2-minute transmission, on either antenna: A then B is 2, A B B A is 4, A B B A twice is 8. "
              "More is steadier: 8 or more (4 pairs) is a solid test, 12 to 16 for differences under 1 dB. "
@@ -162,8 +168,11 @@ def _separate_by_log(spots):
     multi_day = all_stamps[0].date() != all_stamps[-1].date()
     fmt = (lambda t: f"{t:%d %b %H:%M}") if multi_day else (lambda t: f"{t:%H:%M}")
     LATEST = "Latest"
+    start_options = [LATEST] + [fmt(t) for t in reversed(all_stamps[:-1])]
+    if st.session_state.get("test_start") not in start_options:  # a link made for other spots
+        st.session_state["test_start"] = LATEST
     start_choice = top[1].selectbox(
-        "Starting at (UTC)", [LATEST] + [fmt(t) for t in reversed(all_stamps[:-1])], key="test_start",
+        "Starting at (UTC)", start_options, key="test_start",
         help="Leave on Latest for a test you have just run. To use an earlier test, pick the time of its first "
              "transmission.")
     patterns = {"A, B, A, B \u2026": "ABAB", "A, B, B, A \u2026": "ABBA"}  # every test starts on A
@@ -306,7 +315,8 @@ def _blocks_test(spots, all_stamps):
     multi_day = all_stamps[0].date() != all_stamps[-1].date()
     fmt = (lambda t: f"{t:%d %b %H:%M}") if multi_day else (lambda t: f"{t:%H:%M}")
     c1, c2, c3, c4 = st.columns([2, 2, 2, 3])
-    block_min = int(c1.number_input("Minutes per block", 4, 480, 30, step=2, key="blk_len",
+    st.session_state.setdefault("blk_len", 30)
+    block_min = int(c1.number_input("Minutes per block", 4, 480, step=2, key="blk_len",
                                     help="How long each antenna stayed connected before you switched."))
     # Open on the whole data set: the first transmission, and enough blocks to reach the last one. The keys carry the data's
     # first and last times, so loading different spots starts fresh instead of keeping the last test's choices.
@@ -314,13 +324,16 @@ def _blocks_test(spots, all_stamps):
     span_min = (all_stamps[-1] - all_stamps[0]).total_seconds() / 60 + 2
     fit = int(np.ceil(span_min / block_min))
     default_blocks = int(min(40, max(2, fit + fit % 2)))
-    n_blocks = int(c2.number_input("Number of blocks", 2, 40, default_blocks, step=2, key=f"blk_n_{sig}",
+    test_link.apply_blocks(st.session_state, sig)
+    st.session_state.setdefault(f"blk_n_{sig}", default_blocks)
+    n_blocks = int(c2.number_input("Number of blocks", 2, 40, step=2, key=f"blk_n_{sig}",
                                    help="Count every block, A and B together: A for 30 minutes then B for 30 is 2."))
     patterns = {"A, B, A, B \u2026": "ABAB", "A, B, B, A \u2026": "ABBA"}
     order = c4.radio("Block order", list(patterns), key="blk_order", horizontal=True,
                      help="Starting with A. A, B, B, A balances which antenna goes first.")
+    st.session_state.setdefault(f"blk_start_{sig}", fmt(all_stamps[0]))
     start_label = c3.selectbox(
-        "First block starts at (UTC)", [fmt(t) for t in all_stamps], index=0, key=f"blk_start_{sig}", accept_new_options=True,
+        "First block starts at (UTC)", [fmt(t) for t in all_stamps], key=f"blk_start_{sig}", accept_new_options=True,
         help="The time you first connected antenna A. Pick a transmission from the list, or type any time such as 12:30 or 1230, "
              "even if nothing was heard at that minute" + (" (a time alone means the first day; add the date as 08 Oct 12:30 "
                                                            "for another day)." if multi_day else "."))
@@ -764,484 +777,542 @@ def _test_setup(sep, names, kind, callsign, label, file_date, bands, pa, pb, off
     return {"rows": rows, "table": table, "note": note}
 
 
+def _summary_tiles_html(an, names, rounds, noun):
+    """Three tiles above the verdict: how much stronger the leader was, how many receivers that rests on, and who won the rounds."""
+    s, r = an["strength"], an["reach"]
+    color = {"A": COLOR_A, "B": COLOR_B}
+    if s["n"]:
+        side = "A" if s["mean"] > 0 else "B"
+        lo, hi = (s["lo"], s["hi"]) if side == "A" else (-s["hi"], -s["lo"])
+        if abs(s["mean"]) < 0.05:
+            big, sub, edge = "0.0 dB", "no difference at the receivers that heard both", COLOR_TIE
+        else:
+            who = f"{names[side]} stronger" if s["call"] in ("A", "B") else f"{names[side]} ahead, but not decisive"
+            big, sub, edge = f"{abs(s['mean']):.1f} dB", f"{who} (95% range {lo:.1f} to {hi:.1f} dB)", color[side]
+    else:
+        big, sub, edge = "—", f"no {noun} heard both, so strength can't be compared", COLOR_TIE
+    tiles = [("Signal advantage", big, sub, edge),
+             (f"{noun.capitalize()}s that heard both", f"{s['n']}", f"{r['only_a']} heard only A, {r['only_b']} heard only B", COLOR_TIE)]
+    if rounds is not None and len(rounds) >= 3:
+        a_r, b_r = int((rounds["delta"] > 0).sum()), int((rounds["delta"] < 0).sum())
+        tiles.append(("Rounds won", f"A {a_r} · B {b_r}", f"of {len(rounds)} rounds, an A transmission and the B one after it", COLOR_TIE))
+    elif s["n"]:
+        tiles.append((f"{noun.capitalize()}s that were stronger on", f"A {s['wins_a']} · B {s['wins_b']}", f"tied at {s['ties']}", COLOR_TIE))
+    cells = "".join(
+        f'<div style="flex:1 1 210px;border:1px solid rgba(128,128,128,.3);border-left:5px solid {edge};border-radius:10px;'
+        f'padding:10px 14px"><div style="font-size:.8rem;opacity:.7">{head}</div>'
+        f'<div style="font-size:1.6rem;font-weight:700;line-height:1.3">{big}</div>'
+        f'<div style="font-size:.82rem;opacity:.75">{sub}</div></div>' for head, big, sub, edge in tiles)
+    return f'<div style="display:flex;flex-wrap:wrap;gap:10px;margin:2px 0 10px 0">{cells}</div>'
+
+
+def _setup_line(sep, names, kind):
+    """One line saying what the comparison assumed, so a wrong guess is spotted without opening anything."""
+    if sep.get("blocks"):
+        how = f"switched in long blocks ({sep['n_blocks']} blocks of about {sep['block_min']} minutes)"
+    elif sep.get("labeled"):
+        log = sep["log"]
+        how = (f"switched after every transmission ({len(log)} transmissions from {log[0][0]:%H:%M} UTC, order "
+               + " ".join(str(lab) for _, lab in log[:8]) + (" …" if len(log) > 8 else "") + ")")
+    elif sep.get("time_based"):
+        how = "separated by time window"
+    else:
+        how = "separated by frequency"
+    who = f"A is {names['A']} and B is {names['B']}, " if (names["A"], names["B"]) != ("A", "B") else ""
+    return (f"Assumed setup: {who}{how}. If that is not what you did, change it in the setup section just below.")
+
+
 def compare_view(spots, locs, home, label, callsign, file_date, tiles, show_all, units, split, gap_khz,
                  scale, noun, kind, all_spots):
     """Compare antennas: separate `spots` into an A side and a B side (by frequency, time window, timed blocks,
     or every other transmission), then say which one is getting out better, by how much, and in which directions."""
-    name_a, name_b = _name_inputs()
-    if split == SPLIT_FREQ:
-        sep = _separate_by_frequency(spots, gap_khz)
-    else:
-        sep = _separate_by_log(spots)
-    if sep is None:
-        return
-    spots_a, spots_b = sep["a"], sep["b"]
-    if spots_a.empty or spots_b.empty:
-        st.warning("One side has no spots. Adjust the selection above, or the filters in the sidebar.")
-        return
-    map_a, map_b = spots_a, spots_b  # the maps and timeline show everything that was heard
-    unpaired = 0
-    if kind == "WSPR" and sep.get("time_based"):
-        if sep.get("labeled") and count_pairs(spots_a, spots_b) >= 1:
-            # An alternating test is judged pair by pair, and a pair has exactly one transmission on each antenna, so
-            # the time on the air is equal by construction. A transmission with no partner on the other antenna has
-            # nothing to be compared with, so it is left out of the comparison (it still shows on the maps). Thinning
-            # the longer side at random instead could throw away a paired transmission and leave nothing to compare.
-            spots_a, spots_b = spots_a[spots_a["round"].notna()], spots_b[spots_b["round"].notna()]
-            sep["exposure"] = None
-            unpaired = (map_a["time"].nunique() - spots_a["time"].nunique()
-                        + map_b["time"].nunique() - spots_b["time"].nunique())
-            if unpaired:
-                st.caption(f"\u2139\ufe0f {unpaired} transmission{'s' if unpaired != 1 else ''} had no partner on the other "
-                           "antenna, so they are left out of the A/B comparison (they still show on the maps).")
+    top = st.container()  # the answer comes first; the setup it rests on sits just below it
+    notes = top.container()
+    setup = st.container()
+    details = st.container()
+    with setup:
+        st.markdown("#### How this test was set up")
+        st.caption("Check that this matches what you did. Change anything here and the result above updates.")
+        name_a, name_b = _name_inputs()
+        if split == SPLIT_FREQ:
+            sep = _separate_by_frequency(spots, gap_khz)
         else:
-            # For WSPR the time on the air that matters is the transmissions that actually happened (2 minutes each),
-            # not the scheduled minutes: a transmitter that picks its slots at random can put far more of them on one side.
-            n_a, n_b = spots_a["time"].nunique(), spots_b["time"].nunique()
-            sep["exposure"] = (2.0 * n_a, 2.0 * n_b) if abs(n_a - n_b) > 1 else None
-    listening_note = None
-    if kind == "WSPR" and sep.get("time_based"):
-        bands = set(spots_a["band"]) | set(spots_b["band"])
-        if len(bands) == 1:
-            times = pd.concat([spots_a["time"], spots_b["time"]])
-            try:
-                with st.spinner("Checking which receivers were listening\u2026"):
-                    listening, _ = load_listening(next(iter(bands)), times.min().to_pydatetime(),
-                                                  (times.max() + pd.Timedelta(minutes=2)).to_pydatetime())
-                eligible = eligible_receivers(spots_a, spots_b, listening)
-                heard = set(spots_a["spotter"]) | set(spots_b["spotter"])
-                listening_note = {"kept": len(heard & eligible), "total": len(heard)}
-                thin = _thin_slots(listening, set(times.unique()))
-                if thin:
-                    st.warning(f"wspr.live seems to be missing most of the reports for {len(thin)} of your "
-                               f"{times.nunique()} transmissions (for example {', '.join(f'{x:%H:%M}' for x in thin[:4])} UTC): far "
-                               "fewer receivers than usual reported anything on this band in those slots. Spots from them are "
-                               "undercounted, which can favour whichever antenna was on the air at other times. This is a gap in "
-                               "wspr.live's own data, mostly in older dates; a recent test is not affected.")
-                spots_a = spots_a[spots_a["spotter"].isin(eligible)]
-                spots_b = spots_b[spots_b["spotter"].isin(eligible)]
-            except WsprError as exc:
-                st.warning(f"Couldn't check which receivers were listening ({exc}). Receivers that only listen in some "
-                           "time slots may make one side look like it reached more.")
-            if spots_a.empty or spots_b.empty:
-                st.warning("No receiver was listening during both sides' transmissions, so there is nothing fair to "
-                           "compare. Try a longer test.")
-                return
-    names = {"A": name_a or sep["default"]["A"], "B": name_b or sep["default"]["B"]}
-    if names["A"] == names["B"]:  # the names become table headings, so they have to differ
-        names = {"A": names["A"] + " (A)", "B": names["B"] + " (B)"}
+            sep = _separate_by_log(spots)
+        if sep is None:
+            return
+        spots_a, spots_b = sep["a"], sep["b"]
+        if spots_a.empty or spots_b.empty:
+            st.warning("One side has no spots. Adjust the selection above, or the filters in the sidebar.")
+            return
+        map_a, map_b = spots_a, spots_b  # the maps and timeline show everything that was heard
+        unpaired = 0
+        if kind == "WSPR" and sep.get("time_based"):
+            if sep.get("labeled") and count_pairs(spots_a, spots_b) >= 1:
+                # An alternating test is judged pair by pair, and a pair has exactly one transmission on each antenna, so
+                # the time on the air is equal by construction. A transmission with no partner on the other antenna has
+                # nothing to be compared with, so it is left out of the comparison (it still shows on the maps). Thinning
+                # the longer side at random instead could throw away a paired transmission and leave nothing to compare.
+                spots_a, spots_b = spots_a[spots_a["round"].notna()], spots_b[spots_b["round"].notna()]
+                sep["exposure"] = None
+                unpaired = (map_a["time"].nunique() - spots_a["time"].nunique()
+                            + map_b["time"].nunique() - spots_b["time"].nunique())
+                if unpaired:
+                    notes.caption(f"\u2139\ufe0f {unpaired} transmission{'s' if unpaired != 1 else ''} had no partner on the other "
+                               "antenna, so they are left out of the A/B comparison (they still show on the maps).")
+            else:
+                # For WSPR the time on the air that matters is the transmissions that actually happened (2 minutes each),
+                # not the scheduled minutes: a transmitter that picks its slots at random can put far more of them on one side.
+                n_a, n_b = spots_a["time"].nunique(), spots_b["time"].nunique()
+                sep["exposure"] = (2.0 * n_a, 2.0 * n_b) if abs(n_a - n_b) > 1 else None
+        listening_note = None
+        if kind == "WSPR" and sep.get("time_based"):
+            bands = set(spots_a["band"]) | set(spots_b["band"])
+            if len(bands) == 1:
+                times = pd.concat([spots_a["time"], spots_b["time"]])
+                try:
+                    with st.spinner("Checking which receivers were listening\u2026"):
+                        listening, _ = load_listening(next(iter(bands)), times.min().to_pydatetime(),
+                                                      (times.max() + pd.Timedelta(minutes=2)).to_pydatetime())
+                    eligible = eligible_receivers(spots_a, spots_b, listening)
+                    heard = set(spots_a["spotter"]) | set(spots_b["spotter"])
+                    listening_note = {"kept": len(heard & eligible), "total": len(heard)}
+                    thin = _thin_slots(listening, set(times.unique()))
+                    if thin:
+                        notes.warning(f"wspr.live seems to be missing most of the reports for {len(thin)} of your "
+                                   f"{times.nunique()} transmissions (for example {', '.join(f'{x:%H:%M}' for x in thin[:4])} UTC): far "
+                                   "fewer receivers than usual reported anything on this band in those slots. Spots from them are "
+                                   "undercounted, which can favour whichever antenna was on the air at other times. This is a gap in "
+                                   "wspr.live's own data, mostly in older dates; a recent test is not affected.")
+                    spots_a = spots_a[spots_a["spotter"].isin(eligible)]
+                    spots_b = spots_b[spots_b["spotter"].isin(eligible)]
+                except WsprError as exc:
+                    notes.warning(f"Couldn't check which receivers were listening ({exc}). Receivers that only listen in some "
+                               "time slots may make one side look like it reached more.")
+                if spots_a.empty or spots_b.empty:
+                    notes.warning("No receiver was listening during both sides' transmissions, so there is nothing fair to "
+                               "compare. Try a longer test.")
+                    return
+        names = {"A": name_a or sep["default"]["A"], "B": name_b or sep["default"]["B"]}
+        if names["A"] == names["B"]:  # the names become table headings, so they have to differ
+            names = {"A": names["A"] + " (A)", "B": names["B"] + " (B)"}
 
-    # ---- power: WSPR sends it with every spot; for RBN you can say what you ran
-    with st.expander("Power", expanded=False):
-        if kind == "WSPR":
-            pa, pb = median_power_dbm(spots_a), median_power_dbm(spots_b)
-            watts = lambda dbm: 10 ** ((dbm - 30) / 10)  # noqa: E731
-            st.caption(f"Transmit power from the spots: {names['A']} {pa:.0f} dBm ({watts(pa):.2g} W), "
-                       f"{names['B']} {pb:.0f} dBm ({watts(pb):.2g} W).")
-            normalize = st.checkbox("Correct for any power difference (recommended)", value=True,
-                                    help="If the two tests used different power, B's SNR is shifted to A's power so the "
-                                         "antennas are compared, not the transmitters.")
-        else:
-            st.caption("Optional. If the two tests ran at different power, enter both so the comparison is about "
-                       "the antennas, not the transmitters. Leave at 0 if you don't know or they were equal.")
-            c1, c2 = st.columns(2)
-            watts_a = c1.number_input(f"Power for {names['A']} (watts)", min_value=0.0, value=0.0, step=5.0)
-            watts_b = c2.number_input(f"Power for {names['B']} (watts)", min_value=0.0, value=0.0, step=5.0)
-            pa, pb = db_from_watts(watts_a), db_from_watts(watts_b)
-            normalize = True
+        # ---- power: WSPR sends it with every spot; for RBN you can say what you ran
+        with st.expander("Power", expanded=False):
+            if kind == "WSPR":
+                pa, pb = median_power_dbm(spots_a), median_power_dbm(spots_b)
+                watts = lambda dbm: 10 ** ((dbm - 30) / 10)  # noqa: E731
+                st.caption(f"Transmit power from the spots: {names['A']} {pa:.0f} dBm ({watts(pa):.2g} W), "
+                           f"{names['B']} {pb:.0f} dBm ({watts(pb):.2g} W).")
+                normalize = st.checkbox("Correct for any power difference (recommended)", value=True,
+                                        help="If the two tests used different power, B's SNR is shifted to A's power so the "
+                                             "antennas are compared, not the transmitters.")
+            else:
+                st.caption("Optional. If the two tests ran at different power, enter both so the comparison is about "
+                           "the antennas, not the transmitters. Leave at 0 if you don't know or they were equal.")
+                c1, c2 = st.columns(2)
+                watts_a = c1.number_input(f"Power for {names['A']} (watts)", min_value=0.0, value=0.0, step=5.0)
+                watts_b = c2.number_input(f"Power for {names['B']} (watts)", min_value=0.0, value=0.0, step=5.0)
+                pa, pb = db_from_watts(watts_a), db_from_watts(watts_b)
+                normalize = True
 
-    an = analyze(spots_a, spots_b, locs, home, pa, pb, normalize, units, exposure=sep.get("exposure"))
-    # Describe what was heard the way the maps do, from every receiver that heard each side. The fairness checks (listening
-    # during both sides, real A/B pairs) decide who counts for the reach and strength verdict, but they would otherwise
-    # hide a receiver from the "farthest" figure that the map plainly shows.
-    ta_all, tb_all = receiver_table(map_a, locs, home), receiver_table(map_b, locs, home)
-    far_all_a, far_all_b = _farthest(ta_all), _farthest(tb_all)
-    if far_all_a and far_all_b:
-        an["dx"] = {**an["dx"], "a": far_all_a, "b": far_all_b}
-    rounds = None
-    if sep.get("alternating") and "round" in spots_a:
-        rounds = round_consistency(spots_a, spots_b, locs, home, an["power"]["offset"])
-    n_pairs = count_pairs(map_a, map_b)
-    sequential = not sep.get("alternating")
-    if sep.get("labeled"):  # a log of mostly unpaired transmissions (A A A B B B) is a one-after-the-other test
-        transmissions = map_a["time"].nunique() + map_b["time"].nunique()
-        sequential = transmissions > 0 and 2 * n_pairs < 0.5 * transmissions
-    if sep.get("blocks"):
-        sequential = sep["n_blocks"] < 4  # a few alternations average out the changing band; one A then one B does not
-    close_in_time = None
-    if sequential and not sep.get("labeled") and not sep.get("blocks"):
-        # Two frequencies or two windows sent within a few minutes of each other saw the same band conditions, so the
-        # warning that the time of day could explain the difference does not apply.
-        all_times = pd.concat([map_a["time"], map_b["time"]])
-        span_minutes = (all_times.max() - all_times.min()).total_seconds() / 60
-        if span_minutes <= SIMULTANEOUS_MINUTES:
-            sequential, close_in_time = False, span_minutes
-    verdict = build_verdict(an, names, exposure=sep.get("exposure") if sep.get("time_based") else None,
-                            rounds=rounds, receiver_word=noun, sequential=sequential,
-                            n_pairs=n_pairs if sep.get("alternating") else None)
+        an = analyze(spots_a, spots_b, locs, home, pa, pb, normalize, units, exposure=sep.get("exposure"))
+        # Describe what was heard the way the maps do, from every receiver that heard each side. The fairness checks (listening
+        # during both sides, real A/B pairs) decide who counts for the reach and strength verdict, but they would otherwise
+        # hide a receiver from the "farthest" figure that the map plainly shows.
+        ta_all, tb_all = receiver_table(map_a, locs, home), receiver_table(map_b, locs, home)
+        far_all_a, far_all_b = _farthest(ta_all), _farthest(tb_all)
+        if far_all_a and far_all_b:
+            an["dx"] = {**an["dx"], "a": far_all_a, "b": far_all_b}
+        rounds = None
+        if sep.get("alternating") and "round" in spots_a:
+            rounds = round_consistency(spots_a, spots_b, locs, home, an["power"]["offset"])
+        n_pairs = count_pairs(map_a, map_b)
+        sequential = not sep.get("alternating")
+        if sep.get("labeled"):  # a log of mostly unpaired transmissions (A A A B B B) is a one-after-the-other test
+            transmissions = map_a["time"].nunique() + map_b["time"].nunique()
+            sequential = transmissions > 0 and 2 * n_pairs < 0.5 * transmissions
+        if sep.get("blocks"):
+            sequential = sep["n_blocks"] < 4  # a few alternations average out the changing band; one A then one B does not
+        close_in_time = None
+        if sequential and not sep.get("labeled") and not sep.get("blocks"):
+            # Two frequencies or two windows sent within a few minutes of each other saw the same band conditions, so the
+            # warning that the time of day could explain the difference does not apply.
+            all_times = pd.concat([map_a["time"], map_b["time"]])
+            span_minutes = (all_times.max() - all_times.min()).total_seconds() / 60
+            if span_minutes <= SIMULTANEOUS_MINUTES:
+                sequential, close_in_time = False, span_minutes
+        verdict = build_verdict(an, names, exposure=sep.get("exposure") if sep.get("time_based") else None,
+                                rounds=rounds, receiver_word=noun, sequential=sequential,
+                                n_pairs=n_pairs if sep.get("alternating") else None)
 
-    if close_in_time is not None:
-        verdict["caveats"].append(
-            "A and B were sent within " + (f"{close_in_time:.0f} minute{'s' if round(close_in_time) != 1 else ''}"
-                                           if close_in_time >= 1 else "a minute") +
-            " of each other, so they saw the same band conditions and the time of day is not a concern here.")
-    if listening_note and listening_note["kept"] < listening_note["total"]:
-        verdict["caveats"].append(
-            f"Only receivers that were listening during both sides' transmissions are counted ({listening_note['kept']} "
-            f"of {listening_note['total']}). Many WSPR receivers hop between bands and only listen in some time slots, "
-            "which would otherwise look like one side reaching more.")
+        if close_in_time is not None:
+            verdict["caveats"].append(
+                "A and B were sent within " + (f"{close_in_time:.0f} minute{'s' if round(close_in_time) != 1 else ''}"
+                                               if close_in_time >= 1 else "a minute") +
+                " of each other, so they saw the same band conditions and the time of day is not a concern here.")
+        if listening_note and listening_note["kept"] < listening_note["total"]:
+            verdict["caveats"].append(
+                f"Only receivers that were listening during both sides' transmissions are counted ({listening_note['kept']} "
+                f"of {listening_note['total']}). Many WSPR receivers hop between bands and only listen in some time slots, "
+                "which would otherwise look like one side reaching more.")
 
-    r, s_, dx = an["reach"], an["strength"], an["dx"]
-    k = KM_PER_MILE if units == "mi" else 1
-    means_a, means_b = sector_means(ta_all), sector_means(tb_all)
-    with st.expander("Leave out some reports or receivers (for the averages)"):
-        f1, f2, f3 = st.columns(3)
-        floor_on = kind == "WSPR" and f1.checkbox(
-            f"Ignore reports at or below {WSPR_FLOOR_DB} dB", key="avg_floor",
-            help="WSPR can only decode down to about -28 dB. A report at that edge is unreliable, and the weaker antenna's "
-                 "weakest reports are often missing altogether.")
-        near = float(f2.number_input(f"Leave out receivers closer than ({units})", 0, 5000, 0, step=10, key=f"avg_near_{units}",
-                                     help="Close stations can hear you by ground wave, which says little about the antenna's "
-                                          "take-off angle. Leave at 0 to keep every receiver."))
-        weak_pct = int(f3.number_input("Drop a station if more than this % of its reports are at the floor", 0, 100, 0, step=5,
-                                       key="avg_weak", disabled=kind != "WSPR",
-                                       help="Stations that only hear you at the very edge, below about -27 dB, give weak and "
-                                            "noisy numbers. Instead of ignoring just those reports, this removes the whole "
-                                            "station when more than this share of its reports (both antennas together) are at "
-                                            "the floor. Leave at 0 to keep every station."))
-        st.caption("This changes the averages on the Receiver by receiver tab and the linear average on the Linear average tab. "
-                   "The verdict, the SNR average and the other tabs are not changed.")
-    avg_floor = WSPR_FLOOR_DB if floor_on else None
-    avg_min_km = near * (KM_PER_MILE if units == "mi" else 1.0)
-    avg_note = ", ".join(([f"reports at or below {WSPR_FLOOR_DB} dB left out"] if floor_on else [])
-                         + ([f"receivers closer than {near:g} {units} left out"] if near else [])
-                         + ([f"stations with more than {weak_pct}% of their reports at the floor left out"] if weak_pct else []))
-    tab_result, tab_where, tab_each, tab_method, tab_maps = st.tabs(
-        ["\U0001F4CA Result", "\U0001F9ED Direction & distance", "\U0001F4CB Receiver by receiver",
-         "\U0001F4D0 Linear average", "\U0001F5FA️ Maps"])
+        r, s_, dx = an["reach"], an["strength"], an["dx"]
+        k = KM_PER_MILE if units == "mi" else 1
+        means_a, means_b = sector_means(ta_all), sector_means(tb_all)
+        with st.expander("Leave out some reports or receivers (for the averages)"):
+            f1, f2, f3 = st.columns(3)
+            floor_on = kind == "WSPR" and f1.checkbox(
+                f"Ignore reports at or below {WSPR_FLOOR_DB} dB", key="avg_floor",
+                help="WSPR can only decode down to about -28 dB. A report at that edge is unreliable, and the weaker antenna's "
+                     "weakest reports are often missing altogether.")
+            near = float(f2.number_input(f"Leave out receivers closer than ({units})", 0, 5000, step=10, key=f"avg_near_{units}",
+                                         help="Close stations can hear you by ground wave, which says little about the antenna's "
+                                              "take-off angle. Leave at 0 to keep every receiver."))
+            weak_pct = int(f3.number_input("Drop a station if more than this % of its reports are at the floor", 0, 100, step=5,
+                                           key="avg_weak", disabled=kind != "WSPR",
+                                           help="Stations that only hear you at the very edge, below about -27 dB, give weak and "
+                                                "noisy numbers. Instead of ignoring just those reports, this removes the whole "
+                                                "station when more than this share of its reports (both antennas together) are at "
+                                                "the floor. Leave at 0 to keep every station."))
+            st.caption("This changes the averages on the Receiver by receiver tab and the linear average on the Linear average tab. "
+                       "The verdict, the SNR average and the other tabs are not changed.")
+        avg_floor = WSPR_FLOOR_DB if floor_on else None
+        avg_min_km = near * (KM_PER_MILE if units == "mi" else 1.0)
+        avg_note = ", ".join(([f"reports at or below {WSPR_FLOOR_DB} dB left out"] if floor_on else [])
+                             + ([f"receivers closer than {near:g} {units} left out"] if near else [])
+                             + ([f"stations with more than {weak_pct}% of their reports at the floor left out"] if weak_pct else []))
 
-    with tab_result:
-        snr_note = f"at the {s_['n']} {noun}s that heard both" if s_["n"] else f"no {noun} heard both"
-        avg_a = f"{an['shared']['snr_a'].mean():.1f} dB" if s_["n"] else "—"
-        avg_b = f"{an['shared']['snr_b'].mean():.1f} dB" if s_["n"] else "—"
-        far = lambda d: (f"{d['km'] / k:,.0f} {units}", d["who"]) if d else ("—", "")  # noqa: E731
-        typical = lambda t: (f"{t['km'].median() / k:,.0f} {units}", "") if len(t) else ("—", "")  # noqa: E731
-        score_rows = [
-            (f"Unique {noun}s that heard you", ("equal time on the air, " if an["equalized"] else "") + ("listening during both, " if listening_note else "") + "each one counted once · more is better",
-             (r["a"], f"from {r['spots_a']:,} spots"), (r["b"], f"from {r['spots_b']:,} spots"),
-             r["call"] if r["call"] in ("A", "B") else None),
-            ("Average SNR", snr_note, (avg_a, ""), (avg_b, ""), s_["call"] if s_["call"] in ("A", "B") else None),
-            (f"Farthest {noun}", "your longest path", far(dx["a"]), far(dx["b"]), dx["call"]),
-            ("Typical distance", "half the stations were closer than this", typical(ta_all), typical(tb_all), None),
-            ("Strongest direction", "where your signal was best",
-             (best_direction(means_a), ""), (best_direction(means_b), ""), None),
-        ]
+    with top:
+        st.markdown(_summary_tiles_html(an, names, rounds, noun), unsafe_allow_html=True)
+        st.caption(_setup_line(sep, names, kind))
         st.markdown(verdict_card_html(verdict), unsafe_allow_html=True)
-        n_a, n_b = map_a["time"].nunique(), map_b["time"].nunique()
-        used = _data_used(all_spots, spots, map_a, map_b, spots_a, spots_b, an, ta_all, tb_all, noun, sep, unpaired,
-                          listening_note, st.session_state.get("ghost_cycles", 0))
-        pdf_ctx = dict(data_used=used,
-            setup=_test_setup(sep, names, kind, callsign, label, file_date, ", ".join(sorted(set(map_a["band"]) | set(map_b["band"]))),
-                              pa, pb, an["power"]["offset"]), 
-            names=names, an=an, verdict=verdict, noun=noun, units=units, score_rows=score_rows, callsign=callsign, label=label,
-            file_date=file_date, source="WSPR" if kind == "WSPR" else "Reverse Beacon Network",
-            bands=", ".join(sorted(set(map_a["band"]) | set(map_b["band"]))),
-            test=(f"Test: {n_a} transmission{'s' if n_a != 1 else ''} on A, {n_b} on B" if sep.get("labeled")
-                  else "Test: A and B separated by " + ("frequency" if not sep.get("time_based") else "time")),
-            time_based=bool(sep.get("time_based")), means_a=means_a, means_b=means_b,
-            adv=direction_advantage(an["shared"], 45), counts_note=_shared_counts_note(an, noun),
-            az_points=_azimuth_points(ta_all, tb_all, an), home=home, scale=scale,
-            method=_method_summary(spots_a, spots_b, an, names, noun, locs, home),
-            timeline=(map_a, map_b))
-        st.download_button("\u2B07\ufe0f Download report (PDF)", data=lambda: compare_report_pdf(pdf_ctx),
-                           file_name=f"RBN_compare_{callsign}_{file_date}.pdf", mime="application/pdf",
-                           help="The verdict, scoreboard and every chart and table, as a PDF you can keep or share.")
-        with st.expander(used["label"]):
-            st.dataframe(pd.DataFrame(used["rows"], index=[names["A"], names["B"]]).T, width="stretch")
-            for line in used["lines"]:
-                st.markdown(f"- {line}")
-        st.markdown(scoreboard_html(names["A"], names["B"], score_rows), unsafe_allow_html=True)
 
-        st.markdown(f"##### Who heard you on each {'side' if sep.get('time_based') else 'frequency'}?")
-        st.markdown(reach_bar_html(r["only_a"], r["both"], r["only_b"]), unsafe_allow_html=True)
-        st.caption(f"Each {noun} is counted once, however many times it spotted you. A *spot* is one report, so "
-                   "spots always outnumber stations.")
-        st.markdown(_shared_counts_note(an, noun))
+    with details:
+        tab_result, tab_where, tab_each, tab_method, tab_maps = st.tabs(
+            ["\U0001F4CA Result", "\U0001F9ED Direction & distance", "\U0001F4CB Receiver by receiver",
+             "\U0001F4D0 Linear average", "\U0001F5FA️ Maps"])
 
-        st.subheader("Timeline")
-        st.pyplot(timeline_chart(map_a, map_b, names), width="stretch")
-        st.caption("Each faint dot is one spot; the solid dots are the median of each transmission, placed in the "
-                   "order they happened (a dotted line marks a long pause). If one colour sits above the other "
-                   "throughout, that's a real difference; if they swap places, propagation moved around more than "
-                   "the antennas differ.")
-        if rounds is not None and len(rounds) >= 3:
-            if len(rounds) <= 12:
-                st.caption("Who was stronger in each round, and by how much (dB): "
-                           + " \u00b7 ".join("equal" if abs(d) < 0.05 else f"{'A' if d > 0 else 'B'} +{abs(d):.1f}"
-                                             for d in rounds["delta"]))
-            else:
-                st.caption(f"{len(rounds)} rounds (one A transmission and the B one after it). A was stronger in "
-                           f"{int((rounds['delta'] > 0).sum())}, B in {int((rounds['delta'] < 0).sum())}; the typical "
-                           f"round: {_lead_text(names, float(rounds['delta'].median()))}.")
+        with tab_result:
+            snr_note = f"at the {s_['n']} {noun}s that heard both" if s_["n"] else f"no {noun} heard both"
+            avg_a = f"{an['shared']['snr_a'].mean():.1f} dB" if s_["n"] else "—"
+            avg_b = f"{an['shared']['snr_b'].mean():.1f} dB" if s_["n"] else "—"
+            far = lambda d: (f"{d['km'] / k:,.0f} {units}", d["who"]) if d else ("—", "")  # noqa: E731
+            typical = lambda t: (f"{t['km'].median() / k:,.0f} {units}", "") if len(t) else ("—", "")  # noqa: E731
+            score_rows = [
+                (f"Unique {noun}s that heard you", ("equal time on the air, " if an["equalized"] else "") + ("listening during both, " if listening_note else "") + "each one counted once · more is better",
+                 (r["a"], f"from {r['spots_a']:,} spots"), (r["b"], f"from {r['spots_b']:,} spots"),
+                 r["call"] if r["call"] in ("A", "B") else None),
+                ("Average SNR", snr_note, (avg_a, ""), (avg_b, ""), s_["call"] if s_["call"] in ("A", "B") else None),
+                (f"Farthest {noun}", "your longest path", far(dx["a"]), far(dx["b"]), dx["call"]),
+                ("Typical distance", "half the stations were closer than this", typical(ta_all), typical(tb_all), None),
+                ("Strongest direction", "where your signal was best",
+                 (best_direction(means_a), ""), (best_direction(means_b), ""), None),
+            ]
+            n_a, n_b = map_a["time"].nunique(), map_b["time"].nunique()
+            used = _data_used(all_spots, spots, map_a, map_b, spots_a, spots_b, an, ta_all, tb_all, noun, sep, unpaired,
+                              listening_note, st.session_state.get("ghost_cycles", 0))
+            pdf_ctx = dict(data_used=used,
+                setup=_test_setup(sep, names, kind, callsign, label, file_date, ", ".join(sorted(set(map_a["band"]) | set(map_b["band"]))),
+                                  pa, pb, an["power"]["offset"]), 
+                names=names, an=an, verdict=verdict, noun=noun, units=units, score_rows=score_rows, callsign=callsign, label=label,
+                file_date=file_date, source="WSPR" if kind == "WSPR" else "Reverse Beacon Network",
+                bands=", ".join(sorted(set(map_a["band"]) | set(map_b["band"]))),
+                test=(f"Test: {n_a} transmission{'s' if n_a != 1 else ''} on A, {n_b} on B" if sep.get("labeled")
+                      else "Test: A and B separated by " + ("frequency" if not sep.get("time_based") else "time")),
+                time_based=bool(sep.get("time_based")), means_a=means_a, means_b=means_b,
+                adv=direction_advantage(an["shared"], 45), counts_note=_shared_counts_note(an, noun),
+                az_points=_azimuth_points(ta_all, tb_all, an), home=home, scale=scale,
+                method=_method_summary(spots_a, spots_b, an, names, noun, locs, home),
+                timeline=(map_a, map_b))
+            st.download_button("\u2B07\ufe0f Download report (PDF)", data=lambda: compare_report_pdf(pdf_ctx),
+                               file_name=f"RBN_compare_{callsign}_{file_date}.pdf", mime="application/pdf",
+                               help="The verdict, scoreboard and every chart and table, as a PDF you can keep or share.")
+            with st.expander(used["label"]):
+                st.dataframe(pd.DataFrame(used["rows"], index=[names["A"], names["B"]]).T, width="stretch")
+                for line in used["lines"]:
+                    st.markdown(f"- {line}")
+            st.markdown(scoreboard_html(names["A"], names["B"], score_rows), unsafe_allow_html=True)
 
-    with tab_where:
-        az_points = _azimuth_points(ta_all, tb_all, an)
-        if len(az_points):
-            st.subheader("Where each antenna reached")
-            _azimuth_map_section(az_points, an, names, noun, units, home, callsign, scale)
-        if s_["n"]:
-            st.subheader("Which side is stronger, by direction")
-            width = st.radio("Sector width", [45, 30, 15], horizontal=True, key="adv_width",
-                             format_func=lambda w: f"{w}\u00b0", help="Narrower sectors show more detail but each holds fewer receivers.")
-            adv = direction_advantage(an["shared"], width)
-            have = adv[adv["n"] > 0]
-            options = ["All"] + list(have["label"])
-            picked = st.pills("Look at one direction", options, default="All", key="adv_sector",
-                              help="Outlines that direction on the chart and gives its numbers.")
-            picked = picked if picked in options else "All"
-            chart_col, table_col = st.columns([1, 1])
-            chart_col.pyplot(direction_advantage_chart(adv, names, width, callsign, None if picked == "All" else picked),
-                             width="stretch")
-            if picked != "All":
-                table_col.markdown(_sector_detail(an["shared"], adv, picked, width, names, noun))
-            table_col.dataframe(pd.DataFrame({
-                "Direction": have["label"], f"{noun.capitalize()}s": have["n"].astype(int),
-                "Stronger by": [_gain_text(v) for v in have["delta"]],
-                "Note": ["only " + str(int(n)) + " - treat as a hint" if n < BIN_MIN_SHARED else "" for n in have["n"]]}),
-                width="stretch", hide_index=True, height=min(38 * (len(have) + 1), 420))
-            table_col.caption("The longer the bar, the more one side beat the other toward that direction; blue is A and orange "
-                              "is B. A more solid bar rests on more receivers, and a hatched one on too few to trust. Unlike "
-                              "the average-SNR chart below, there is nothing to subtract in your head.")
-        if means_a.notna().any() or means_b.notna().any():
-            st.subheader("Average SNR by direction")
-            min_dir = int(st.slider(f"Only directions with at least this many {noun}s", 1, 20, 1, key="snr_dir_min",
-                                    help="A direction with only one or two receivers can stretch the chart. Raise this to leave "
-                                         "those directions out of the chart (the table keeps them)."))
-            if min_dir > 1:
-                means_a, means_b = sector_means(ta_all, min_dir), sector_means(tb_all, min_dir)
-                pdf_ctx["means_a"], pdf_ctx["means_b"] = means_a, means_b
-            chart_col, table_col = st.columns([1, 1])
-            chart_col.pyplot(direction_chart(means_a, means_b, names["A"], names["B"]), width="stretch")
-            table_col.dataframe(breakdown_table(an["direction"], names, "Direction", noun), width="stretch", hide_index=True,
-                                height=35 * (len(an["direction"]) + 1) + 3)
-            table_col.caption("Distance from the centre in the chart is the average SNR toward that direction. In the "
-                              "table, “Stronger by” is measured at the stations that heard both, and a side is "
-                              f"“better” past {DIRECTION_EDGE_DB:g} dB.")
-        if len(an["distance"]) and an["distance"][["a", "b"]].to_numpy().sum():
-            st.subheader("Distance")
-            chart_col, table_col = st.columns([1, 1])
-            chart_col.pyplot(distance_chart(an["distance"], names), width="stretch")
-            table_col.dataframe(breakdown_table(an["distance"], names, "Distance", noun), width="stretch", hide_index=True,
-                                height=35 * (len(an["distance"]) + 1) + 3)
-            table_col.caption("Bars show how much stronger one side was at the stations that heard both; a faded bar "
-                              "means fewer than 3 stations, so don't lean on it. "
-                              "Longer paths usually mean a lower take-off angle. If one antenna wins close in and the "
-                              "other wins far out, that's the signature of high-angle versus low-angle performance.")
+            st.markdown(f"##### Who heard you on each {'side' if sep.get('time_based') else 'frequency'}?")
+            st.markdown(reach_bar_html(r["only_a"], r["both"], r["only_b"]), unsafe_allow_html=True)
+            st.caption(f"Each {noun} is counted once, however many times it spotted you. A *spot* is one report, so "
+                       "spots always outnumber stations.")
+            st.markdown(_shared_counts_note(an, noun))
 
-    with tab_each:
-        if s_["n"]:
-            blocks_mode = bool(sep.get("blocks"))
-            ctrl_method, ctrl_min = st.columns([2, 3])
-            method_label = ctrl_method.radio(
-                f"Average each {noun}'s reports by", ["SNR (dB)", "Linear power"], index=1 if blocks_mode else 0,
-                horizontal=True, key=f"rx_method_{'blk' if blocks_mode else 'pair'}",
-                help="SNR (dB) takes the middle of a station's reports in dB. Linear power turns each report into power, "
-                     "averages the power and turns it back into dB. Linear is the proper average of signal power over "
-                     "time and suits a long test with many reports per station; the dB middle is steadier when a station "
-                     "has only a few reports.")
-            min_key = f"rx_min_reports_{'blk' if blocks_mode else 'pair'}"
-            st.session_state.setdefault(min_key, DALE_MIN_SPOTS if blocks_mode else 1)
-            min_reports = int(ctrl_min.slider(
-                f"Only {noun}s with at least this many reports on each antenna", 1, 60,
-                key=min_key,
-                help="Raising this drops stations with few reports. The far, weak ones go first, but each station left has a "
-                     "steadier average, and the answer settling as you raise it is a sign it can be trusted."))
-            plain = method_label == "SNR (dB)" and min_reports == 1 and avg_floor is None and not avg_min_km and not weak_pct
-            if avg_note:
-                st.caption("Averages here have " + avg_note + ".")
-            fa = spots_a if avg_floor is None else spots_a[spots_a["snr"] > avg_floor]
-            fb = spots_b if avg_floor is None else spots_b[spots_b["snr"] > avg_floor]
-            if plain:
-                every, scatter_src = an["shared_all"], an["shared"]
-            else:
-                every = station_gains(spots_a, spots_b, locs, home, "linear" if method_label == "Linear power" else "snr",
-                                      min_reports, an["power"]["offset"], avg_floor, avg_min_km, weak_pct)
-                scatter_src = every
-            if every.empty:
-                st.info(f"No {noun} has {min_reports} or more reports on both antennas. Lower the number above.")
-            else:
-                pdf_ctx["every"], pdf_ctx["scatter_src"] = every, scatter_src
-                pdf_ctx["settings"] = (
-                    f"Settings for this section: each {noun}'s reports are averaged by "
-                    f"{'linear power' if method_label == 'Linear power' else 'the SNR (dB) median'}; only {noun}s with at least "
-                    f"{min_reports} report{'s' if min_reports != 1 else ''} on each antenna are used; "
-                    + (avg_note + "; " if avg_note else "no reports or receivers were left out; ")
-                    + f"every {noun} counts on its own; distances are in {units}.")
-                pdf_ctx["rx_note"] = (f"Each SNR is the {'average power, in dB,' if method_label == 'Linear power' else 'median'} "
-                                      f"of that station's spots"
-                                      + (f"; only {noun}s with at least {min_reports} reports on each antenna are included." if min_reports > 1
-                                         else "."))
-                chart_col, table_col = st.columns([1, 1])
-                chart_col.pyplot(paired_scatter(scatter_src, names), width="stretch")
-                if plain:
-                    table_col.caption(f"{s_['n']} {noun}s heard both. \U0001F535 A was stronger at {s_['wins_a']}, "
-                                      f"\U0001F7E0 B at {s_['wins_b']}, tied at {s_['ties']}. Each SNR is the median of that "
-                                      f"{noun}'s spots. Click a column heading to sort.")
+            st.subheader("Timeline")
+            st.pyplot(timeline_chart(map_a, map_b, names), width="stretch")
+            st.caption("Each faint dot is one spot; the solid dots are the median of each transmission, placed in the "
+                       "order they happened (a dotted line marks a long pause). If one colour sits above the other "
+                       "throughout, that's a real difference; if they swap places, propagation moved around more than "
+                       "the antennas differ.")
+            if rounds is not None and len(rounds) >= 3:
+                if len(rounds) <= 12:
+                    st.caption("Who was stronger in each round, and by how much (dB): "
+                               + " \u00b7 ".join("equal" if abs(d) < 0.05 else f"{'A' if d > 0 else 'B'} +{abs(d):.1f}"
+                                                 for d in rounds["delta"]))
                 else:
-                    wins_a, wins_b = int((every["gap"] > 0).sum()), int((every["gap"] < 0).sum())
-                    table_col.caption(f"{len(every)} {noun}s with at least {min_reports} report{'s' if min_reports != 1 else ''} on each antenna. "
-                                      f"\U0001F535 A was stronger at {wins_a}, \U0001F7E0 B at {wins_b}, tied at "
-                                      f"{len(every) - wins_a - wins_b}. Each SNR is the "
-                                      f"{'average power, in dB,' if method_label == 'Linear power' else 'median'} of that "
-                                      f"{noun}'s spots. Click a column heading to sort.")
-                table_col.dataframe(head_to_head_table(every, units), width="stretch",
-                                    height=min(38 * (len(every) + 1), 420))
-                table_col.download_button("⬇️ This table (CSV)", head_to_head_table(every, units).data.rename(
-                                              columns=lambda c: c.replace("🔵 ", "").replace("🟠 ", "")).to_csv(),
-                                          f"RBN_compare_{callsign}_{file_date}_by_{noun}.csv", "text/csv",
-                                          help="Every receiver's average SNR on A and B and the relative gain, as shown.")
-            if not every.empty:
-                st.subheader("Relative gain by direction and distance")
-                st.caption(f"Relative gain is B's SNR minus A's SNR at the same {noun}. Think of A as the reference antenna and "
-                           f"B as the test antenna: above zero, the test antenna gave that {noun} more signal. Because it is "
-                           f"a difference at one {noun}, that {noun}'s own noise level cancels, so {noun}s can be compared "
-                           "with each other. This holds when both antennas used the same power and receiver and have "
-                           "similar patterns.")
-                gain_dir, gain_dist = st.columns(2)
-                gain_dir.pyplot(relative_gain_chart(every, names, units, "direction"), width="stretch")
-                gain_dist.pyplot(relative_gain_chart(every, names, units, "distance"), width="stretch")
+                    st.caption(f"{len(rounds)} rounds (one A transmission and the B one after it). A was stronger in "
+                               f"{int((rounds['delta'] > 0).sum())}, B in {int((rounds['delta'] < 0).sum())}; the typical "
+                               f"round: {_lead_text(names, float(rounds['delta'].median()))}.")
 
-                st.markdown("##### Average relative gain by direction and distance")
-                c_groups, c_short, c_medium = st.columns([2, 1, 1])
-                groups = c_groups.radio("Group directions as", ["Octants (8)", "Quadrants (4)"], horizontal=True, key="gs_groups",
-                                        help="Each direction is centred on its compass point, like the direction charts: N covers "
-                                             "337\u00b0 to 22\u00b0 for octants, and 315\u00b0 to 45\u00b0 for quadrants.")
-                kk_gs = KM_PER_MILE if units == "mi" else 1.0
-                short_max = float(c_short.number_input(f"Short ends at ({units})", min_value=50, max_value=20000,
-                                                       value=1000 if units == "mi" else 1500, step=100, key=f"gs_short_{units}"))
-                medium_max = float(c_medium.number_input(f"Medium ends at ({units})", min_value=100, max_value=20000,
-                                                         value=2500 if units == "mi" else 4000, step=100, key=f"gs_med_{units}"))
-                if medium_max <= short_max:
-                    st.warning("Medium has to end beyond where Short ends. Using the two numbers in order.")
-                    short_max, medium_max = sorted((short_max, medium_max))
-                dir_sum = gain_summary(every, "octant" if groups.startswith("Octants") else "quadrant")
-                dist_labels = [f"Short: under {short_max:,.0f} {units}", f"Medium: {short_max:,.0f} to {medium_max:,.0f} {units}",
-                               f"Long: over {medium_max:,.0f} {units}"]
-                dist_sum = gain_summary(every, "distance", [short_max * kk_gs, medium_max * kk_gs], dist_labels)
-                gs_dir = _gain_summary_view(dir_sum, "Direction", noun)
-                gs_dist = _gain_summary_view(dist_sum, "Distance", noun)
-                pdf_ctx["gain_summary"] = {"direction": gs_dir, "distance": gs_dist}
-                t_dir, t_dist = st.columns(2)
-                t_dir.dataframe(gs_dir, width="stretch", hide_index=True, height=35 * (len(gs_dir) + 1) + 3)
-                t_dist.dataframe(gs_dist, width="stretch", hide_index=True, height=35 * (len(gs_dist) + 1) + 3)
-                st.caption(f"The average of B \u2212 A at the {noun}s in each group, with each {noun} counting once and "
-                           f"a 95% range. Above zero, B was stronger there. A group with fewer than {BIN_MIN_SHARED} {noun}s is a "
-                           f"hint, not a result. It uses the same averaging ({method_label}) and minimum reports as the charts above.")
+        with tab_where:
+            az_points = _azimuth_points(ta_all, tb_all, an)
+            if len(az_points):
+                st.subheader("Where each antenna reached")
+                _azimuth_map_section(az_points, an, names, noun, units, home, callsign, scale)
+            if s_["n"]:
+                st.subheader("Which side is stronger, by direction")
+                width = st.radio("Sector width", [45, 30, 15], horizontal=True, key="adv_width",
+                                 format_func=lambda w: f"{w}\u00b0", help="Narrower sectors show more detail but each holds fewer receivers.")
+                adv = direction_advantage(an["shared"], width)
+                have = adv[adv["n"] > 0]
+                options = ["All"] + list(have["label"])
+                picked = st.pills("Look at one direction", options, default="All", key="adv_sector",
+                                  help="Outlines that direction on the chart and gives its numbers.")
+                picked = picked if picked in options else "All"
+                chart_col, table_col = st.columns([1, 1])
+                chart_col.pyplot(direction_advantage_chart(adv, names, width, callsign, None if picked == "All" else picked),
+                                 width="stretch")
+                if picked != "All":
+                    table_col.markdown(_sector_detail(an["shared"], adv, picked, width, names, noun))
+                table_col.dataframe(pd.DataFrame({
+                    "Direction": have["label"], f"{noun.capitalize()}s": have["n"].astype(int),
+                    "Stronger by": [_gain_text(v) for v in have["delta"]],
+                    "Note": ["only " + str(int(n)) + " - treat as a hint" if n < BIN_MIN_SHARED else "" for n in have["n"]]}),
+                    width="stretch", hide_index=True, height=min(38 * (len(have) + 1), 420))
+                table_col.caption("The longer the bar, the more one side beat the other toward that direction; blue is A and orange "
+                                  "is B. A more solid bar rests on more receivers, and a hatched one on too few to trust. Unlike "
+                                  "the average-SNR chart below, there is nothing to subtract in your head.")
+            if means_a.notna().any() or means_b.notna().any():
+                st.subheader("Average SNR by direction")
+                min_dir = int(st.slider(f"Only directions with at least this many {noun}s", 1, 20, 1, key="snr_dir_min",
+                                        help="A direction with only one or two receivers can stretch the chart. Raise this to leave "
+                                             "those directions out of the chart (the table keeps them)."))
+                if min_dir > 1:
+                    means_a, means_b = sector_means(ta_all, min_dir), sector_means(tb_all, min_dir)
+                    pdf_ctx["means_a"], pdf_ctx["means_b"] = means_a, means_b
+                chart_col, table_col = st.columns([1, 1])
+                chart_col.pyplot(direction_chart(means_a, means_b, names["A"], names["B"]), width="stretch")
+                table_col.dataframe(breakdown_table(an["direction"], names, "Direction", noun), width="stretch", hide_index=True,
+                                    height=35 * (len(an["direction"]) + 1) + 3)
+                table_col.caption("Distance from the centre in the chart is the average SNR toward that direction. In the "
+                                  "table, “Stronger by” is measured at the stations that heard both, and a side is "
+                                  f"“better” past {DIRECTION_EDGE_DB:g} dB.")
+            if len(an["distance"]) and an["distance"][["a", "b"]].to_numpy().sum():
+                st.subheader("Distance")
+                chart_col, table_col = st.columns([1, 1])
+                chart_col.pyplot(distance_chart(an["distance"], names), width="stretch")
+                table_col.dataframe(breakdown_table(an["distance"], names, "Distance", noun), width="stretch", hide_index=True,
+                                    height=35 * (len(an["distance"]) + 1) + 3)
+                table_col.caption("Bars show how much stronger one side was at the stations that heard both; a faded bar "
+                                  "means fewer than 3 stations, so don't lean on it. "
+                                  "Longer paths usually mean a lower take-off angle. If one antenna wins close in and the "
+                                  "other wins far out, that's the signature of high-angle versus low-angle performance.")
 
-                st.subheader(f"One {noun} over time")
-                reports_a, reports_b = fa.groupby("spotter").size(), fb.groupby("spotter").size()
-                kk = KM_PER_MILE if units == "mi" else 1
-                sort_by = st.radio("Sort the list by", ["A\u2013Z", "Distance", "Direction", "Most reports"], horizontal=True,
-                                   key="rx_sort", help="You can also click the box and type part of a callsign to find it.")
-                order_key = {"A\u2013Z": lambda r: r,
-                             "Distance": lambda r: every.at[r, "km_a"],
-                             "Direction": lambda r: every.at[r, "bearing_a"],
-                             "Most reports": lambda r: (-min(reports_a.get(r, 0), reports_b.get(r, 0)), every.at[r, "km_a"])}[sort_by]
-                ranked = sorted(every.index, key=order_key)
-                pick = st.selectbox(
-                    f"Pick a {noun}", ranked,
-                    format_func=lambda r: (f"{r} \u00b7 {every.at[r, 'km_a'] / kk:,.0f} {units} "
-                                           f"{COMPASS_16[int(((every.at[r, 'bearing_a'] + 11.25) % 360) // 22.5)]} \u00b7 "
-                                           f"{reports_a.get(r, 0)} on A, {reports_b.get(r, 0)} on B"))
-                offset = an["power"]["offset"]
-                st.pyplot(receiver_time_chart(fa, fb, pick, names, offset, linear=method_label == "Linear power"),
-                          width="stretch")
-                one_a = fa[fa["spotter"] == pick]["snr"].to_numpy(float)
-                one_b = fb[fb["spotter"] == pick]["snr"].to_numpy(float) + offset
-                m_a, m_b, m_gain = st.columns(3)
-                for col, label, values in ((m_a, names["A"], one_a), (m_b, names["B"], one_b)):
-                    col.metric(label, f"{_linear_db(values):.1f} dB")
-                    col.caption(f"Linear average \u00b7 {len(values)} reports \u00b7 dB average {values.mean():.1f} \u00b7 middle {np.median(values):g} "
-                                f"\u00b7 spread (std) {values.std(ddof=1) if len(values) > 1 else float('nan'):.1f} dB")
-                diff, lo, hi = _gain_interval(one_a, one_b)
-                m_gain.metric("Relative gain B \u2212 A", f"{_linear_db(one_b) - _linear_db(one_a):+.1f} dB")
-                m_gain.caption(f"Linear power. dB averages: {diff:+.1f} dB"
-                               + (f", 95% range {lo:+.1f} to {hi:+.1f} dB" if not np.isnan(lo) else ", too few reports for a range"))
-                st.caption(f"Each dot is one report from this {noun}; the line is each antenna's average "
-                           f"({'linear power' if method_label == 'Linear power' else 'middle of the dB reports'}). "
-                           "Wide scatter means the signal was fading or the band was changing, which is why a few reports "
-                           "can give a misleading average. In a long-block test the shading shows when each antenna was "
-                           "connected.")
-                if sep.get("blocks") and sep.get("t0") is not None:
-                    st.subheader("Relative gain over time")
-                    block_min = sep["block_min"]
-                    t_start = sep["t0"]
-                    t_end = sep.get("t_end") or t_start + pd.Timedelta(minutes=block_min * sep["n_blocks_set"])
-                    multiples = [m for m in (2, 4, 6, 8) if m * block_min <= (t_end - t_start).total_seconds() / 60]
-                    c_len, c_min = st.columns(2)
-                    mult = c_len.selectbox("Window length", multiples or [2], index=min(1, max(len(multiples) - 1, 0)),
-                                           format_func=lambda m: (f"{m * block_min // 60} hour{'s' if m * block_min != 60 else ''}"
-                                                                  if m * block_min >= 60 and m * block_min % 60 == 0
-                                                                  else f"{m * block_min:g} minutes"),
-                                           key=f"rx_win_len_{block_min}",
-                                           help="A window should hold whole A and B blocks so both antennas get equal time. "
-                                                "Two hours (four 30-minute blocks) balances either block order.")
-                    win_min = c_min.slider(f"Minimum reports per {noun} in a window", 1, 20, 3, key="rx_win_min",
-                                           help=f"Each window is averaged on its own, so it holds fewer reports per {noun} than "
-                                                "the whole test. A low number keeps more stations; a higher one is steadier.")
-                    step = pd.Timedelta(minutes=mult * block_min)
-                    windows, cursor = [], t_start
-                    while cursor < t_end:
-                        windows.append((cursor, min(cursor + step, t_end)))
-                        cursor += step
-                    over_time = gain_by_window(spots_a, spots_b, locs, home, windows,
-                                               "linear" if method_label == "Linear power" else "snr", win_min, offset,
-                                               receiver=pick, floor=avg_floor, min_km=avg_min_km, weak_pct=weak_pct)
-                    if over_time["n"].sum() == 0:
-                        st.caption("No window has enough reports at that minimum. Lower it.")
+        with tab_each:
+            if s_["n"]:
+                blocks_mode = bool(sep.get("blocks"))
+                ctrl_method, ctrl_min = st.columns([2, 3])
+                method_label = ctrl_method.radio(
+                    f"Average each {noun}'s reports by", ["SNR (dB)", "Linear power"], index=1 if blocks_mode else 0,
+                    horizontal=True, key=f"rx_method_{'blk' if blocks_mode else 'pair'}",
+                    help="SNR (dB) takes the middle of a station's reports in dB. Linear power turns each report into power, "
+                         "averages the power and turns it back into dB. Linear is the proper average of signal power over "
+                         "time and suits a long test with many reports per station; the dB middle is steadier when a station "
+                         "has only a few reports.")
+                min_key = f"rx_min_reports_{'blk' if blocks_mode else 'pair'}"
+                st.session_state.setdefault(min_key, DALE_MIN_SPOTS if blocks_mode else 1)
+                min_reports = int(ctrl_min.slider(
+                    f"Only {noun}s with at least this many reports on each antenna", 1, 60,
+                    key=min_key,
+                    help="Raising this drops stations with few reports. The far, weak ones go first, but each station left has a "
+                         "steadier average, and the answer settling as you raise it is a sign it can be trusted."))
+                plain = method_label == "SNR (dB)" and min_reports == 1 and avg_floor is None and not avg_min_km and not weak_pct
+                if avg_note:
+                    st.caption("Averages here have " + avg_note + ".")
+                fa = spots_a if avg_floor is None else spots_a[spots_a["snr"] > avg_floor]
+                fb = spots_b if avg_floor is None else spots_b[spots_b["snr"] > avg_floor]
+                if plain:
+                    every, scatter_src = an["shared_all"], an["shared"]
+                else:
+                    every = station_gains(spots_a, spots_b, locs, home, "linear" if method_label == "Linear power" else "snr",
+                                          min_reports, an["power"]["offset"], avg_floor, avg_min_km, weak_pct)
+                    scatter_src = every
+                if every.empty:
+                    st.info(f"No {noun} has {min_reports} or more reports on both antennas. Lower the number above.")
+                else:
+                    pdf_ctx["every"], pdf_ctx["scatter_src"] = every, scatter_src
+                    pdf_ctx["settings"] = (
+                        f"Settings for this section: each {noun}'s reports are averaged by "
+                        f"{'linear power' if method_label == 'Linear power' else 'the SNR (dB) median'}; only {noun}s with at least "
+                        f"{min_reports} report{'s' if min_reports != 1 else ''} on each antenna are used; "
+                        + (avg_note + "; " if avg_note else "no reports or receivers were left out; ")
+                        + f"every {noun} counts on its own; distances are in {units}.")
+                    pdf_ctx["rx_note"] = (f"Each SNR is the {'average power, in dB,' if method_label == 'Linear power' else 'median'} "
+                                          f"of that station's spots"
+                                          + (f"; only {noun}s with at least {min_reports} reports on each antenna are included." if min_reports > 1
+                                             else "."))
+                    chart_col, table_col = st.columns([1, 1])
+                    chart_col.pyplot(paired_scatter(scatter_src, names), width="stretch")
+                    if plain:
+                        table_col.caption(f"{s_['n']} {noun}s heard both. \U0001F535 A was stronger at {s_['wins_a']}, "
+                                          f"\U0001F7E0 B at {s_['wins_b']}, tied at {s_['ties']}. Each SNR is the median of that "
+                                          f"{noun}'s spots. Click a column heading to sort.")
                     else:
-                        st.pyplot(gain_over_time_chart(over_time, names, pick), width="stretch")
-                        st.dataframe(pd.DataFrame({
-                            "Window (UTC)": [f"{s:%H:%M}\u2013{e:%H:%M}" for s, e in zip(over_time["start"], over_time["end"])],
-                            f"{noun.capitalize()}s": over_time["n"],
-                            "Average gain B \u2212 A (dB)": over_time["mean"].round(1),
-                            "95% range": [f"{lo:+.1f} to {hi:+.1f}" if not np.isnan(lo) else "" for lo, hi in
-                                          zip(over_time["lo"], over_time["hi"])],
-                            f"{pick} (dB)": over_time["one"].round(1),
-                            f"{pick} reports (A / B)": [f"{a} / {b}" for a, b in over_time["one_n"]]}),
-                            width="stretch", hide_index=True)
-                        st.caption("The bars are the average relative gain over every station that heard both antennas in that "
-                                   "window, with the 95% range across stations; the line is the picked "
-                                   f"{noun}. If the bars and line move up or down during the test, a single average over the "
-                                   "whole test hides it. A band opening, for example Europe late in the day, shows up here.")
-        else:
-            st.info(f"No {noun} heard both sides, so there is nothing to compare receiver by receiver.")
+                        wins_a, wins_b = int((every["gap"] > 0).sum()), int((every["gap"] < 0).sum())
+                        table_col.caption(f"{len(every)} {noun}s with at least {min_reports} report{'s' if min_reports != 1 else ''} on each antenna. "
+                                          f"\U0001F535 A was stronger at {wins_a}, \U0001F7E0 B at {wins_b}, tied at "
+                                          f"{len(every) - wins_a - wins_b}. Each SNR is the "
+                                          f"{'average power, in dB,' if method_label == 'Linear power' else 'median'} of that "
+                                          f"{noun}'s spots. Click a column heading to sort.")
+                    table_col.dataframe(head_to_head_table(every, units), width="stretch",
+                                        height=min(38 * (len(every) + 1), 420))
+                    table_col.download_button("⬇️ This table (CSV)", head_to_head_table(every, units).data.rename(
+                                                  columns=lambda c: c.replace("🔵 ", "").replace("🟠 ", "")).to_csv(),
+                                              f"RBN_compare_{callsign}_{file_date}_by_{noun}.csv", "text/csv",
+                                              help="Every receiver's average SNR on A and B and the relative gain, as shown.")
+                if not every.empty:
+                    st.subheader("Relative gain by direction and distance")
+                    st.caption(f"Relative gain is B's SNR minus A's SNR at the same {noun}. Think of A as the reference antenna and "
+                               f"B as the test antenna: above zero, the test antenna gave that {noun} more signal. Because it is "
+                               f"a difference at one {noun}, that {noun}'s own noise level cancels, so {noun}s can be compared "
+                               "with each other. This holds when both antennas used the same power and receiver and have "
+                               "similar patterns.")
+                    gain_dir, gain_dist = st.columns(2)
+                    gain_dir.pyplot(relative_gain_chart(every, names, units, "direction"), width="stretch")
+                    gain_dist.pyplot(relative_gain_chart(every, names, units, "distance"), width="stretch")
 
-    with tab_method:
-        _linear_average_view(map_a, map_b, an, names, noun, locs, home, kind, callsign, paired=(spots_a, spots_b),
-                             floor=avg_floor, min_km=avg_min_km, weak_pct=weak_pct,
-                             default_min=DALE_MIN_SPOTS if sep.get("blocks") else 1)
+                    st.markdown("##### Average relative gain by direction and distance")
+                    c_groups, c_short, c_medium = st.columns([2, 1, 1])
+                    groups = c_groups.radio("Group directions as", ["Octants (8)", "Quadrants (4)"], horizontal=True, key="gs_groups",
+                                            help="Each direction is centred on its compass point, like the direction charts: N covers "
+                                                 "337\u00b0 to 22\u00b0 for octants, and 315\u00b0 to 45\u00b0 for quadrants.")
+                    kk_gs = KM_PER_MILE if units == "mi" else 1.0
+                    short_max = float(c_short.number_input(f"Short ends at ({units})", min_value=50, max_value=20000,
+                                                           value=1000 if units == "mi" else 1500, step=100, key=f"gs_short_{units}"))
+                    medium_max = float(c_medium.number_input(f"Medium ends at ({units})", min_value=100, max_value=20000,
+                                                             value=2500 if units == "mi" else 4000, step=100, key=f"gs_med_{units}"))
+                    if medium_max <= short_max:
+                        st.warning("Medium has to end beyond where Short ends. Using the two numbers in order.")
+                        short_max, medium_max = sorted((short_max, medium_max))
+                    dir_sum = gain_summary(every, "octant" if groups.startswith("Octants") else "quadrant")
+                    dist_labels = [f"Short: under {short_max:,.0f} {units}", f"Medium: {short_max:,.0f} to {medium_max:,.0f} {units}",
+                                   f"Long: over {medium_max:,.0f} {units}"]
+                    dist_sum = gain_summary(every, "distance", [short_max * kk_gs, medium_max * kk_gs], dist_labels)
+                    gs_dir = _gain_summary_view(dir_sum, "Direction", noun)
+                    gs_dist = _gain_summary_view(dist_sum, "Distance", noun)
+                    pdf_ctx["gain_summary"] = {"direction": gs_dir, "distance": gs_dist}
+                    t_dir, t_dist = st.columns(2)
+                    t_dir.dataframe(gs_dir, width="stretch", hide_index=True, height=35 * (len(gs_dir) + 1) + 3)
+                    t_dist.dataframe(gs_dist, width="stretch", hide_index=True, height=35 * (len(gs_dist) + 1) + 3)
+                    st.caption(f"The average of B \u2212 A at the {noun}s in each group, with each {noun} counting once and "
+                               f"a 95% range. Above zero, B was stronger there. A group with fewer than {BIN_MIN_SHARED} {noun}s is a "
+                               f"hint, not a result. It uses the same averaging ({method_label}) and minimum reports as the charts above.")
 
-    with tab_maps:
-        st.caption("Both maps use the same view, the same SNR scale and the same dot sizes.")
-        both = pd.concat([map_a, map_b])
-        col_a, col_b = st.columns(2)
-        for col, side, group in ((col_a, "A", map_a), (col_b, "B", map_b)):
-            html = build_map(group, locs, home, label, callsign, show_all, tiles, units,
-                             compute_stats(group, locs, home)["farthest"],
-                             title=f"{callsign} · {names[side]}", fit_spots=both, scale=scale, noun=noun
-                             ).get_root().render()
-            icon = "\U0001F535" if side == "A" else "\U0001F7E0"
-            slug = re.sub(r"[^A-Za-z0-9]+", "_", names[side]).strip("_")
-            with col:
-                st.markdown(f"#### {icon} {names[side]}")
-                st.iframe(html, height=620)
-                st.download_button(f"⬇️ Download map {side}", html,
-                                   f"RBN_map_{callsign}_{file_date}_{slug}.html", "text/html", key=f"dl_{side}")
+                    st.subheader(f"One {noun} over time")
+                    reports_a, reports_b = fa.groupby("spotter").size(), fb.groupby("spotter").size()
+                    kk = KM_PER_MILE if units == "mi" else 1
+                    sort_by = st.radio("Sort the list by", ["A\u2013Z", "Distance", "Direction", "Most reports"], horizontal=True,
+                                       key="rx_sort", help="You can also click the box and type part of a callsign to find it.")
+                    order_key = {"A\u2013Z": lambda r: r,
+                                 "Distance": lambda r: every.at[r, "km_a"],
+                                 "Direction": lambda r: every.at[r, "bearing_a"],
+                                 "Most reports": lambda r: (-min(reports_a.get(r, 0), reports_b.get(r, 0)), every.at[r, "km_a"])}[sort_by]
+                    ranked = sorted(every.index, key=order_key)
+                    pick = st.selectbox(
+                        f"Pick a {noun}", ranked,
+                        format_func=lambda r: (f"{r} \u00b7 {every.at[r, 'km_a'] / kk:,.0f} {units} "
+                                               f"{COMPASS_16[int(((every.at[r, 'bearing_a'] + 11.25) % 360) // 22.5)]} \u00b7 "
+                                               f"{reports_a.get(r, 0)} on A, {reports_b.get(r, 0)} on B"))
+                    offset = an["power"]["offset"]
+                    st.pyplot(receiver_time_chart(fa, fb, pick, names, offset, linear=method_label == "Linear power"),
+                              width="stretch")
+                    one_a = fa[fa["spotter"] == pick]["snr"].to_numpy(float)
+                    one_b = fb[fb["spotter"] == pick]["snr"].to_numpy(float) + offset
+                    m_a, m_b, m_gain = st.columns(3)
+                    for col, label, values in ((m_a, names["A"], one_a), (m_b, names["B"], one_b)):
+                        col.metric(label, f"{_linear_db(values):.1f} dB")
+                        col.caption(f"Linear average \u00b7 {len(values)} reports \u00b7 dB average {values.mean():.1f} \u00b7 middle {np.median(values):g} "
+                                    f"\u00b7 spread (std) {values.std(ddof=1) if len(values) > 1 else float('nan'):.1f} dB")
+                    diff, lo, hi = _gain_interval(one_a, one_b)
+                    m_gain.metric("Relative gain B \u2212 A", f"{_linear_db(one_b) - _linear_db(one_a):+.1f} dB")
+                    m_gain.caption(f"Linear power. dB averages: {diff:+.1f} dB"
+                                   + (f", 95% range {lo:+.1f} to {hi:+.1f} dB" if not np.isnan(lo) else ", too few reports for a range"))
+                    st.caption(f"Each dot is one report from this {noun}; the line is each antenna's average "
+                               f"({'linear power' if method_label == 'Linear power' else 'middle of the dB reports'}). "
+                               "Wide scatter means the signal was fading or the band was changing, which is why a few reports "
+                               "can give a misleading average. In a long-block test the shading shows when each antenna was "
+                               "connected.")
+                    if sep.get("blocks") and sep.get("t0") is not None:
+                        st.subheader("Relative gain over time")
+                        block_min = sep["block_min"]
+                        t_start = sep["t0"]
+                        t_end = sep.get("t_end") or t_start + pd.Timedelta(minutes=block_min * sep["n_blocks_set"])
+                        multiples = [m for m in (2, 4, 6, 8) if m * block_min <= (t_end - t_start).total_seconds() / 60]
+                        c_len, c_min = st.columns(2)
+                        mult = c_len.selectbox("Window length", multiples or [2], index=min(1, max(len(multiples) - 1, 0)),
+                                               format_func=lambda m: (f"{m * block_min // 60} hour{'s' if m * block_min != 60 else ''}"
+                                                                      if m * block_min >= 60 and m * block_min % 60 == 0
+                                                                      else f"{m * block_min:g} minutes"),
+                                               key=f"rx_win_len_{block_min}",
+                                               help="A window should hold whole A and B blocks so both antennas get equal time. "
+                                                    "Two hours (four 30-minute blocks) balances either block order.")
+                        win_min = c_min.slider(f"Minimum reports per {noun} in a window", 1, 20, 3, key="rx_win_min",
+                                               help=f"Each window is averaged on its own, so it holds fewer reports per {noun} than "
+                                                    "the whole test. A low number keeps more stations; a higher one is steadier.")
+                        step = pd.Timedelta(minutes=mult * block_min)
+                        windows, cursor = [], t_start
+                        while cursor < t_end:
+                            windows.append((cursor, min(cursor + step, t_end)))
+                            cursor += step
+                        over_time = gain_by_window(spots_a, spots_b, locs, home, windows,
+                                                   "linear" if method_label == "Linear power" else "snr", win_min, offset,
+                                                   receiver=pick, floor=avg_floor, min_km=avg_min_km, weak_pct=weak_pct)
+                        if over_time["n"].sum() == 0:
+                            st.caption("No window has enough reports at that minimum. Lower it.")
+                        else:
+                            st.pyplot(gain_over_time_chart(over_time, names, pick), width="stretch")
+                            st.dataframe(pd.DataFrame({
+                                "Window (UTC)": [f"{s:%H:%M}\u2013{e:%H:%M}" for s, e in zip(over_time["start"], over_time["end"])],
+                                f"{noun.capitalize()}s": over_time["n"],
+                                "Average gain B \u2212 A (dB)": over_time["mean"].round(1),
+                                "95% range": [f"{lo:+.1f} to {hi:+.1f}" if not np.isnan(lo) else "" for lo, hi in
+                                              zip(over_time["lo"], over_time["hi"])],
+                                f"{pick} (dB)": over_time["one"].round(1),
+                                f"{pick} reports (A / B)": [f"{a} / {b}" for a, b in over_time["one_n"]]}),
+                                width="stretch", hide_index=True)
+                            st.caption("The bars are the average relative gain over every station that heard both antennas in that "
+                                       "window, with the 95% range across stations; the line is the picked "
+                                       f"{noun}. If the bars and line move up or down during the test, a single average over the "
+                                       "whole test hides it. A band opening, for example Europe late in the day, shows up here.")
+            else:
+                st.info(f"No {noun} heard both sides, so there is nothing to compare receiver by receiver.")
+
+        with tab_method:
+            _linear_average_view(map_a, map_b, an, names, noun, locs, home, kind, callsign, paired=(spots_a, spots_b),
+                                 floor=avg_floor, min_km=avg_min_km, weak_pct=weak_pct,
+                                 default_min=DALE_MIN_SPOTS if sep.get("blocks") else 1)
+
+        with tab_maps:
+            st.caption("Both maps use the same view, the same SNR scale and the same dot sizes.")
+            both = pd.concat([map_a, map_b])
+            col_a, col_b = st.columns(2)
+            for col, side, group in ((col_a, "A", map_a), (col_b, "B", map_b)):
+                html = build_map(group, locs, home, label, callsign, show_all, tiles, units,
+                                 compute_stats(group, locs, home)["farthest"],
+                                 title=f"{callsign} · {names[side]}", fit_spots=both, scale=scale, noun=noun
+                                 ).get_root().render()
+                icon = "\U0001F535" if side == "A" else "\U0001F7E0"
+                slug = re.sub(r"[^A-Za-z0-9]+", "_", names[side]).strip("_")
+                with col:
+                    st.markdown(f"#### {icon} {names[side]}")
+                    st.iframe(html, height=620)
+                    st.download_button(f"⬇️ Download map {side}", html,
+                                       f"RBN_map_{callsign}_{file_date}_{slug}.html", "text/html", key=f"dl_{side}")
 
 
-# wspr.live fills a slot in over several minutes: about 1 receiver at 2 minutes old, half by 3-4, complete by 6-8 (measured).
-# A transmission younger than this is left out of a comparison, since a half-filled slot makes its antenna look worse.
+    # wspr.live fills a slot in over several minutes: about 1 receiver at 2 minutes old, half by 3-4, complete by 6-8 (measured).
+    # A transmission younger than this is left out of a comparison, since a half-filled slot makes its antenna look worse.
 GHOST_MAX, GHOST_MIN_TYPICAL = 2, 16  # see _without_ghost_cycles
 
 

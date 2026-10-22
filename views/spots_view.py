@@ -122,6 +122,8 @@ def spots_page():
         st.info("\U0001F448 Enter your callsign and click **Load spots**. "
                 "The map is centered on your callsign's registered location unless you enter a grid square. "
                 "Just looking around? Click **Try an example** to see real spots.")
+        st.button("Try an example", key="hero_map", type="primary", on_click=inputs.start_example, args=("map",),
+                  help="Loads real RBN spots, so you can see what the map and reports look like.")
         return
     if inputs.nothing_found_message(ss):
         return

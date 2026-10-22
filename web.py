@@ -1,7 +1,7 @@
 """The app: page setup and navigation. Each page lives in views/."""
 import streamlit as st
 
-from ui_common import CSS, GITHUB_URL
+from ui_common import CSS, github_url
 from views.compare_page import compare_page
 from views.conditions_view import conditions_page
 from views.help_view import help_page
@@ -17,7 +17,7 @@ def main():
              st.Page(help_page, title="Help and README", icon="\u2753", url_path="help")]
     st.navigation(pages).run()
     st.sidebar.divider()
-    st.sidebar.caption(f"[README and code on GitHub]({GITHUB_URL}#readme) \u00b7 long-test method by [Dale, N3HXZ](https://www.n3hxz.net/)")
+    st.sidebar.caption(f"[README and code on GitHub]({github_url()}#readme) \u00b7 long-test method by [Dale, N3HXZ](https://www.n3hxz.net/)")
 
 
 if __name__ == "__main__":

@@ -105,43 +105,51 @@ def _conditions_body(result, power, mode, margin_db, units, k, lat, lon, who, wi
     st.html(dash.CSS)
     st.html(dash.top_html(setup, f"{result['n_spots']:,} WSPR spots from {result['n_tx']} stations{area}, last {window} minutes",
                           badge, badge_tone, badge_help))
-    st.html(dash.tiles_html(bands, result["series"]))
+    tiles_slot = st.container()  # drawn after the band buttons below, which decide which tiles to outline
+    all_bands = list(bands.index)
+    st.html(dash.band_buttons_css("cond_focus", all_bands))
+    focus = st.pills("Look closer at a band", all_bands, selection_mode="multi", key="cond_focus",
+                     help="Pick one or more bands to outline them in the tiles and the table, and to show only those on the "
+                          "map, with a short summary of each.") or []
+    with tiles_slot:
+        st.html(dash.tiles_html(bands, result["series"], focus))
     st.html(dash.strip_html(sw.readings(data), est))
 
     left, right = st.columns([1.5, 1])
     with left.container(border=True):
-        st.html(dash.grid_html(result["chance"], result["regions_n"]))
+        st.html(dash.grid_html(result["chance"], result["regions_n"], focus))
     with right.container(border=True):
         st.html(dash.highlights_html(cond.short_highlights(result, power, mode, margin_db, units, window)))
 
     good = result["receivers"][result["receivers"]["margin"] >= 0]
     with st.container(border=True):
         st.html('<div class="cd"><p class="cd-h">Map of receivers that would hear you</p>'
-                f'<p class="cd-sub">{len(good)} receiver and band pairs with a good signal, with the number for each band beside it. Pick a band or two to show only those, or none to show all.</p></div>')
+                f'<p class="cd-sub">{len(good)} receiver and band pairs with a good signal. Pick bands above to show only those.</p></div>')
         if len(good):
-            band_order = [b for b in dash.MAP_COLORS if b in set(good["band"])] + sorted(set(good["band"]) - set(dash.MAP_COLORS))
-            per_band = good.groupby("band").size()
-            st.html(dash.band_buttons_css("cond_map_bands", band_order))
-            pick_col, view_col = st.columns([3, 1])
-            picked = pick_col.pills("Bands", band_order, selection_mode="multi", key="cond_map_bands",
-                                    format_func=lambda b: f"{b}  {per_band[b]}", label_visibility="collapsed") or band_order
             views = _views(units)
-            view_choice = view_col.selectbox("How much of the world", list(views), index=1, key=f"cond_map_view_{units}",
-                                             label_visibility="collapsed")
+            view_choice = st.selectbox("How much of the world", list(views), index=1, key=f"cond_map_view_{units}",
+                                       label_visibility="collapsed")
             night = st.checkbox("Day and night line", key="cond_map_night",
                                 help="Shades the night side and draws the line between day and night (the gray line), "
                                      "which is where the low bands tend to do best.")
-            shown = good[good["band"].isin(picked)]
-            points = pd.DataFrame({"km": shown["km"].to_numpy(), "bearing": shown["bearing"].to_numpy(), "group": "single",
-                                   "gap": float("nan"), "snr_a": shown["margin"].to_numpy(), "snr_b": float("nan"),
-                                   "color": [dash.MAP_COLORS.get(b, "#8a8f98") for b in shown["band"]]})
-            _, map_col, _ = st.columns([1, 4, 1])
-            map_col.pyplot(azimuth_map_figure(lat, lon, points, {"A": "", "B": ""}, who, units, views[view_choice], "dots", True,
-                                              (0, 20), when=datetime.now(timezone.utc).replace(tzinfo=None) if night else None),
-                           width="stretch")
-            beyond = int((points["km"] > views[view_choice]).sum())
-            if beyond:
-                map_col.caption(f"{beyond} receiver{'s' if beyond != 1 else ''} beyond this view.")
+            shown = good[good["band"].isin(focus)] if focus else good
+            map_col, panel_col = st.columns([3, 1.3]) if focus else (st.container(), None)
+            if len(shown):
+                points = pd.DataFrame({"km": shown["km"].to_numpy(), "bearing": shown["bearing"].to_numpy(), "group": "single",
+                                       "gap": float("nan"), "snr_a": shown["margin"].to_numpy(), "snr_b": float("nan"),
+                                       "color": [dash.MAP_COLORS.get(b, "#8a8f98") for b in shown["band"]]})
+                map_col.pyplot(azimuth_map_figure(lat, lon, points, {"A": "", "B": ""}, who, units, views[view_choice], "dots", True,
+                                                  (0, 20), when=datetime.now(timezone.utc).replace(tzinfo=None) if night else None),
+                               width="stretch")
+                beyond = int((points["km"] > views[view_choice]).sum())
+                if beyond:
+                    map_col.caption(f"{beyond} receiver{'s' if beyond != 1 else ''} beyond this view.")
+            else:
+                map_col.caption("No receiver would hear you on the band you picked right now.")
+            if panel_col is not None:
+                for band in focus[:3]:
+                    panel_col.html(dash.band_panel_html(band, bands.loc[band], result["chance"].loc[band], result["regions_n"].loc[band],
+                                                        result["power_needed"].loc[band], units, k))
         else:
             st.caption("No receiver would hear you at this power and mode right now.")
     st.caption("Estimated from WSPR reports, not measured: good for comparing bands and directions, but the percentages run high "
@@ -275,6 +283,10 @@ def _muf_card(lat, lon, boxed=True):
                    "Only a few dozen report at any time, so this is an estimate for your location, not a measurement.")
 
 
+def _example_location():
+    st.session_state.update(cond_where="Callsign or grid", cond_call="", cond_grid="DM81wx")
+
+
 def conditions_page():
     """Which bands are open and where a signal like yours would be heard, from the WSPR stations near you."""
     st.header("\U0001F310 Band conditions now")
@@ -352,7 +364,7 @@ def conditions_page():
         antenna_db = st.number_input("Your antenna compared with theirs (dB)", -20.0, 20.0, 0.0, step=1.0, key="cond_antenna",
                                      help="0 assumes your antenna is about as good as the WSPR stations'. Use a negative "
                                           "number for a weaker antenna (a compromise portable antenna, say). A relative-gain "
-                                          "test on the My spots page can tell you the number.")
+                                          "test on the Compare antennas page can tell you the number.")
         margin_db = st.slider("Safety margin (dB)", 0, 10, 3, key="cond_margin",
                               help="Signals fade, so a path counts as good only when it beats the mode's threshold by this much.")
         window = st.radio("Look back", [30, 60, 120], horizontal=True, key="cond_window",
@@ -403,6 +415,8 @@ def conditions_page():
             label = f"your location, grid {cond.latlon_to_maidenhead(lat, lon)}"
         elif not (callsign or grid.strip()):
             st.info("Enter your callsign or a grid square in the sidebar, or choose **My location**.")
+            st.button("Try an example location", key="hero_cond", type="primary", on_click=_example_location,
+                      help="Shows the conditions around a station in grid DM81 (Texas), so you can see what the page does.")
             return
         else:
             lat, lon, label = resolve_home(callsign, grid, skimmers)

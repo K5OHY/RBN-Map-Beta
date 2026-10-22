@@ -41,15 +41,17 @@ See where your signal is heard, how strong it is, and how conditions change. Map
 3. Pick where the spots come from, then click **Load spots**. To test antennas, open the **Compare antennas** page: it shows the three steps (load your spots, say how you switched, read the result) and explains how to run a good test.
 4. Use the filters in the sidebar, and download the map, a PDF report, or the spots and tables as CSV if you want to share or keep them.
 
-**Share what you are looking at.** Once spots are loaded, the sidebar shows a link to this view and your browser's address bar holds the same link. Send it to someone and they land on the same callsign, date and band, with the spots already loaded. The same link also brings your sidebar choices back if you refresh the page or your computer sleeps.
+**Share what you are looking at.** Once spots are loaded, the sidebar shows a link to this view and your browser's address bar holds the same link. Send it to someone and they land on the same callsign, date and band, with the spots already loaded. The same link also brings your sidebar choices back if you refresh the page or your computer sleeps. On the Compare page the link also carries the whole test: the antenna names, how you switched, the start and order, and the averaging choices, so the person you send it to sees the same verdict.
 
 Free hosting can fall asleep: click the button to wake it. A local copy also remembers your settings in `settings.json`.
 
 ## Getting your spots
 
-**RBN: Download by date.** Pick a day or a range (up to 7 days). Works for anything up to yesterday (UTC), because RBN publishes a day's file after that day ends. Only spots of your callsign are kept.
+In the sidebar, choose **Spots from: RBN or WSPR**. For RBN, choose **Download a day** or **Paste spots**.
 
-**RBN: Paste from RBN site.** For spots from the last few minutes or hours, and for quick tests. Look up your callsign on [reversebeacon.net](https://www.reversebeacon.net/), copy the spot rows, paste them into the box, and click Load spots. The app reads each field by what it looks like, so odd spacing is fine.
+**RBN, Download a day.** Pick a day or a range (up to 7 days). Works for anything up to yesterday (UTC), because RBN publishes a day's file after that day ends. Only spots of your callsign are kept.
+
+**RBN, Paste spots.** For spots from the last few minutes or hours, and for quick tests. Look up your callsign on [reversebeacon.net](https://www.reversebeacon.net/), copy the spot rows, paste them into the box, and click Load spots. The app reads each field by what it looks like, so odd spacing is fine.
 
 **WSPR.** Pick a date (today works) and click Load spots. The app looks up WSPR spots sent by the callsign you entered, so use the callsign your WSPR transmitter sends. Reports take about 5 minutes to arrive in full; a newer cycle is still used and marked *may be incomplete*. Click Load spots again to refresh.
 
@@ -190,6 +192,8 @@ $$\bar{G} = \frac{1}{N} \sum_{r=1}^{N} G_r$$
 
 The **Band conditions** page (in the sidebar menu) tells you which bands are open and where a signal like yours would be heard, which helps when you are deciding whether to change band at a park. It takes the WSPR stations transmitting near you (your grid square or callsign, within an area you choose) over the last half hour (or the last hour or two, your choice; a shorter look-back follows a band that is opening or fading more closely), and restates each report for **your power and mode**: SNR moves dB for dB with power, and each mode needs a minimum SNR, so the gap is your margin.
 
+**Look closer at a band.** Under the band tiles, pick one or more bands. They are outlined in the tiles and the table, the map shows only those bands, and a short summary of each (how many receivers heard it, the farthest good one, the best and hardest regions) appears beside the map. With no location entered, **Try an example location** shows the page working.
+
 The page is a dashboard you can read at a glance. A tile for each band shows its status (an arrow means it is rising or fading), a few small bars for how its signal strength moved over the look-back, and how much data is behind it. A strip below shows the sun and the MUF, each as a number and a one-word reading; the MUF is a model estimate and does not limit what WSPR shows is working. Then comes the region by band grid (cells with only 1 or 2 receivers show the count, not a percentage), a few short highlights, and a full-width map of the receivers that would hear you, where you can pick a band or two to show only those and switch on a day and night line (the gray line, where the low bands tend to do best). The detailed tables, the full space weather and MUF explanations, the farthest receivers and how far to trust it all are in tabs at the bottom.
 
 At the top of the page a **Space weather** card shows the sun and Earth's magnetic field right now from NOAA's Space Weather Prediction Center (solar flux and whether it has been rising or falling, the sunspot number, the Kp and A indexes, the X-ray flare level, the solar wind speed and its magnetic field direction, Bz), with a few plain sentences on what they mean for HF. The numbers are worldwide, not your path, so the WSPR figures below are what is actually working near you; the card explains the why and warns of change. It updates every 15 minutes and disappears if NOAA cannot be reached.
@@ -283,7 +287,7 @@ The **Help and README** page in the app shows this README, so the instructions a
 | File | Purpose |
 | --- | --- |
 | `web.py` | The Streamlit app's entry point: page setup and navigation |
-| `views/` | One file per page: `spots_view.py` (My spots), `compare_view.py` (comparing antennas), `conditions_view.py` (Band conditions), `help_view.py` (Help and README) |
+| `views/` | One file per page: `spots_view.py` (My spots), `compare_view.py` (comparing antennas), `conditions_view.py` (Band conditions), `compare_page.py`, `inputs.py` (the sidebar choices and loading both spots pages share), `test_link.py` (a whole test in a link), `help_view.py` (Help and README) |
 | `ui_common.py` | Settings, colours, constants and small helpers shared by the pages |
 | `data_sources.py` | Getting spots: the RBN download and pasted rows, WSPR from wspr.live, the skimmer list |
 | `maps.py` | The interactive map of who heard you |

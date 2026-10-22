@@ -4,13 +4,13 @@ from pathlib import Path
 
 import streamlit as st
 
-from ui_common import GITHUB_URL
+from ui_common import github_url
 
 
 def help_page():
     """The README, shown in the app, with the links to the code and to Dale's site."""
     st.title("Help and README")
-    st.markdown(f"This is the project's README, the same one that is on [GitHub]({GITHUB_URL}#readme), where the code lives "
+    st.markdown(f"This is the project's README, the same one that is on [GitHub]({github_url()}#readme), where the code lives "
                 "and where you can report a problem or suggest something. The long-test method (relative gain at each "
                 "receiver, linear averaging and long alternating blocks) follows the work of "
                 "[Dale, N3HXZ](https://www.n3hxz.net/), published on his site. The quick paired test is this app's own.")
@@ -18,7 +18,7 @@ def help_page():
     try:
         text = path.read_text(encoding="utf-8")
     except OSError:
-        st.warning(f"The README file isn't here. It is on [GitHub]({GITHUB_URL}#readme).")
+        st.warning(f"The README file isn't here. It is on [GitHub]({github_url()}#readme).")
         return
     chunk = []
 

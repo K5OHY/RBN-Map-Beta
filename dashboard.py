@@ -52,6 +52,10 @@ CSS = """<style>
 .cd-w { display:block; font-size:12px; opacity:.85; }
 .cd-key { font-size:12px; opacity:.75; margin-top:8px; }
 .cd-key i { display:inline-block; width:10px; height:10px; border-radius:2px; margin:0 4px 0 10px; vertical-align:-1px; }
+.cd-tile.sel { outline:2px solid #4da3ff; outline-offset:1px; } .cd-tile.dim { opacity:.45; }
+.cd-grid .dim { opacity:.3; } .cd-grid th.f { opacity:1; font-weight:700; color:#4da3ff; } .cd-grid td.f { box-shadow:inset 0 0 0 2px #4da3ff; }
+.cd-panel { border:1px solid var(--line); background:var(--card); border-radius:12px; padding:10px 14px; margin:0 0 10px 0; font-size:14px; line-height:1.45; }
+.cd-panel .cd-band { font-size:22px; } .cd-panel p { margin:4px 0 0 0; }
 .cd-item b { font-weight:600; } .cd-item { padding:9px 0; border-top:1px solid var(--line); font-size:14px; line-height:1.45; } .cd-item:first-of-type { border-top:0; }
 </style>"""
 
@@ -99,10 +103,12 @@ def _confidence(receivers):
     return "High" if receivers >= 15 else "Moderate" if receivers >= 6 else "Low"
 
 
-def tiles_html(bands, series):
-    """One tile per band: its name, state, how its strength moved, and how much data is behind it."""
+def tiles_html(bands, series, focus=()):
+    """One tile per band: its name, state, how its strength moved, and how much data is behind it. The bands in `focus`
+    are outlined and the others faded."""
     tiles = []
     for band in bands.index:
+        shade = "" if not focus else " sel" if band in focus else " dim"
         row = bands.loc[band]
         word, tone = state(row["Status"], row["Trend"])
         lit = 4 if row["Status"] == "Open" else 2 if row["Status"] == "Marginal" else 1
@@ -110,7 +116,7 @@ def tiles_html(bands, series):
         tip = (f"{int(row['Receivers'])} receivers heard WSPR stations near you on {band}; {int(row['Good'])} are good for your "
                f"signal and {int(row['Marginal'])} marginal.")
         tiles.append(
-            f'<div class="cd-tile {tone}-b" title="{_e(tip)}"><div class="cd-row"><div><div class="cd-band">{_e(band)}</div>'
+            f'<div class="cd-tile {tone}-b{shade}" title="{_e(tip)}"><div class="cd-row"><div><div class="cd-band">{_e(band)}</div>'
             f'<div class="cd-mhz">{MHZ.get(band, "")} MHz</div></div><div class="cd-bars {tone}">{bars}</div></div>'
             f'<div class="cd-row"><span class="cd-pill {tone}">{_e(word)}</span>{_spark(series.get(band, []), tone)}</div>'
             f'<div class="cd-conf">{_confidence(int(row["Receivers"]))} confidence</div></div>')
@@ -153,12 +159,20 @@ def _cell(p, n):
     return f'<td class="{level}" title="{tip}">{p:.0%}</td>'
 
 
-def grid_html(chance, counts):
-    """Regions down the side, bands across the top: the share of receivers in each that would hear you."""
+def _mark(cell, band, focus):
+    """Adds the 'f' (picked) or 'dim' class to a table cell when bands are picked."""
+    if not focus:
+        return cell
+    return cell.replace('class="', f'class="{"f" if band in focus else "dim"} ', 1)
+
+
+def grid_html(chance, counts, focus=()):
+    """Regions down the side, bands across the top: the share of receivers in each that would hear you. The columns of the
+    bands in `focus` are outlined and the others faded."""
     chance, counts = chance.drop(columns=["Other"], errors="ignore"), counts.drop(columns=["Other"], errors="ignore")
     chance, counts = chance.rename(columns=REGION_NAME), counts.rename(columns=REGION_NAME)
-    head = "".join(f"<th>{_e(b)}</th>" for b in chance.index)
-    rows = "".join(f"<tr><td>{_e(region)}</td>" + "".join(_cell(chance.at[b, region], int(counts.at[b, region]))
+    head = "".join(_mark(f"<th class=\"\">{_e(b)}</th>", b, focus) for b in chance.index)
+    rows = "".join(f"<tr><td>{_e(region)}</td>" + "".join(_mark(_cell(chance.at[b, region], int(counts.at[b, region])), b, focus)
                                                            for b in chance.index) + "</tr>" for region in chance.columns)
     key = ('<div class="cd-key">Share of receivers that would hear you'
            '<i style="background:rgba(63,185,80,.72)"></i>85%+<i style="background:rgba(63,185,80,.42)"></i>70 to 85'
@@ -166,6 +180,30 @@ def grid_html(chance, counts):
            '<i style="background:rgba(138,143,152,.3)"></i>1 RX or 2 RX: too few receivers for a percentage</div>')
     return (f'<div class="cd"><p class="cd-h">Where you would be heard</p><p class="cd-sub">Share of receivers in each region that '
             f'would hear you</p><table class="cd-grid"><tr><th>Region</th>{head}</tr>{rows}</table>{key}</div>')
+
+
+def band_panel_html(band, row, chance_row, counts_row, need_row, units, k):
+    """A short summary of one band: how it is doing, how many receivers heard it, how far a good signal reached, and
+    which regions would hear you best and worst (only regions with enough receivers for a percentage)."""
+    word, tone = state(row["Status"], row["Trend"])
+    lines = [f'{int(row["Receivers"])} receivers heard WSPR stations near you on this band; {int(row["Good"])} are good for you '
+             f'and {int(row["Marginal"])} marginal.']
+    if pd.notna(row["Farthest good (km)"]):
+        lines.append(f'Farthest good: {row["Farthest good (km)"] / k:,.0f} {units}, {_e(row["Farthest good receiver"])} '
+                     f'({_e(row["Farthest good region"])}).')
+    ok = chance_row.drop(labels=["Other"], errors="ignore").where(counts_row.drop(labels=["Other"], errors="ignore") >= cond.THIN).dropna()
+    ok = ok.sort_values(ascending=False)
+    ok.index = [REGION_NAME.get(r, r) for r in ok.index]
+    if len(ok):
+        lines.append("Best: " + ", ".join(f"{_e(r)} {p:.0%}" for r, p in ok.head(3).items()) + ".")
+        worst = ok[ok < 0.4].tail(2)
+        if len(worst):
+            lines.append("Hard: " + ", ".join(f"{_e(r)} {p:.0%}" for r, p in worst.items()) + ".")
+    else:
+        lines.append("No region has enough receivers for a percentage yet.")
+    return (f'<div class="cd"><div class="cd-panel"><div class="cd-row"><div><span class="cd-band">{_e(band)}</span> '
+            f'<span class="cd-mhz">{MHZ.get(band, "")} MHz</span></div><span class="cd-pill {tone}">{_e(word)}</span></div>'
+            + "".join(f"<p>{line}</p>" for line in lines) + "</div></div>")
 
 
 def _watts(w):

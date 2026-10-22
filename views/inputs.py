@@ -20,7 +20,7 @@ from ui_common import (
 from wspr_data import clean_callsign, receiver_locations
 
 DATA_KEYS = ("raw", "home", "callsign", "file_date", "kind", "locs", "tx_call", "notice", "loaded_at")
-SHARED_WIDGET_KEYS = ("callsign_in", "grid_in", "src_in", "span_in", "day_in", "from_in", "to_in", "units_in", "band_choice")
+SHARED_WIDGET_KEYS = ("callsign_in", "grid_in", "src_in", "net_in", "how_in", "span_in", "day_in", "from_in", "to_in", "units_in", "band_choice")
 
 
 def _parse_day(text):
@@ -58,7 +58,7 @@ def _fill_from_link(ss):
         ss["_autoload"] = True
 
 
-def _link_for(ss, callsign, grid, source, span, days, units, band):
+def _link_for(ss, callsign, grid, source, span, days, units, band, extra=None):
     """The web address that reopens what is on screen: the sidebar choices, and go=1 when spots are loaded."""
     link = {"call": callsign, "src": next(k for k, v in SOURCE_CODES.items() if v == source), "units": units}
     if grid.strip():
@@ -69,6 +69,7 @@ def _link_for(ss, callsign, grid, source, span, days, units, band):
         link["band"] = band
     if ss.get("raw") is not None and source != "Paste from RBN site":  # pasted spots can't be put in a link
         link["go"] = "1"
+    link.update(extra or {})
     return link
 
 
@@ -100,12 +101,13 @@ def example_banner(ss):
         st.info("This is an example: a real long WSPR test by Dale Ostergaard, N3HXZ, on 26 August 2026, at 1 W on 20m. A POTA "
                 "Performer elevated vertical (B) and a Chameleon MPAS Lite ground-mounted system with its matching unit (A) took "
                 "turns in 30 minute blocks from 12:00 to 21:30 UTC. As in his write-up, only stations with 40 or more reports on "
-                "each antenna are used (the slider on the Receiver by receiver tab). Dale publishes the study on his site, "
-                "[n3hxz.net](https://www.n3hxz.net/). To try your own, enter your callsign and a date and click Load spots.")
+                "each antenna are used (the slider on the Receiver by receiver tab). It was set up as 30 minute blocks from 12:00 UTC, "
+                "A first. Dale publishes the study on his site, [n3hxz.net](https://www.n3hxz.net/). To try your own, enter your "
+                "callsign and a date and click Load spots.")
     elif which == "quick":
         st.info("This is an example: a real WSPR test from K5OHY on 4 October 2026. A 40m loop (A) and a 20m dipole (B) "
-                "took turns on 12 two-minute transmissions, and the result below says which got out better. To try your own, "
-                "enter your callsign and a date and click Load spots.")
+                "took turns on 12 two-minute transmissions, and the result says which got out better. It was set up as 12 transmissions "
+                "from 18:00 UTC in the order A, B, B, A. To try your own, enter your callsign and a date and click Load spots.")
     elif which == "map":
         st.info("This is an example: the Reverse Beacon Network stations that heard K5OHY's CW calls on 23 October 2025. To see "
                 "your own, enter your callsign and a date and click Load spots.")
@@ -143,10 +145,35 @@ def begin(default_source=None):
     return ss, cfg, pick
 
 
+HOW_OPTIONS = ("Download a day", "Paste spots")
+
+
+def _source_choice(ss):
+    """'Spots from: RBN | WSPR', then for RBN 'Download a day | Paste spots'. The three-way choice the rest of the app uses
+    stays in `src_in`; a link, an example or the other page can set it, and the two radios follow."""
+    now = ss.get("src_in")
+    if ss.get("_src_seen") != now:
+        ss["net_in"] = "WSPR" if now == WSPR_SOURCE else "RBN"
+        if now != WSPR_SOURCE:
+            ss["how_in"] = HOW_OPTIONS[1] if now == "Paste from RBN site" else HOW_OPTIONS[0]
+    net = st.radio("Spots from", ["RBN", "WSPR"], key="net_in", horizontal=True,
+                   help="RBN: stations that decoded your CW/RTTY CQ. WSPR: stations that decoded your WSPR "
+                        "beacon, handy for antenna tests because the power is fixed and known.")
+    if net == "WSPR":
+        source = WSPR_SOURCE
+    else:
+        ss.setdefault("how_in", ss.get("_how_last", HOW_OPTIONS[0]))
+        how = st.radio("How to get them", HOW_OPTIONS, key="how_in", horizontal=True,
+                       help="Download needs the day to be over (UTC). Paste works for today: copy the spots from reversebeacon.net.")
+        ss["_how_last"] = how
+        source = "Paste from RBN site" if how == HOW_OPTIONS[1] else "Download by date"
+    ss["src_in"] = ss["_src_seen"] = source
+    return source
+
+
 def where_inputs(ss, cfg):
     """The sidebar's 'Your signal' controls: callsign, grid, where the spots come from and for which dates. Call it inside
     `with st.sidebar:`. Returns what was chosen; the Load button is the page's to draw."""
-    sources = RBN_SOURCES + [WSPR_SOURCE]
     st.header("Your signal")
     callsign = st.text_input(
         "Callsign", key="callsign_in", placeholder="Enter your callsign",
@@ -156,9 +183,7 @@ def where_inputs(ss, cfg):
         help="Leave blank to use your callsign's registered address. "
              "Enter a grid if you were portable or operating from elsewhere, or if the lookup fails.")
 
-    source = st.radio("Where are the spots from?", sources, key="src_in",
-                      help="RBN: stations that decoded your CW/RTTY CQ. WSPR: stations that decoded your WSPR "
-                           "beacon, handy for antenna tests because the power is fixed and known.")
+    source = _source_choice(ss)
     wspr_start, wspr_end = None, None
     pasted, days, span = "", [], cfg.get("span")
     if source in ("Download by date", WSPR_SOURCE):
@@ -209,7 +234,7 @@ def take_autoload(ss, load):
 
 
 def view_controls(ss, cfg, pick, kind, comparing=False):
-    """The 'Filters' and 'Map' sections of the sidebar. Call it inside `with st.sidebar:`. When comparing WSPR spots you pick
+    """The 'Filters' section of the sidebar and the 'More settings' box under it. Call it inside `with st.sidebar:`. When comparing WSPR spots you pick
     your test's cycles on the page, so the time window is not offered. Returns what was chosen."""
     st.header("Filters")
     bands = ["All"] + list(BAND_COLORS)
@@ -231,25 +256,26 @@ def view_controls(ss, cfg, pick, kind, comparing=False):
             help=("Only show spots between these times. It follows the spots you loaded." if kind == "WSPR" else None))
     min_snr = -100 if kind == "WSPR" else st.slider("Minimum SNR (dB)", 0, 40, cfg.get("min_snr", 0))
 
-    st.divider()
-    st.header("Map")
-    styles = list(TILE_STYLES)
-    tiles = st.selectbox("Style", styles, index=pick(styles, "tiles"))
-    show_all = st.checkbox("Show all skimmers", value=cfg.get("show_all", False) and kind == "RBN", disabled=kind == "WSPR",
-                           help="Adds a small grey dot for every RBN skimmer, including ones that didn't hear you. "
-                                "(Not available for WSPR, which has no list of every receiver.)")
-    units = st.radio("Distance units", ["mi", "km"], key="units_in", horizontal=True)
+    with st.expander("More settings"):
+        styles = list(TILE_STYLES)
+        tiles = st.selectbox("Map style", styles, index=pick(styles, "tiles"))
+        show_all = st.checkbox("Show all skimmers", value=cfg.get("show_all", False) and kind == "RBN", disabled=kind == "WSPR",
+                               help="Adds a small grey dot for every RBN skimmer, including ones that didn't hear you. "
+                                    "(Not available for WSPR, which has no list of every receiver.)")
+        units = st.radio("Distance units", ["mi", "km"], key="units_in", horizontal=True)
     return SimpleNamespace(band=band_choice, start_t=start_t, end_t=end_t, min_snr=min_snr, tiles=tiles, show_all=show_all,
                            units=units)
 
 
-def remember(ss, cfg, where, view):
-    """Keeps the web address and the saved settings in step with the sidebar, and shows the link once spots are loaded."""
-    link = _link_for(ss, where.callsign, where.grid, where.source, where.span, where.days, view.units, view.band)
+def remember(ss, cfg, where, view, extra=None, slot=None):
+    """Keeps the web address and the saved settings in step with the sidebar, and shows the link once spots are loaded.
+    `extra` adds parameters to the link (a Compare test's setup); `slot` is the sidebar container to draw the link in, so a page
+    that knows its extras only after drawing its results can call this last."""
+    link = _link_for(ss, where.callsign, where.grid, where.source, where.span, where.days, view.units, view.band, extra)
     if where.callsign and dict(st.query_params) != link:
         st.query_params.from_dict(link)
     if where.callsign and ss.raw is not None:
-        with st.sidebar:
+        with (slot if slot is not None else st.sidebar):
             st.caption("\U0001F517 Link to this view")
             st.code((st.context.url or "").split("?")[0] + "?" + urlencode(link), language=None)
     save_settings({"callsign": where.callsign, "grid": where.grid, "source": where.source, "span": where.span, "band": view.band,

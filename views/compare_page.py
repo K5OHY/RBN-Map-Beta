@@ -3,7 +3,7 @@ import streamlit as st
 
 from data_sources import skimmer_data
 from ui_common import RBN_SNR_SCALE, SPLIT_FREQ, SPLIT_LOG, WSPR_SNR_SCALE, WSPR_SOURCE
-from views import inputs
+from views import inputs, test_link
 from views.compare_view import compare_view
 
 STEPS_CSS = """<style>
@@ -21,9 +21,10 @@ STEPS_CSS = """<style>
 
 def _steps(loaded, comparing_rbn):
     """The three steps of a comparison as a row, with where you are marked."""
-    states = ["done", "now", "next"] if loaded else ["now", "next", "next"]
+    states = ["done", "done", "now"] if loaded else ["now", "next", "next"]
     labels = [("Load your spots", "in the sidebar (the » at the top left on a phone)"),
-              ("Say how you switched", "which antenna, and when" if not comparing_rbn else "which frequency was which"),
+              ("Say how you switched", ("assumed for you, check it under the verdict" if loaded else "which antenna, and when")
+               if not comparing_rbn else "which frequency was which"),
               ("Read the result", "the verdict and the evidence")]
     cells = "".join(f'<div class="{state}"><b>{"&#10003;" if state == "done" else n}</b><div style="border:0;background:none;padding:0;'
                     f'display:block"><span>{head}</span><small>{sub}</small></div></div>'
@@ -60,6 +61,7 @@ def compare_page():
 
     skimmers, refresh_msg = skimmer_data()
     ss, cfg, pick = inputs.begin(default_source=WSPR_SOURCE)
+    test_link.read(ss, st.query_params)
     with st.sidebar:
         where = inputs.where_inputs(ss, cfg)
         load = st.button("Load spots", type="primary", width="stretch")
@@ -71,13 +73,23 @@ def compare_page():
         where.load = inputs.take_autoload(ss, load)
         st.divider()
         view = inputs.view_controls(ss, cfg, pick, where.kind, comparing=True)
+        link_slot = st.container()  # the link is drawn last, once the test's setup widgets exist
         st.caption(f"\U0001F6F0️ {refresh_msg}")
-    inputs.remember(ss, cfg, where, view)
     inputs.load_spots(ss, skimmers, where)
+    _result(ss, skimmers, where, view)
+    inputs.remember(ss, cfg, where, view, extra=test_link.params(ss, view.units), slot=link_slot)
 
+
+def _result(ss, skimmers, where, view):
+    """Everything under the title once spots are (or are not yet) loaded."""
     loaded = ss.raw is not None and not ss.raw.empty
     _steps(loaded, comparing_rbn=where.kind == "RBN")
     if ss.raw is None:
+        quick, long_ = st.columns(2)
+        quick.button("Try the quick example", key="hero_quick", type="primary", width="stretch", on_click=inputs.start_example,
+                     args=("quick",), help="A real WSPR test: a 40m loop against a 20m dipole, switched after every transmission.")
+        long_.button("Try the long-test example", key="hero_long", width="stretch", on_click=inputs.start_example, args=("long",),
+                     help="Dale Ostergaard's long WSPR test: a POTA Performer against a Chameleon MPAS Lite, switched every 30 minutes.")
         _how_to_test()
         return
     if inputs.nothing_found_message(ss):

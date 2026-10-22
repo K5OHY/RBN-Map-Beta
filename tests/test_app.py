@@ -60,6 +60,22 @@ class MySpotsPage(unittest.TestCase):
         self.assertEqual(at.session_state["units_in"], "km")
         self.assertIsNone(at.session_state["raw"])  # no go=1, so nothing is loaded until you click
 
+    def test_the_source_is_rbn_or_wspr_then_download_or_paste(self):
+        at = page("spots_page").run()
+        net = [r for r in at.sidebar.radio if r.key == "net_in"][0]
+        self.assertEqual(net.options, ["RBN", "WSPR"])
+        how = [r for r in at.sidebar.radio if r.key == "how_in"][0]
+        how.set_value("Paste spots")
+        at.run()
+        self.assertEqual(at.session_state["src_in"], "Paste from RBN site")
+        [r for r in at.sidebar.radio if r.key == "net_in"][0].set_value("WSPR")
+        at.run()
+        self.assertEqual(at.session_state["src_in"], "WSPR")
+        self.assertEqual([r.key for r in at.sidebar.radio if r.key == "how_in"], [])
+        [r for r in at.sidebar.radio if r.key == "net_in"][0].set_value("RBN")
+        at.run()
+        self.assertEqual(at.session_state["src_in"], "Paste from RBN site")  # it remembers your last RBN choice
+
     def test_a_bad_link_is_ignored(self):
         at = page("spots_page", call="K5OHY", src="nonsense", date="not-a-date", band="99m", units="furlongs").run()
         self.assertEqual(errors(at), [])
@@ -75,6 +91,10 @@ class MySpotsPage(unittest.TestCase):
         at = page("spots_page").run()
         self.assertTrue(any("Try an example" in i.value for i in at.info))
         self.assertTrue(any("Compare antennas" in m.value for m in at.markdown))
+
+    def test_the_empty_page_has_an_example_button_on_the_main_stage(self):
+        at = page("spots_page").run()
+        self.assertEqual([b.label for b in at.main.button], ["Try an example"])
 
     @needs_network
     def test_the_example_shows_rbn_spots_on_the_map_and_a_shareable_link(self):
@@ -103,6 +123,10 @@ class ComparePage(unittest.TestCase):
         text = " ".join(m.value for m in at.markdown)
         self.assertIn("With WSPR, the best way", text)
         self.assertIn("With RBN, for a quick CW check", text)
+
+    def test_the_empty_page_has_both_examples_on_the_main_stage(self):
+        at = page("compare_page").run()
+        self.assertEqual([b.label for b in at.main.button], ["Try the quick example", "Try the long-test example"])
 
     def test_it_starts_on_wspr(self):
         at = page("compare_page").run()
@@ -144,6 +168,38 @@ class ComparePage(unittest.TestCase):
         at.run()
         self.assertEqual(errors(at), [])
 
+    def test_a_test_link_fills_in_the_setup(self):
+        at = page("compare_page", call="N3HXZ", src="wspr", date="2026-08-26", band="20m", na="Loop", nb="Dipole", sw="blocks",
+                  bl="30", ord="abba", mr="25", fl="1", nr="50", wk="20", units="mi").run()
+        self.assertEqual(errors(at), [])
+        ss = at.session_state
+        self.assertEqual((ss["cmp_name_a"], ss["cmp_name_b"]), ("Loop", "Dipole"))
+        self.assertEqual(ss["test_mode"], "In long blocks")
+        self.assertEqual(ss["blk_len"], 30)
+        self.assertTrue(ss["blk_order"].startswith("A, B, B, A"))
+        self.assertEqual(ss["rx_min_reports_blk"], 25)
+        self.assertTrue(ss["avg_floor"])
+        self.assertEqual((ss["avg_near_mi"], ss["avg_weak"]), (50, 20))
+
+    def test_a_bad_test_link_is_ignored(self):
+        at = page("compare_page", sw="sideways", n="999", bl="1", ord="zzz", mr="0", nr="-5", wk="abc", ts="<script>").run()
+        self.assertEqual(errors(at), [])
+        self.assertNotIn("test_mode", at.session_state)
+
+    @needs_network
+    def test_the_link_box_holds_the_whole_test_and_reopens_it(self):
+        at = page("compare_page").run()
+        click(at, "Try a long-test example")
+        link = [c.value for c in at.sidebar.code if "call=N3HXZ" in c.value][0]
+        for part in ("sw=blocks", "bl=30", "bn=", "bs=12%3A00", "mr=40", "na=Chameleon"):
+            self.assertIn(part, link)
+        from urllib.parse import parse_qs, urlparse
+        q = {k: v[0] for k, v in parse_qs(urlparse(link).query).items()}
+        again = page("compare_page", **q).run()
+        self.assertEqual(errors(again), [])
+        self.assertEqual(again.session_state["rx_min_reports_blk"], 40)
+        self.assertTrue(any("getting out better" in m.value for m in again.markdown))
+
     @needs_network
     def test_a_loaded_example_carries_over_to_my_spots(self):
         """What you load on one page is there on the other, so you do not have to enter it twice."""
@@ -178,6 +234,20 @@ class BandConditionsPage(unittest.TestCase):
         self.assertEqual(at.session_state["cond_mode"], "SSB")
         self.assertEqual(at.session_state["cond_window"], 60)
         self.assertEqual(at.session_state["cond_units"], "km")
+
+    def test_the_empty_page_offers_an_example_location(self):
+        at = page("conditions_page").run()
+        self.assertEqual(errors(at), [])
+        self.assertEqual([b.label for b in at.main.button], ["Try an example location"])
+
+    @needs_network
+    def test_the_example_location_opens_the_dashboard(self):
+        at = page("conditions_page").run()
+        at.main.button[0].click()
+        at.run()
+        self.assertEqual(errors(at), [])
+        self.assertEqual(at.session_state["cond_grid"], "DM81wx")
+        self.assertEqual([b.label for b in at.main.button if b.label == "Try an example location"], [])
 
     def test_bad_link_values_are_ignored(self):
         at = page("conditions_page", call="K5OHY", power="99999", mode="bogus", window="7").run()

@@ -148,3 +148,9 @@ SOURCE_CODES = {"rbn": "Download by date", "paste": "Paste from RBN site", "wspr
 
 
 GITHUB_URL = "https://github.com/K5OHY/RBN_Map"
+GITHUB_BETA_URL = "https://github.com/K5OHY/RBN-Map-Beta"
+
+
+def github_url():
+    """The repository this copy of the app comes from: the beta's when it is running at the beta address."""
+    return GITHUB_BETA_URL if "beta" in (st.context.url or "").lower() else GITHUB_URL
