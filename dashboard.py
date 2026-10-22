@@ -148,7 +148,7 @@ def _cell(p, n):
         return '<td class="c0">–</td>'
     tip = f'{n} receiver{"s" if n != 1 else ""}'
     if n < cond.THIN:
-        return f'<td class="cth" title="About {p:.0%}, but from {tip}, so only a hint">{n} RX</td>'
+        return f'<td class="cth" title="Only {tip}, so too few for a percentage">{n} RX</td>'
     level = "c0" if p < 0.15 else "c1" if p < 0.4 else "c2" if p < 0.7 else "c3" if p < 0.85 else "c4"
     return f'<td class="{level}" title="{tip}">{p:.0%}</td>'
 

@@ -1,7 +1,8 @@
 import json
 import re
 import zipfile
-from datetime import datetime, time, timedelta, timezone
+from datetime import date, datetime, time, timedelta, timezone
+from urllib.parse import urlencode
 from io import BytesIO
 from pathlib import Path
 
@@ -1017,7 +1018,11 @@ def compare_report_pdf(ctx):
     sub = [f"{ctx['callsign']} · {ctx['label']}", f"{ctx['source']} · {ctx['bands']} · {_pretty_date(ctx['file_date'])}", ctx["test"]]
     if names["A"] != "A" or names["B"] != "B":
         sub.append(f"A = {names['A']}    B = {names['B']}")
-    blocks = [("heading", "Result"), ("verdict", verdict, colors),
+    setup = ctx.get("setup")
+    blocks = ([("heading", "Test setup"), ("table", ["Setting", "Value"], [[k, v] for k, v in setup["rows"]], [0.3, 0.7])]
+              + ([("heading", "Schedule"), ("table", *setup["table"])] if setup["table"] else [])
+              + ([("note", setup["note"])] if setup["note"] else []) if setup else [])
+    blocks += [("heading", "Result"), ("verdict", verdict, colors),
               ("heading", "Scoreboard"), ("scoreboard", names, ctx["score_rows"], colors),
               ("heading", f"Who heard you on each {'side' if ctx['time_based'] else 'frequency'}"),
               ("bar", [r["only_a"], r["both"], r["only_b"]], [f"Only {names['A']}", "Heard both", f"Only {names['B']}"],
@@ -1055,7 +1060,13 @@ def compare_report_pdf(ctx):
         rows = [[i, f"{row.km_a / k:,.0f}", f"{row.snr_a:g}", f"{row.snr_b:g}",
                  "A" if row.gap > 0 else "B" if row.gap < 0 else "Tie", f"{-row.gap:+g}"]
                 for i, row in zip(order.index, order.itertuples())]
-        blocks += [("heading", f"{noun.capitalize()} by {noun}"), ("figure", paired_scatter(ctx.get("scatter_src", an["shared"]), names), 3.8),
+        blocks += [("heading", f"{noun.capitalize()} by {noun}"),
+                   *([("paragraph", ctx["settings"])] if ctx.get("settings") else []),
+                   ("figure", paired_scatter(ctx.get("scatter_src", an["shared"]), names), 3.8),
+                   ("note", f"{len(every)} {noun}s heard both sides, shown farthest first (up to 40). "
+                            + ctx.get("rx_note", "Each SNR is the median of that station's spots.")),
+                   ("table", [noun.capitalize(), f"Distance ({units})", "A SNR", "B SNR", "Stronger", "B \u2212 A (dB)"],
+                    rows[:40], [0.28, 0.2, 0.13, 0.13, 0.13, 0.13]),
                    ("heading", "Relative gain by direction and distance"),
                    ("figure", relative_gain_chart(every, names, units, "direction"), 3.0),
                    ("figure", relative_gain_chart(every, names, units, "distance"), 3.0),
@@ -1068,11 +1079,7 @@ def compare_report_pdf(ctx):
                        [0.3, 0.12, 0.22, 0.2, 0.16]),
                       ("note", f"The average of B minus A at the {noun}s in each group, each {noun} counting once, with "
                                f"a 95% range. A group with fewer than {BIN_MIN_SHARED} {noun}s is a hint, not a result.")]
-                     if ctx.get("gain_summary") else []),
-                   ("note", f"{len(every)} {noun}s heard both sides, shown farthest first (up to 40). "
-                            + ctx.get("rx_note", "Each SNR is the median of that station's spots.")),
-                   ("table", [noun.capitalize(), f"Distance ({units})", "A SNR", "B SNR", "Stronger", "B − A (dB)"],
-                    rows[:40], [0.28, 0.2, 0.13, 0.13, 0.13, 0.13])]
+                     if ctx.get("gain_summary") else [])]
     if ctx["method"]:
         blocks += [("heading", "Linear average"), ("paragraph", ctx["method"]),
                    ("note", "The default compares the same receiver in neighbouring transmissions, so it suits a short alternating test. "
@@ -1240,8 +1247,9 @@ def _separate_by_log(spots):
     if mode == "In long blocks":
         return _blocks_test(spots, all_stamps)
     top = st.columns([4, 2, 3])
+    st.session_state.setdefault("test_cycles", 2)
     n_cycles = int(top[0].number_input(
-        "Transmissions in your test", min_value=2, max_value=max(2, min(len(all_stamps), 80)), value=2, step=2,
+        "Transmissions in your test", min_value=2, max_value=max(2, min(len(all_stamps), 80)), step=2,
         key="test_cycles",
         help="Count every 2-minute transmission, on either antenna: A then B is 2, A B B A is 4, A B B A twice is 8. "
              "More is steadier: 8 or more (4 pairs) is a solid test, 12 to 16 for differences under 1 dB. "
@@ -1320,7 +1328,7 @@ def _separate_by_log(spots):
     in_test = spots[spots["time"].isin(list(labels))]
     spots_a, spots_b = split_by_labels(in_test, labels)
     return {"a": spots_a, "b": spots_b, "time_based": True, "alternating": True, "labeled": True,
-            "default": {"A": "A", "B": "B"}}
+            "default": {"A": "A", "B": "B"}, "log": sorted(labels.items())}
 
 
 def _clock(text):
@@ -1520,7 +1528,8 @@ def _blocks_test(spots, all_stamps):
     lengths = [(hi - lo).total_seconds() / 60 for _, _, lo, hi in blocks]
     return {"a": spots_a, "b": spots_b, "time_based": True, "alternating": False, "labeled": False, "blocks": True,
             "t0": sched_start, "t_end": sched_end, "block_min": int(round(float(np.median(lengths)))), "n_blocks_set": len(blocks),
-            "n_blocks": len(blocks), "default": {"A": "A", "B": "B"}}
+            "n_blocks": len(blocks), "default": {"A": "A", "B": "B"},
+            "schedule": [(n, a, lo, hi, sum(lo <= t < hi for t in all_stamps)) for n, a, lo, hi in blocks]}
 
 def _azimuth_points(ta_all, tb_all, an):
     """One row per receiver for the world map: where it is (km, bearing), whether only A, only B or both heard it, how much
@@ -1697,7 +1706,7 @@ def _shared_counts_note(an, noun):
 
 
 def _linear_average_view(spots_a, spots_b, an, names, noun, locs, home, kind, callsign, paired=None, floor=None, min_km=0.0,
-                         default_min=1):
+                         weak_pct=0, default_min=1):
     """The SNR average (the standard comparison) next to the same comparison worked out by averaging power instead of dB,
     overall and by direction, and
     when to use which."""
@@ -1723,7 +1732,8 @@ def _linear_average_view(spots_a, spots_b, an, names, noun, locs, home, kind, ca
                                "raising this drops receivers heard only once or twice, whose single reports can swing a power "
                                "average.")
     s_ = an["strength"]
-    pm = power_method(spots_a, spots_b, locs, home, min_spots=min_spots, floor=floor, offset=an["power"]["offset"], min_km=min_km)
+    pm = power_method(spots_a, spots_b, locs, home, min_spots=min_spots, floor=floor, offset=an["power"]["offset"], min_km=min_km,
+                      weak_pct=weak_pct)
     if paired is not None and (paired[0]["time"].nunique() + paired[1]["time"].nunique()
                                != spots_a["time"].nunique() + spots_b["time"].nunique()):
         st.caption(f"The linear average uses every transmission ({spots_a['time'].nunique()} on A, {spots_b['time'].nunique()} on B), "
@@ -1734,7 +1744,7 @@ def _linear_average_view(spots_a, spots_b, an, names, noun, locs, home, kind, ca
         return
     if min_spots < DALE_SITE_MIN:
         strict = power_method(spots_a, spots_b, locs, home, min_spots=DALE_SITE_MIN, floor=floor, offset=an["power"]["offset"],
-                              min_km=min_km)
+                              min_km=min_km, weak_pct=weak_pct)
         st.caption(f"With the published minimum of {DALE_SITE_MIN} reports on each antenna, "
                    + (f"{strict['n']} {noun}s qualify: linear average {_lead_text(names, strict['mean'])}."
                       if strict["n"] >= 2 else f"too few {noun}s qualify ({strict['n']}), so a long test is needed for that."))
@@ -1743,7 +1753,7 @@ def _linear_average_view(spots_a, spots_b, an, names, noun, locs, home, kind, ca
     m1.caption(f"{s_['n']} {noun}s. 95% range: {_range_text(names, s_['lo'], s_['hi'])}.")
     m2.metric("Linear average: each receiver's average power, A against B", _card_lead(pm["mean"]))
     m2.caption(f"{pm['n']} {noun}s. 95% range: {_range_text(names, pm['lo'], pm['hi'])}."
-               + (" Reports or receivers you left out above are left out here, but not from the SNR average." if floor is not None or min_km else ""))
+               + (" Reports or receivers you left out above are left out here, but not from the SNR average." if floor is not None or min_km or weak_pct else ""))
     if names["A"] != "A" or names["B"] != "B":
         st.caption(f"A is {names['A']}. B is {names['B']}.")
     gap = abs(s_["mean"] - pm["mean"]) if not np.isnan(s_["mean"]) else np.nan
@@ -1910,6 +1920,44 @@ def _data_used(all_spots, spots, map_a, map_b, spots_a, spots_b, an, ta_all, tb_
     return {"label": label, "rows": rows, "lines": lines}
 
 
+def _thin_slots(listening, slots):
+    """The transmission slots in which far fewer receivers than usual reported anything on the band: a sign that wspr.live is
+    missing most of the reports for that slot (seen at the start of each hour in some 2024 data). `listening` is from
+    fetch_listening and `slots` the times of the test's transmissions. Returns the affected times, oldest first."""
+    per_slot = listening.groupby("time")["spotter"].nunique()
+    if len(per_slot) < 10 or per_slot.median() < 100:  # a quiet band has few receivers anyway, so nothing to compare with
+        return []
+    return sorted(t for t in slots if per_slot.get(t, 0) < 0.25 * per_slot.median())
+
+
+def _test_setup(sep, names, kind, callsign, label, file_date, bands, pa, pb, offset):
+    """What went into a comparison, for the PDF's Test setup section: the settings as rows, and the schedule of the test (the
+    blocks, or the transmissions in order) as a table, so the analysis can be repeated from the report alone."""
+    watts = lambda dbm: 10 ** ((dbm - 30) / 10)  # noqa: E731
+    rows = [("Transmitter" if kind == "WSPR" else "Callsign", callsign), ("Location", label),
+            ("Data source", "WSPR (wspr.live)" if kind == "WSPR" else "Reverse Beacon Network"),
+            ("Date (UTC)", _pretty_date(file_date)), ("Band", bands), ("Antenna A", names["A"]), ("Antenna B", names["B"])]
+    multi_day = len(file_date) > 8
+    fmt = (lambda t: f"{t:%d %b %H:%M}") if multi_day else (lambda t: f"{t:%H:%M}")
+    table = None
+    if sep.get("blocks"):
+        rows.append(("Switching", f"In long blocks, {sep['n_blocks']} blocks, about {sep['block_min']} minutes each"))
+        table = (["Block", "Antenna", "From (UTC)", "To (UTC)", "Transmissions"],
+                 [[str(n), a, fmt(lo), fmt(hi), str(c)] for n, a, lo, hi, c in sep["schedule"]], [0.12, 0.14, 0.26, 0.26, 0.22])
+    elif sep.get("labeled"):
+        rows.append(("Switching", f"After every transmission ({len(sep['log'])} transmissions, listed below)"))
+        table = (["Transmission (UTC)", "Antenna"], [[fmt(t), lab] for t, lab in sep["log"][:80]], [0.5, 0.5])
+    else:
+        rows.append(("Switching", "By frequency: " + sep["default"]["A"] + " and " + sep["default"]["B"]))
+    if kind == "WSPR":
+        rows.append(("Transmit power", f"A {pa:.0f} dBm ({watts(pa):.2g} W), B {pb:.0f} dBm ({watts(pb):.2g} W)"))
+    if offset:
+        rows.append(("Power correction", f"B shifted by {offset:+.1f} dB to match A's power"))
+    note = ("To repeat this analysis, load the same callsign, date and band in the app, choose the same way of switching, and "
+            "enter these blocks or transmissions.") if table else ""
+    return {"rows": rows, "table": table, "note": note}
+
+
 def compare_view(spots, locs, home, label, callsign, file_date, tiles, show_all, units, split, gap_khz,
                  scale, noun, kind, all_spots):
     """Compare mode: separate `spots` into an A side and a B side (by frequency, time window, timed blocks,
@@ -1957,6 +2005,13 @@ def compare_view(spots, locs, home, label, callsign, file_date, tiles, show_all,
                 eligible = eligible_receivers(spots_a, spots_b, listening)
                 heard = set(spots_a["spotter"]) | set(spots_b["spotter"])
                 listening_note = {"kept": len(heard & eligible), "total": len(heard)}
+                thin = _thin_slots(listening, set(times.unique()))
+                if thin:
+                    st.warning(f"wspr.live seems to be missing most of the reports for {len(thin)} of your "
+                               f"{times.nunique()} transmissions (for example {', '.join(f'{x:%H:%M}' for x in thin[:4])} UTC): far "
+                               "fewer receivers than usual reported anything on this band in those slots. Spots from them are "
+                               "undercounted, which can favour whichever antenna was on the air at other times. This is a gap in "
+                               "wspr.live's own data, mostly in older dates; a recent test is not affected.")
                 spots_a = spots_a[spots_a["spotter"].isin(eligible)]
                 spots_b = spots_b[spots_b["spotter"].isin(eligible)]
             except WsprError as exc:
@@ -2034,7 +2089,7 @@ def compare_view(spots, locs, home, label, callsign, file_date, tiles, show_all,
     k = KM_PER_MILE if units == "mi" else 1
     means_a, means_b = sector_means(ta_all), sector_means(tb_all)
     with st.expander("Leave out some reports or receivers (for the averages)"):
-        f1, f2 = st.columns(2)
+        f1, f2, f3 = st.columns(3)
         floor_on = kind == "WSPR" and f1.checkbox(
             f"Ignore reports at or below {WSPR_FLOOR_DB} dB", key="avg_floor",
             help="WSPR can only decode down to about -28 dB. A report at that edge is unreliable, and the weaker antenna's "
@@ -2042,12 +2097,19 @@ def compare_view(spots, locs, home, label, callsign, file_date, tiles, show_all,
         near = float(f2.number_input(f"Leave out receivers closer than ({units})", 0, 5000, 0, step=10, key=f"avg_near_{units}",
                                      help="Close stations can hear you by ground wave, which says little about the antenna's "
                                           "take-off angle. Leave at 0 to keep every receiver."))
+        weak_pct = int(f3.number_input("Drop a station if more than this % of its reports are at the floor", 0, 100, 0, step=5,
+                                       key="avg_weak", disabled=kind != "WSPR",
+                                       help="Stations that only hear you at the very edge, below about -27 dB, give weak and "
+                                            "noisy numbers. Instead of ignoring just those reports, this removes the whole "
+                                            "station when more than this share of its reports (both antennas together) are at "
+                                            "the floor. Leave at 0 to keep every station."))
         st.caption("This changes the averages on the Receiver by receiver tab and the linear average on the Linear average tab. "
                    "The verdict, the SNR average and the other tabs are not changed.")
     avg_floor = WSPR_FLOOR_DB if floor_on else None
     avg_min_km = near * (KM_PER_MILE if units == "mi" else 1.0)
     avg_note = ", ".join(([f"reports at or below {WSPR_FLOOR_DB} dB left out"] if floor_on else [])
-                         + ([f"receivers closer than {near:g} {units} left out"] if near else []))
+                         + ([f"receivers closer than {near:g} {units} left out"] if near else [])
+                         + ([f"stations with more than {weak_pct}% of their reports at the floor left out"] if weak_pct else []))
     tab_result, tab_where, tab_each, tab_method, tab_maps = st.tabs(
         ["\U0001F4CA Result", "\U0001F9ED Direction & distance", "\U0001F4CB Receiver by receiver",
          "\U0001F4D0 Linear average", "\U0001F5FA️ Maps"])
@@ -2072,7 +2134,9 @@ def compare_view(spots, locs, home, label, callsign, file_date, tiles, show_all,
         n_a, n_b = map_a["time"].nunique(), map_b["time"].nunique()
         used = _data_used(all_spots, spots, map_a, map_b, spots_a, spots_b, an, ta_all, tb_all, noun, sep, unpaired,
                           listening_note, st.session_state.get("ghost_cycles", 0))
-        pdf_ctx = dict(data_used=used, 
+        pdf_ctx = dict(data_used=used,
+            setup=_test_setup(sep, names, kind, callsign, label, file_date, ", ".join(sorted(set(map_a["band"]) | set(map_b["band"]))),
+                              pa, pb, an["power"]["offset"]), 
             names=names, an=an, verdict=verdict, noun=noun, units=units, score_rows=score_rows, callsign=callsign, label=label,
             file_date=file_date, source="WSPR" if kind == "WSPR" else "Reverse Beacon Network",
             bands=", ".join(sorted(set(map_a["band"]) | set(map_b["band"]))),
@@ -2179,12 +2243,14 @@ def compare_view(spots, locs, home, label, callsign, file_date, tiles, show_all,
                      "averages the power and turns it back into dB. Linear is the proper average of signal power over "
                      "time and suits a long test with many reports per station; the dB middle is steadier when a station "
                      "has only a few reports.")
+            min_key = f"rx_min_reports_{'blk' if blocks_mode else 'pair'}"
+            st.session_state.setdefault(min_key, DALE_MIN_SPOTS if blocks_mode else 1)
             min_reports = int(ctrl_min.slider(
-                f"Only {noun}s with at least this many reports on each antenna", 1, 60, DALE_MIN_SPOTS if blocks_mode else 1,
-                key=f"rx_min_reports_{'blk' if blocks_mode else 'pair'}",
+                f"Only {noun}s with at least this many reports on each antenna", 1, 60,
+                key=min_key,
                 help="Raising this drops stations with few reports. The far, weak ones go first, but each station left has a "
                      "steadier average, and the answer settling as you raise it is a sign it can be trusted."))
-            plain = method_label == "SNR (dB)" and min_reports == 1 and avg_floor is None and not avg_min_km
+            plain = method_label == "SNR (dB)" and min_reports == 1 and avg_floor is None and not avg_min_km and not weak_pct
             if avg_note:
                 st.caption("Averages here have " + avg_note + ".")
             fa = spots_a if avg_floor is None else spots_a[spots_a["snr"] > avg_floor]
@@ -2193,12 +2259,18 @@ def compare_view(spots, locs, home, label, callsign, file_date, tiles, show_all,
                 every, scatter_src = an["shared_all"], an["shared"]
             else:
                 every = station_gains(spots_a, spots_b, locs, home, "linear" if method_label == "Linear power" else "snr",
-                                      min_reports, an["power"]["offset"], avg_floor, avg_min_km)
+                                      min_reports, an["power"]["offset"], avg_floor, avg_min_km, weak_pct)
                 scatter_src = every
             if every.empty:
                 st.info(f"No {noun} has {min_reports} or more reports on both antennas. Lower the number above.")
             else:
                 pdf_ctx["every"], pdf_ctx["scatter_src"] = every, scatter_src
+                pdf_ctx["settings"] = (
+                    f"Settings for this section: each {noun}'s reports are averaged by "
+                    f"{'linear power' if method_label == 'Linear power' else 'the SNR (dB) median'}; only {noun}s with at least "
+                    f"{min_reports} report{'s' if min_reports != 1 else ''} on each antenna are used; "
+                    + (avg_note + "; " if avg_note else "no reports or receivers were left out; ")
+                    + f"every {noun} counts on its own; distances are in {units}.")
                 pdf_ctx["rx_note"] = (f"Each SNR is the {'average power, in dB,' if method_label == 'Linear power' else 'median'} "
                                       f"of that station's spots"
                                       + (f"; only {noun}s with at least {min_reports} reports on each antenna are included." if min_reports > 1
@@ -2218,6 +2290,10 @@ def compare_view(spots, locs, home, label, callsign, file_date, tiles, show_all,
                                       f"{noun}'s spots. Click a column heading to sort.")
                 table_col.dataframe(head_to_head_table(every, units), width="stretch",
                                     height=min(38 * (len(every) + 1), 420))
+                table_col.download_button("⬇️ This table (CSV)", head_to_head_table(every, units).data.rename(
+                                              columns=lambda c: c.replace("🔵 ", "").replace("🟠 ", "")).to_csv(),
+                                          f"RBN_compare_{callsign}_{file_date}_by_{noun}.csv", "text/csv",
+                                          help="Every receiver's average SNR on A and B and the relative gain, as shown.")
             if not every.empty:
                 st.subheader("Relative gain by direction and distance")
                 st.caption(f"Relative gain is B's SNR minus A's SNR at the same {noun}. Think of A as the reference antenna and "
@@ -2314,7 +2390,7 @@ def compare_view(spots, locs, home, label, callsign, file_date, tiles, show_all,
                         cursor += step
                     over_time = gain_by_window(spots_a, spots_b, locs, home, windows,
                                                "linear" if method_label == "Linear power" else "snr", win_min, offset,
-                                               receiver=pick, floor=avg_floor, min_km=avg_min_km)
+                                               receiver=pick, floor=avg_floor, min_km=avg_min_km, weak_pct=weak_pct)
                     if over_time["n"].sum() == 0:
                         st.caption("No window has enough reports at that minimum. Lower it.")
                     else:
@@ -2337,7 +2413,8 @@ def compare_view(spots, locs, home, label, callsign, file_date, tiles, show_all,
 
     with tab_method:
         _linear_average_view(map_a, map_b, an, names, noun, locs, home, kind, callsign, paired=(spots_a, spots_b),
-                             floor=avg_floor, min_km=avg_min_km, default_min=DALE_MIN_SPOTS if sep.get("blocks") else 1)
+                             floor=avg_floor, min_km=avg_min_km, weak_pct=weak_pct,
+                             default_min=DALE_MIN_SPOTS if sep.get("blocks") else 1)
 
     with tab_maps:
         st.caption("Both maps use the same view, the same SNR scale and the same dot sizes.")
@@ -2426,11 +2503,78 @@ def save_settings(settings):
 
 RBN_SOURCES = ["Download by date", "Paste from RBN site"]
 WSPR_SOURCE = "WSPR"
+SOURCE_CODES = {"rbn": "Download by date", "paste": "Paste from RBN site", "wspr": WSPR_SOURCE}  # as they appear in a link
 # wspr.live fills a slot in over several minutes: about 1 receiver at 2 minutes old, half by 3-4, complete by 6-8 (measured).
 # A transmission younger than this is left out of a comparison, since a half-filled slot makes its antenna look worse.
 GHOST_MAX, GHOST_MIN_TYPICAL = 2, 16  # see _without_ghost_cycles
 SIMULTANEOUS_MINUTES = 10  # A and B sent within this many minutes of each other count as the same conditions
 DATA_LAG_MINUTES = 5  # measured: reports for a slot are complete ~3 min after it ends, ~5 min after it starts
+
+
+def _parse_day(text):
+    """A date from a link such as 2026-10-04, or None."""
+    try:
+        return datetime.strptime(str(text).strip(), "%Y-%m-%d").date()
+    except ValueError:
+        return None
+
+
+def _fill_from_link(ss):
+    """Once per visit, set the sidebar from the web address, so a shared link opens on the same view. Anything missing or
+    unreadable is ignored. A link with go=1 also loads the spots straight away."""
+    if ss.get("_link_read"):
+        return
+    ss["_link_read"] = True
+    q = st.query_params
+    if q.get("call"):
+        ss["callsign_in"] = q["call"].strip().upper()[:12]
+    if "grid" in q:
+        ss["grid_in"] = q["grid"][:8]
+    if q.get("src") in SOURCE_CODES:
+        ss["src_in"] = SOURCE_CODES[q["src"]]
+    if q.get("units") in ("mi", "km"):
+        ss["units_in"] = q["units"]
+    date = q.get("date", "")
+    first, _, last = date.partition("..")
+    if _parse_day(first) and _parse_day(last):
+        ss["span_in"], ss["from_in"], ss["to_in"] = "Date range", _parse_day(first), _parse_day(last)
+    elif _parse_day(first):
+        ss["span_in"], ss["day_in"] = "Single day", _parse_day(first)
+    if q.get("band") in ["All"] + list(BAND_COLORS):
+        ss["band_choice"] = q["band"]
+    if q.get("go") == "1" and ss.get("callsign_in"):
+        ss["_autoload"] = True
+
+
+def _link_for(ss, callsign, grid, source, span, days, units, band, compare):
+    """The web address that reopens what is on screen: the sidebar choices, and go=1 when spots are loaded."""
+    link = {"call": callsign, "src": next(k for k, v in SOURCE_CODES.items() if v == source), "units": units}
+    if grid.strip():
+        link["grid"] = grid.strip()
+    if days and source != "Paste from RBN site":
+        link["date"] = f"{days[0]:%Y-%m-%d}" + (f"..{days[-1]:%Y-%m-%d}" if span == "Date range" and len(days) > 1 else "")
+    if band != "All":
+        link["band"] = band
+    if ss.get("raw") is not None and source != "Paste from RBN site":  # pasted spots can't be put in a link
+        link["go"] = "1"
+    return link
+
+
+def _start_example(which):
+    """The example buttons, each set up and loaded so the result shows straight away. 'quick' is K5OHY's WSPR test of 4 Oct
+    2026: 12 transmissions alternating a 40m loop and a 20m dipole. 'long' is Dale Ostergaard N3HXZ's test of 26 Aug 2026: a
+    POTA Performer against a Chameleon MPAS Lite system, alternating 30 minute blocks from 12:00 to 21:30 UTC, judged on stations with
+    40 or more reports per antenna as in his write-up."""
+    ss = st.session_state
+    if which == "long":
+        ss.update(callsign_in="N3HXZ", grid_in="", src_in=WSPR_SOURCE, span_in="Single day", day_in=date(2026, 8, 26),
+                  band_choice="20m", compare_WSPR=True, cmp_name_a="Chameleon MPAS Lite (ground-mounted)", cmp_name_b="POTA Performer (elevated)",
+                  test_mode="In long blocks", rx_min_reports_blk=40, _autoload=True, _example="long")
+    else:
+        ss.update(callsign_in="K5OHY", grid_in="", src_in=WSPR_SOURCE, span_in="Single day", day_in=date(2026, 10, 4),
+                  band_choice="20m", compare_WSPR=True, cmp_name_a="40m loop, 20 ft", cmp_name_b="20m dipole, 40 ft",
+                  test_mode="After every transmission", test_cycles=12, test_start="18:00", test_order="A, B, B, A \u2026",
+                  _autoload=True, _example="quick")
 
 
 def load_wspr(tx_call, start, end):
@@ -2537,6 +2681,12 @@ def spots_page():
         value = cfg.get(key, default if default is not None else options[0])
         return options.index(value) if value in options else 0
 
+    _fill_from_link(ss)
+    sources = RBN_SOURCES + [WSPR_SOURCE]
+    ss.setdefault("grid_in", cfg.get("grid", ""))
+    ss.setdefault("src_in", sources[pick(sources, "source")])
+    ss.setdefault("span_in", ["Single day", "Date range"][pick(["Single day", "Date range"], "span")])
+    ss.setdefault("units_in", ["mi", "km"][pick(["mi", "km"], "units")])
     with st.sidebar:
         st.header("Your signal")
         ss.setdefault("callsign_in", cfg.get("callsign", ""))
@@ -2544,12 +2694,11 @@ def spots_page():
             "Callsign", key="callsign_in", placeholder="Enter your callsign",
             on_change=lambda: ss.update(callsign_in=ss.callsign_in.strip().upper())).strip().upper()
         grid_override = st.text_input(
-            "Grid square (optional)", value=cfg.get("grid", ""), placeholder="Looked up from your callsign",
+            "Grid square (optional)", key="grid_in", placeholder="Looked up from your callsign",
             help="Leave blank to use your callsign's registered address. "
                  "Enter a grid if you were portable or operating from elsewhere, or if the lookup fails.")
 
-        sources = RBN_SOURCES + [WSPR_SOURCE]
-        source = st.radio("Where are the spots from?", sources, index=pick(sources, "source"),
+        source = st.radio("Where are the spots from?", sources, key="src_in",
                           help="RBN: stations that decoded your CW/RTTY CQ. WSPR: stations that decoded your WSPR "
                                "beacon, handy for antenna tests because the power is fixed and known.")
         wspr_start, wspr_end = None, None
@@ -2557,13 +2706,18 @@ def spots_page():
         if source in ("Download by date", WSPR_SOURCE):
             # RBN publishes a day's file once the UTC day is over; WSPR spots are there up to a few minutes ago
             last_day = (datetime.now(timezone.utc) - timedelta(days=0 if source == WSPR_SOURCE else 1)).date()
-            span = st.radio("Period", ["Single day", "Date range"], horizontal=True,
-                            index=pick(["Single day", "Date range"], "span"))
+            ss.setdefault("day_in", last_day)
+            ss.setdefault("from_in", last_day - timedelta(days=MAX_DAYS - 1))
+            ss.setdefault("to_in", last_day)
+            for key in ("day_in", "from_in", "to_in"):  # a date from the other source, or a link, may be past the last day
+                if ss[key] > last_day:
+                    ss[key] = last_day
+            span = st.radio("Period", ["Single day", "Date range"], horizontal=True, key="span_in")
             if span == "Single day":
-                days = [st.date_input("Date (UTC)", value=last_day, max_value=last_day)]
+                days = [st.date_input("Date (UTC)", key="day_in", max_value=last_day)]
             else:
-                first = st.date_input("From (UTC)", value=last_day - timedelta(days=MAX_DAYS - 1), max_value=last_day)
-                last = st.date_input("To (UTC)", value=last_day, max_value=last_day,
+                first = st.date_input("From (UTC)", key="from_in", max_value=last_day)
+                last = st.date_input("To (UTC)", key="to_in", max_value=last_day,
                                      help=f"Up to {MAX_DAYS} days." + (" Each day is a separate download."
                                                                       if source != WSPR_SOURCE else ""))
                 days = [first + timedelta(n) for n in range((last - first).days + 1)] if last >= first else []
@@ -2582,13 +2736,22 @@ def spots_page():
             pasted = st.text_area("Paste spot rows here", height=150)
 
         load = st.button("Load spots", type="primary", width="stretch")
+        st.button("Try an example", width="stretch", on_click=_start_example, args=("quick",),
+                  help="Loads a real WSPR antenna test, a 40m loop against a 20m dipole, so you can see what the results look like.")
+        st.button("Try a long-test example", width="stretch", on_click=_start_example, args=("long",),
+                  help="Loads Dale Ostergaard's long WSPR test of 26 August 2026: a POTA Performer against a Chameleon MPAS Lite, "
+                       "switched every 30 minutes for nine and a half hours.")
+        if ss.pop("_autoload", False):
+            load = True
+        elif load:
+            ss["_example"] = False
 
         # What the screen shows follows the data that is loaded, not the radio button, until you load again.
         kind = ss.kind if ss.raw is not None else ("WSPR" if source == WSPR_SOURCE else "RBN")
 
         st.divider()
         st.header("Compare mode")
-        compare = st.checkbox("Compare two antennas or tests", value=False, key=f"compare_{kind}",
+        compare = st.checkbox("Compare two antennas or tests", key=f"compare_{kind}",
                               help="Splits your spots into an A side and a B side, for example two antennas, "
                                    "two power levels or two test transmissions, and says which is getting out better.")
         if kind == "WSPR":
@@ -2630,10 +2793,17 @@ def spots_page():
                                help="Adds a small grey dot for every RBN skimmer, including ones that didn't hear you. "
                                     "(Not available for WSPR, which has no list of every receiver.)")
         unit_opts = ["mi", "km"]
-        units = st.radio("Distance units", unit_opts, index=pick(unit_opts, "units"), horizontal=True)
+        units = st.radio("Distance units", unit_opts, key="units_in", horizontal=True)
 
         st.caption(f"🛰️ {refresh_msg}")
 
+    link = _link_for(ss, callsign, grid_override, source, span, days, units, band_choice, compare)
+    if callsign and dict(st.query_params) != link:
+        st.query_params.from_dict(link)
+    if callsign and ss.raw is not None:
+        with st.sidebar:
+            st.caption("\U0001F517 Link to this view")
+            st.code((st.context.url or "").split("?")[0] + "?" + urlencode(link), language=None)
     save_settings({"callsign": callsign, "grid": grid_override, "source": source, "span": span, "band": band_choice,
                    "min_snr": cfg.get("min_snr", 0) if kind == "WSPR" else min_snr,
                    "min_snr_wspr": cfg.get("min_snr_wspr", -30),
@@ -2695,15 +2865,19 @@ def spots_page():
             st.error(str(e))
     if ss.raw is None:
         st.info("👈 Enter your callsign and click **Load spots**. "
-                "The map is centered on your callsign's registered location unless you enter a grid square.")
+                "The map is centered on your callsign's registered location unless you enter a grid square. "
+                "Just looking around? Click **Try an example** to see a real antenna test.")
         return
     wspr = ss.kind == "WSPR"
     if ss.raw.empty:
         if wspr:
-            st.warning(f"There are no WSPR spots from {ss.tx_call} in that time range. The callsign has to match what "
-                       "your transmitter sends, and spots can take a few minutes to show up. Try a wider range.")
+            st.warning(f"There are no WSPR spots from {ss.tx_call} in that time range. Next steps: check that the callsign is "
+                       "exactly what your WSPR software sends, wait a few minutes if you have only just transmitted, or try a "
+                       "wider range of dates. **Try an example** in the sidebar shows what a result looks like.")
         else:
-            st.warning(f"RBN has no spots of {ss.callsign} for that date. Check the callsign, or try another day.")
+            st.warning(f"RBN has no spots of {ss.callsign} for that date. Next steps: check the callsign, try another day, "
+                       "or, for today, copy your spots from reversebeacon.net and choose **Paste from RBN site** (the daily "
+                       "files are published after the UTC day ends).")
         return
 
     locs = ss.locs if wspr else skimmers
@@ -2715,7 +2889,7 @@ def spots_page():
     if band_choice != "All":
         spots = spots[spots["band"] == band_choice]
     if spots.empty:
-        st.warning("No spots match the current filters.")
+        st.warning("No spots match the current filters. Set **Band** to All, or widen the UTC time window in the sidebar.")
         return
 
     lat, lon, label = ss.home
@@ -2723,6 +2897,16 @@ def spots_page():
     who = ss.callsign
     if ss.notice:
         st.warning(ss.notice)
+    if ss.get("_example") == "long":
+        st.info("This is an example: a real long WSPR test by Dale Ostergaard, N3HXZ, on 26 August 2026, at 1 W on 20m. A POTA "
+                "Performer elevated vertical (B) and a Chameleon MPAS Lite ground-mounted system with its matching unit (A) took turns in 30 minute blocks from "
+                "12:00 to 21:30 UTC. As in his write-up, only stations with 40 or more reports on each antenna are used (the "
+                "slider on the Receiver by receiver tab). Dale publishes the study on his site, [n3hxz.net](https://www.n3hxz.net/). "
+                "To try your own, enter your callsign and a date and click Load spots.")
+    elif ss.get("_example"):
+        st.info("This is an example: a real WSPR test from K5OHY on 4 October 2026. A 40m loop (A) and a 20m dipole (B) "
+                "took turns on 12 two-minute transmissions, and the result below says which got out better. To try your own, "
+                "enter your callsign and a date and click Load spots.")
     if wspr and ss.loaded_at is not None:
         st.caption(f"🕒 Loaded at {ss.loaded_at:%H:%M} UTC. The newest transmission in it is at "
                    f"{ss.raw['time'].max():%H:%M} UTC. Sent something since? Click **Load spots** again.")
@@ -2756,9 +2940,12 @@ def spots_page():
         # The PDF is built when the button is clicked, outside this script run, where st.session_state is not available,
         # so everything it needs is read here and captured.
         pdf_call, pdf_date, pdf_kind, pdf_all_bands = ss.callsign, ss.file_date, ss.kind, all_bands
-        left, middle, right = st.columns([1, 1, 3])
+        left, middle, csv_col, right = st.columns([1, 1, 1, 2])
         left.download_button("⬇️ Download map", map_html, f"RBN_map_{ss.callsign}_{ss.file_date}.html",
                              "text/html", width="stretch")
+        csv_col.download_button("⬇️ Spots (CSV)", spots.sort_values("time").to_csv(index=False), 
+                                f"RBN_spots_{ss.callsign}_{ss.file_date}.csv", "text/csv", width="stretch",
+                                help="The spots on the map, with the band and time filters applied, for a spreadsheet.")
         middle.download_button("\u2B07\ufe0f Download report (PDF)", width="stretch", mime="application/pdf",
                                data=lambda: single_report_pdf(spots, locs, home, label, pdf_call, pdf_date, pdf_kind, noun,
                                                               units, scale, pdf_all_bands),
@@ -3045,14 +3232,37 @@ def conditions_page():
                 'you in the last half hour, restated for your power and mode.</p>', unsafe_allow_html=True)
     skimmers, _ = skimmer_data()
     saved = st.session_state.get("cfg") or load_settings()
+    ss = st.session_state
+    if not ss.get("_cond_link_read"):  # a shared link sets the choices once per visit
+        ss["_cond_link_read"] = True
+        q = st.query_params
+        if q.get("call"):
+            ss["cond_call"] = q["call"].strip().upper()[:12]
+        if "grid" in q:
+            ss["cond_grid"] = q["grid"][:8]
+        if q.get("units") in ("mi", "km"):
+            ss["cond_units"] = q["units"]
+        try:
+            if 0.1 <= float(q.get("power", 0)) <= 1500:
+                ss["cond_power"] = float(q["power"])
+        except ValueError:
+            pass
+        if q.get("mode") in cond.MODES:
+            ss["cond_mode"] = q["mode"]
+        if q.get("window", "").isdigit() and int(q["window"]) in (30, 60, 120):
+            ss["cond_window"] = int(q["window"])
+    ss.setdefault("cond_call", ss.get("callsign_in", saved.get("callsign", "")))
+    ss.setdefault("cond_grid", saved.get("grid", ""))
+    ss.setdefault("cond_units", saved.get("units", "mi"))
+    ss.setdefault("cond_power", 100.0)
+    ss.setdefault("cond_window", 30)
     with st.sidebar:
         st.header("Where")
         where = st.radio("Find me by", ["Callsign or grid", "My location"], horizontal=True, key="cond_where")
         callsign, grid = "", ""
         if where == "Callsign or grid":
-            callsign = st.text_input("Callsign", value=st.session_state.get("callsign_in", saved.get("callsign", "")),
-                                     key="cond_call").strip().upper()
-            grid = st.text_input("Grid square (optional)", value=saved.get("grid", ""), key="cond_grid",
+            callsign = st.text_input("Callsign", key="cond_call").strip().upper()
+            grid = st.text_input("Grid square (optional)", key="cond_grid",
                                  placeholder="Looked up from your callsign",
                                  help="Enter the grid you are activating from, such as a park, to see conditions there.")
         else:
@@ -3073,8 +3283,7 @@ def conditions_page():
         if source == "One transmitter":
             ref_call = st.text_input("Transmitter callsign", value=st.session_state.get("callsign_in", saved.get("callsign", "")),
                                      key="cond_ref_call", help="The callsign it sends in WSPR.").strip().upper()
-        units = st.radio("Distance units", ["mi", "km"], index=["mi", "km"].index(saved.get("units", "mi")), horizontal=True,
-                         key="cond_units")
+        units = st.radio("Distance units", ["mi", "km"], horizontal=True, key="cond_units")
         if source == "One transmitter":
             radius_choice = 500.0  # not used: the transmitter's own spots are the data
         elif units == "mi":
@@ -3086,7 +3295,7 @@ def conditions_page():
                                             help="WSPR stations inside this distance count as being near you. A wider area "
                                                  "gives more data where few stations transmit."))
         st.header("Your signal")
-        power = st.number_input("Power (watts)", 0.1, 1500.0, 100.0, step=1.0, key="cond_power")
+        power = st.number_input("Power (watts)", 0.1, 1500.0, step=1.0, key="cond_power")
         mode = st.selectbox("Mode", list(cond.MODES), key="cond_mode",
                             help="Each mode needs a minimum signal-to-noise ratio. These are approximate, in a 2,500 Hz "
                                  + "bandwidth: " + ", ".join(f"{m} {v:+g} dB" for m, v in cond.MODES.items()) + ".")
@@ -3096,10 +3305,15 @@ def conditions_page():
                                           "test on the My spots page can tell you the number.")
         margin_db = st.slider("Safety margin (dB)", 0, 10, 3, key="cond_margin",
                               help="Signals fade, so a path counts as good only when it beats the mode's threshold by this much.")
-        window = st.radio("Look back", [30, 60, 120], index=0, horizontal=True, key="cond_window",
+        window = st.radio("Look back", [30, 60, 120], horizontal=True, key="cond_window",
                           format_func=lambda m: f"{m} min" if m < 60 else f"{m // 60} h")
         if st.button("Refresh now", width="stretch", key="cond_refresh"):
             _nearby_spots.clear()
+    link = {"call": callsign, "units": units, "power": f"{power:g}", "mode": mode, "window": str(window)}
+    if grid.strip():
+        link["grid"] = grid.strip()
+    if callsign and dict(st.query_params) != link:
+        st.query_params.from_dict(link)
     k = KM_PER_MILE if units == "mi" else 1.0
     now = datetime.now(timezone.utc).replace(tzinfo=None, second=0, microsecond=0)
     end = now.replace(minute=now.minute - now.minute % 5)  # steady for five minutes so the cache can work

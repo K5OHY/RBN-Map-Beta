@@ -106,13 +106,26 @@ DALE_MIN_SPOTS = 20       # spots per antenna that a long time-averaged test aim
 DALE_SITE_MIN = 40        # the minimum Dale's published method keeps per antenna, per receiver
 
 
-def station_gains(spots_a, spots_b, locs, home, method="snr", min_spots=1, offset=0.0, floor=None, min_km=0.0):
+def mostly_weak(spots_a, spots_b, weak_pct):
+    """The receivers for which more than `weak_pct` percent of all their reports, on both antennas together, are at or below
+    WSPR's floor: stations that hear you only at the edge, so their numbers say little. An empty set when `weak_pct` is 0."""
+    if not weak_pct:
+        return set()
+    both = pd.concat([spots_a[["spotter", "snr"]], spots_b[["spotter", "snr"]]])
+    share = (both["snr"] <= WSPR_FLOOR_DB).groupby(both["spotter"]).mean() * 100
+    return set(share[share > weak_pct].index)
+
+
+def station_gains(spots_a, spots_b, locs, home, method="snr", min_spots=1, offset=0.0, floor=None, min_km=0.0, weak_pct=0):
     """One row per located receiver that heard both sides: each side's average SNR there, how many reports that rests on, and
     where the receiver is. `method` is 'snr' (the middle of the dB reports) or 'linear' (the reports turned into power,
     averaged, and turned back into dB). `min_spots` keeps receivers with at least that many reports on EACH side, and
     `offset` (dB) is added to B first to correct a transmit-power difference. gap = A minus B, so a station's relative
     gain (B minus A) is minus the gap. `floor` drops reports at or below that SNR (WSPR's decoding edge) and `min_km` leaves
-    out receivers closer than that (so a station reached by ground wave does not count)."""
+    out receivers closer than that (so a station reached by ground wave does not count). `weak_pct` drops a receiver entirely
+    when more than that percent of its reports are at the floor (see mostly_weak)."""
+    weak = mostly_weak(spots_a, spots_b, weak_pct)
+
     def per_receiver(spots, shift):
         if floor is not None:
             spots = spots[spots["snr"] > floor]
@@ -122,7 +135,7 @@ def station_gains(spots_a, spots_b, locs, home, method="snr", min_spots=1, offse
         return pd.DataFrame({"snr": avg, "n": g.size()})
 
     t = per_receiver(spots_a, 0.0).join(per_receiver(spots_b, offset), how="inner", lsuffix="_a", rsuffix="_b")
-    t = t[(t["n_a"] >= min_spots) & (t["n_b"] >= min_spots)]
+    t = t[(t["n_a"] >= min_spots) & (t["n_b"] >= min_spots) & ~t.index.isin(weak)]
     geo = {}
     for who in t.index:
         loc = locate(who, locs)
@@ -154,7 +167,7 @@ def mean_interval(values):
 
 
 def gain_by_window(spots_a, spots_b, locs, home, windows, method="linear", min_spots=3, offset=0.0, receiver=None,
-                   floor=None, min_km=0.0):
+                   floor=None, min_km=0.0, weak_pct=0):
     """Relative gain (B minus A) in each time window: the average over every receiver that heard both sides in that window,
     with a 95% range, and the number of receivers. `windows` is a list of (start, end) times. With `receiver` set, the gain at
     that one receiver is returned as well. Returns a DataFrame, one row per window."""
@@ -165,7 +178,7 @@ def gain_by_window(spots_a, spots_b, locs, home, windows, method="linear", min_s
         row = {"start": start, "end": end, "n": 0, "mean": math.nan, "lo": math.nan, "hi": math.nan, "one": math.nan,
                "one_n": (0, 0)}
         if len(a) and len(b):
-            table = station_gains(a, b, locs, home, method, min_spots, offset, floor, min_km)
+            table = station_gains(a, b, locs, home, method, min_spots, offset, floor, min_km, weak_pct)
             if len(table):
                 row["n"] = len(table)
                 row["mean"], row["lo"], row["hi"] = mean_interval(-table["gap"])
@@ -179,14 +192,14 @@ def gain_by_window(spots_a, spots_b, locs, home, windows, method="linear", min_s
     return pd.DataFrame(rows)
 
 
-def power_method(spots_a, spots_b, locs, home, min_spots=1, floor=None, offset=0.0, min_km=0.0):
+def power_method(spots_a, spots_b, locs, home, min_spots=1, floor=None, offset=0.0, min_km=0.0, weak_pct=0):
     """The same comparison done by averaging POWER instead of dB, for a cross-check against the default.
 
     For each receiver: every report is turned from dB into power (10 ** (dB / 10)), each antenna's reports are averaged,
     and the ratio is turned back into dB. That is that receiver's relative gain (A minus B). The receivers' gains are then
     averaged (each receiver counted once) with a 95 % range. `min_spots` keeps only receivers with at least that many
     reports on EACH antenna; `floor` drops reports at or below that SNR (WSPR's decoding edge); `min_km` leaves out receivers
-    closer than that.
+    closer than that; `weak_pct` drops a receiver entirely when more than that percent of its reports are at the floor.
     Returns {'table', 'n', 'mean', 'lo', 'hi', 'median', 'sd', 'near_floor', 'dropped'}."""
     def clip(spots):
         return spots if floor is None else spots[spots["snr"] > floor]
@@ -198,7 +211,7 @@ def power_method(spots_a, spots_b, locs, home, min_spots=1, floor=None, offset=0
     pa = a.assign(p=10 ** (a["snr"] / 10)).groupby("spotter").agg(spots_a=("p", "size"), power_a=("p", "mean"))
     pb = b.assign(p=10 ** ((b["snr"] + offset) / 10)).groupby("spotter").agg(spots_b=("p", "size"), power_b=("p", "mean"))
     t = pa.join(pb, how="inner")
-    t = t[(t["spots_a"] >= min_spots) & (t["spots_b"] >= min_spots)]
+    t = t[(t["spots_a"] >= min_spots) & (t["spots_b"] >= min_spots) & ~t.index.isin(mostly_weak(spots_a, spots_b, weak_pct))]
     empty = {"table": t.assign(gain=np.nan), "n": 0, "mean": math.nan, "lo": math.nan, "hi": math.nan,
              "median": math.nan, "sd": math.nan, "near_floor": near_floor, "dropped": dropped, "sites": t.iloc[0:0]}
     if t.empty:
