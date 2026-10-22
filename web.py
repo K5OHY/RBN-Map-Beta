@@ -2965,7 +2965,7 @@ def _conditions_body(result, power, mode, margin_db, units, k, lat, lon, who, wi
             "such regions were really spotted only about 4 times in 10, so they show only a receiver count.\n"
             "- **The percentages are estimates, not measured success rates.** They are good for comparing bands and directions, "
             "but run high for being spotted by a skimmer. In a week of one station's CW activations, of the skimmers the figures "
-            "said could hear him, about 1 in 10 spotted him below the CW spot threshold, 4 in 10 at a margin of 0 to 5 dB, 5 in 10 at "
+            "said could hear him, about 1 in 10 spotted him below the usual RBN spotting level (about 2 dB above the CW figure), 4 in 10 at a margin of 0 to 5 dB over it, 5 in 10 at "
             "5 to 10 dB and about 7 in 10 at 15 dB or more.\n"
             "- **WSPR receivers are often quiet sites.** A station you hope to work may have more noise, so keep a margin.\n"
             "- **The thresholds are approximate**, and CW and voice depend on the operator's ear and the receiver.\n"
