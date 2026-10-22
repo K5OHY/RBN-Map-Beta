@@ -99,27 +99,6 @@ def paired_shared(spots_a, spots_b, locs, home, offset=0.0):
     return per[cols], round_means
 
 
-def _one_per_site(shared):
-    """Skimmers at the same place (K9TRV and K9TRV-2, or one site's several antennas) see nearly the same sky, so they
-    are not independent witnesses, and counting each one separately makes a result look more certain than it is. Rows at
-    the same distance and bearing are averaged into one, labelled with how many were merged."""
-    if len(shared) < 2:
-        return shared
-    site = pd.Series(pd.factorize(pd.Series(list(zip(shared["km_a"].round(1), shared["bearing_a"].round(1))),
-                                            index=shared.index))[0], index=shared.index)
-    if site.nunique() == len(shared):
-        return shared
-    parts = []
-    for _, members in site.groupby(site):
-        idx = list(members.index)
-        row = shared.loc[idx].mean(numeric_only=True)
-        row.name = idx[0] + (f" (+{len(idx) - 1})" if len(idx) > 1 else "")
-        parts.append(row)
-    out = pd.DataFrame(parts)
-    out.index.name = shared.index.name
-    return out
-
-
 # ------------------------------------------------------------------ the power-average ("linear") check
 
 WSPR_FLOOR_DB = -27       # WSPR decodes down to about -28 dB; reports at or below this are at the edge of what can be decoded
@@ -205,7 +184,7 @@ def power_method(spots_a, spots_b, locs, home, min_spots=1, floor=None, offset=0
 
     For each receiver: every report is turned from dB into power (10 ** (dB / 10)), each antenna's reports are averaged,
     and the ratio is turned back into dB. That is that receiver's relative gain (A minus B). The receivers' gains are then
-    averaged (each place counted once) with a 95 % range. `min_spots` keeps only receivers with at least that many
+    averaged (each receiver counted once) with a 95 % range. `min_spots` keeps only receivers with at least that many
     reports on EACH antenna; `floor` drops reports at or below that SNR (WSPR's decoding edge); `min_km` leaves out receivers
     closer than that.
     Returns {'table', 'n', 'mean', 'lo', 'hi', 'median', 'sd', 'near_floor', 'dropped'}."""
@@ -239,7 +218,7 @@ def power_method(spots_a, spots_b, locs, home, min_spots=1, floor=None, offset=0
     if t.empty:
         return empty
     t.index.name = "receiver"
-    sites = _one_per_site(t)
+    sites = t
     g = sites["gain"].to_numpy()
     n = len(g)
     mean = float(g.mean())
@@ -259,11 +238,11 @@ GAIN_QUADRANTS = ["N", "E", "S", "W"]
 
 def gain_summary(every, by="octant", edges_km=None, labels=None):
     """The average relative gain (B minus A) of the receivers that heard both antennas, grouped by direction or by distance.
-    `every` is the per-receiver table the gain charts use (it needs gap, km_a and bearing_a). Receivers at the same place are
-    counted once. `by` is 'octant' (8 directions), 'quadrant' (4) or 'distance'; for distance, `edges_km` are the cut points
+    `every` is the per-receiver table the gain charts use (it needs gap, km_a and bearing_a). Every receiver counts on its own,
+    including several at one place. `by` is 'octant' (8 directions), 'quadrant' (4) or 'distance'; for distance, `edges_km` are the cut points
     (so two cuts make three bands) and `labels` names the bands. Returns a table with one row per group: its receivers, the
     average gain and the 95% range (NaN when a group has none, or only one for the range)."""
-    sites = _one_per_site(every) if len(every) > 1 else every
+    sites = every
     gain = -sites["gap"].to_numpy(float)
     if by == "distance":
         edges = sorted(edges_km)
@@ -503,8 +482,8 @@ def analyze(spots_a, spots_b, locs, home, power_a=None, power_b=None, normalize=
         shared = ta.join(tb, how="inner", lsuffix="_a", rsuffix="_b")
         shared["delta"] = shared["snr_a"] - shared["snr_b"]
 
-    shared_all = shared  # every skimmer that heard both, for display; the result counts each site once
-    shared = _one_per_site(shared_all)
+    shared_all = shared  # every skimmer that heard both; each one is its own station and counts on its own
+    shared = shared_all
     # What the dots, the table and the win counts show: A's median minus B's median, the two numbers on screen. The result
     # itself uses `delta` (the middle of the round-by-round differences), which is steadier but, for a station heard in
     # several rounds, can lean the other way from the two medians. The dots must sit where their numbers say.

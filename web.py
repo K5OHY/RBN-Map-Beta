@@ -1066,7 +1066,7 @@ def compare_report_pdf(ctx):
                        [0.22, 0.14, 0.24, 0.22, 0.18]),
                       ("table", list(ctx["gain_summary"]["distance"].columns), ctx["gain_summary"]["distance"].astype(str).values.tolist(),
                        [0.3, 0.12, 0.22, 0.2, 0.16]),
-                      ("note", f"The average of B minus A at the {noun}s in each group, {noun}s at the same place counted once, with "
+                      ("note", f"The average of B minus A at the {noun}s in each group, each {noun} counting once, with "
                                f"a 95% range. A group with fewer than {BIN_MIN_SHARED} {noun}s is a hint, not a result.")]
                      if ctx.get("gain_summary") else []),
                    ("note", f"{len(every)} {noun}s heard both sides, shown farthest first (up to 40). "
@@ -1691,9 +1691,7 @@ def _shared_counts_note(an, noun):
     if an["paired"] and every != both:
         text += (f" {every} of them heard both in the same pair of neighbouring transmissions, which is what the strength "
                  "comparison needs.")
-    if n != every:
-        text += f" Counting {noun}s at the same place once leaves {n}, the number the strength result rests on."
-    elif n != both:
+    if n != both:
         text += f" The strength result rests on {n}."
     return text
 
@@ -1742,9 +1740,9 @@ def _linear_average_view(spots_a, spots_b, an, names, noun, locs, home, kind, ca
                       if strict["n"] >= 2 else f"too few {noun}s qualify ({strict['n']}), so a long test is needed for that."))
     m1, m2 = st.columns(2)
     m1.metric("SNR average: typical dB difference at the same receiver", _card_lead(s_["mean"]))
-    m1.caption(f"{s_['n']} {noun}s counted once per place. 95% range: {_range_text(names, s_['lo'], s_['hi'])}.")
+    m1.caption(f"{s_['n']} {noun}s. 95% range: {_range_text(names, s_['lo'], s_['hi'])}.")
     m2.metric("Linear average: each receiver's average power, A against B", _card_lead(pm["mean"]))
-    m2.caption(f"{pm['n']} {noun}s counted once per place. 95% range: {_range_text(names, pm['lo'], pm['hi'])}."
+    m2.caption(f"{pm['n']} {noun}s. 95% range: {_range_text(names, pm['lo'], pm['hi'])}."
                + (" Reports or receivers you left out above are left out here, but not from the SNR average." if floor is not None or min_km else ""))
     if names["A"] != "A" or names["B"] != "B":
         st.caption(f"A is {names['A']}. B is {names['B']}.")
@@ -1874,7 +1872,6 @@ def _data_used(all_spots, spots, map_a, map_b, spots_a, spots_b, an, ta_all, tb_
     heard_a, heard_b = set(map_a["spotter"]), set(map_b["spotter"])
     both_all = heard_a & heard_b
     shared = an["shared_all"]
-    counted_once = int(an["strength"]["n"])
     unlocated = (heard_a | heard_b) - (set(ta_all.index) | set(tb_all.index))
     reports = pd.concat([spots_a.groupby("spotter").size().reindex(shared.index),
                          spots_b.groupby("spotter").size().reindex(shared.index)], axis=1).min(axis=1).fillna(0)
@@ -1887,7 +1884,7 @@ def _data_used(all_spots, spots, map_a, map_b, spots_a, spots_b, an, ta_all, tb_
     lines = [f"{n(len(all_spots))} spots were loaded; {n(len(spots))} remain after your filters; {n(in_test)} are in the test and "
              f"{n(compared)} were used in the comparison.",
              f"{len(heard_a)} {noun}s heard A and {len(heard_b)} heard B; {len(both_all)} heard both. {len(shared)} of those have a "
-             f"known position and were compared, and {counted_once} remain after counting {noun}s at the same place once.",
+             f"known position and were compared.",
              f"With at least 5, 20 and 40 reports on each antenna: {enough[5]}, {enough[20]} and {enough[40]} {noun}s."
              + (f" A long test aims for {DALE_MIN_SPOTS} or more, and the published method keeps {DALE_SITE_MIN}."
                 if sep.get("blocks") else "")]
@@ -1909,7 +1906,7 @@ def _data_used(all_spots, spots, map_a, map_b, spots_a, spots_b, an, ta_all, tb_
                         "one antenna at a time for 30 minutes or more, choose In long blocks.")
     lines.append("Left out: " + "; ".join(left) + "." if left else "Nothing was left out.")
     label = (f"Data used: {n(compared)} spots from {len(set(spots_a['spotter']) | set(spots_b['spotter']))} {noun}s, "
-             f"{counted_once} compared")
+             f"{len(shared)} compared")
     return {"label": label, "rows": rows, "lines": lines}
 
 
@@ -2209,9 +2206,7 @@ def compare_view(spots, locs, home, label, callsign, file_date, tiles, show_all,
                 chart_col, table_col = st.columns([1, 1])
                 chart_col.pyplot(paired_scatter(scatter_src, names), width="stretch")
                 if plain:
-                    same_place = (f" ({len(every)} {noun}s; ones at the same place are averaged into one for the result)"
-                                  if len(every) != s_["n"] else "")
-                    table_col.caption(f"{s_['n']} {noun}s heard both{same_place}. \U0001F535 A was stronger at {s_['wins_a']}, "
+                    table_col.caption(f"{s_['n']} {noun}s heard both. \U0001F535 A was stronger at {s_['wins_a']}, "
                                       f"\U0001F7E0 B at {s_['wins_b']}, tied at {s_['ties']}. Each SNR is the median of that "
                                       f"{noun}'s spots. Click a column heading to sort.")
                 else:
@@ -2257,7 +2252,7 @@ def compare_view(spots, locs, home, label, callsign, file_date, tiles, show_all,
                 t_dir, t_dist = st.columns(2)
                 t_dir.dataframe(gs_dir, width="stretch", hide_index=True, height=35 * (len(gs_dir) + 1) + 3)
                 t_dist.dataframe(gs_dist, width="stretch", hide_index=True, height=35 * (len(gs_dist) + 1) + 3)
-                st.caption(f"The average of B \u2212 A at the {noun}s in each group, with {noun}s at the same place counted once and "
+                st.caption(f"The average of B \u2212 A at the {noun}s in each group, with each {noun} counting once and "
                            f"a 95% range. Above zero, B was stronger there. A group with fewer than {BIN_MIN_SHARED} {noun}s is a "
                            f"hint, not a result. It uses the same averaging ({method_label}) and minimum reports as the charts above.")
 
