@@ -111,7 +111,7 @@ def spots_page():
         where = inputs.where_inputs(ss, cfg)
         load = st.button("Load spots", type="primary", width="stretch")
         st.button("Try an example", width="stretch", on_click=inputs.start_example, args=("map",),
-                  help="Loads real WSPR spots, so you can see what the map and reports look like.")
+                  help="Loads K5OHY's real Reverse Beacon Network spots from 23 October 2025, so you can see what the map and reports look like.")
         where.load = inputs.take_autoload(ss, load)
         st.divider()
         view = inputs.view_controls(ss, cfg, pick, where.kind)

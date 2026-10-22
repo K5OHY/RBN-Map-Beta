@@ -77,11 +77,14 @@ class MySpotsPage(unittest.TestCase):
         self.assertTrue(any("Compare antennas" in m.value for m in at.markdown))
 
     @needs_network
-    def test_the_example_shows_the_map_and_a_shareable_link(self):
+    def test_the_example_shows_rbn_spots_on_the_map_and_a_shareable_link(self):
         at = page("spots_page").run()
         click(at, "Try an example")
         self.assertEqual(errors(at), [])
-        self.assertTrue(any("This is an example" in i.value for i in at.info))
+        self.assertTrue(any("Reverse Beacon Network" in i.value for i in at.info))
+        self.assertEqual(at.session_state["kind"], "RBN")
+        self.assertEqual(at.session_state["day_in"], date(2025, 10, 23))
+        self.assertGreater(len(at.session_state["raw"]), 50)
         self.assertEqual(len(at.tabs), 2)  # Map & direction, Session report
         self.assertTrue(any("call=K5OHY" in c.value for c in at.sidebar.code))
 

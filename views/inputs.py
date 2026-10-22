@@ -73,8 +73,8 @@ def _link_for(ss, callsign, grid, source, span, days, units, band):
 
 
 def start_example(which):
-    """The example buttons, each set up and loaded so the result shows straight away. 'map' is K5OHY's WSPR spots of 4 Oct 2026
-    on the My spots page. On the Compare page, 'quick' is the same day's test of 12 transmissions alternating a 40m loop and a
+    """The example buttons, each set up and loaded so the result shows straight away. 'map' is K5OHY's Reverse Beacon Network
+    spots of 23 Oct 2025 on the My spots page. On the Compare page, 'quick' is the same day's test of 12 transmissions alternating a 40m loop and a
     20m dipole, and 'long' is Dale Ostergaard N3HXZ's test of 26 Aug 2026: a POTA Performer against a Chameleon MPAS Lite system,
     alternating 30 minute blocks from 12:00 to 21:30 UTC, judged on stations with 40 or more reports per antenna as in his
     write-up."""
@@ -89,7 +89,7 @@ def start_example(which):
                   test_mode="After every transmission", test_cycles=12, test_start="18:00", test_order="A, B, B, A …",
                   _autoload=True, _example="quick")
     else:
-        ss.update(callsign_in="K5OHY", grid_in="", src_in=WSPR_SOURCE, span_in="Single day", day_in=date(2026, 10, 4),
+        ss.update(callsign_in="K5OHY", grid_in="", src_in="Download by date", span_in="Single day", day_in=date(2025, 10, 23),
                   band_choice="All", _autoload=True, _example="map")
 
 
@@ -107,8 +107,8 @@ def example_banner(ss):
                 "took turns on 12 two-minute transmissions, and the result below says which got out better. To try your own, "
                 "enter your callsign and a date and click Load spots.")
     elif which == "map":
-        st.info("This is an example: the stations that heard K5OHY's WSPR beacon on 4 October 2026. To see your own, enter your "
-                "callsign and a date and click Load spots.")
+        st.info("This is an example: the Reverse Beacon Network stations that heard K5OHY's CW calls on 23 October 2025. To see "
+                "your own, enter your callsign and a date and click Load spots.")
 
 
 def begin(default_source=None):
@@ -311,8 +311,7 @@ def load_spots(ss, skimmers, where):
         ss.kind, ss.locs, ss.tx_call = ("WSPR" if where.source == WSPR_SOURCE else "RBN"), locs, tx_call
         ss.notice = notice
         ss.loaded_at = datetime.now(timezone.utc)
-        if where.source == WSPR_SOURCE:
-            st.rerun()  # redraw the sidebar so the time window follows the spots just loaded
+        st.rerun()  # redraw the sidebar, so the time window and the link to this view follow the spots just loaded
     except Exception as e:
         ss.raw = None
         st.error(str(e))
