@@ -197,7 +197,7 @@ def short_highlights(result, power_w, mode, margin_db, units="mi", window_min=60
         out.append((f"Farthest: {far['rx']}, {_where(far['region'])}", f"{far['km'] / k:,.0f} {units} away on {far['band']}."))
     home = [r for r in DOMESTIC if r in reg.columns]
     if home:
-        avg = reg[home].mean(axis=1).dropna().sort_values(ascending=False)
+        avg = reg[home].where(result["regions_n"][home] >= THIN).mean(axis=1).dropna().sort_values(ascending=False)  # only regions with enough receivers
         if len(avg):
             near = [b for b in avg.index[1:3] if avg[b] >= avg.iloc[0] - 2]
             out.append((f"US and Canada: {avg.index[0]}" + (f" (also {', '.join(near)})" if near else ""),
@@ -279,7 +279,7 @@ def headline(result, power_w, mode, margin_db, units="mi", window_min=60):
                      + ("it" if len(rising) == 1 else "them") + " to be a little stronger now than shown.")
     home = [r for r in DOMESTIC if r in reg.columns]
     if home:
-        avg = reg[home].mean(axis=1).dropna()
+        avg = reg[home].where(count[home] >= THIN).mean(axis=1).dropna()  # only regions with enough receivers
         if len(avg):
             top = avg.sort_values(ascending=False)
             best = top.index[0]
