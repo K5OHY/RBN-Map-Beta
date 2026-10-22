@@ -29,7 +29,8 @@ CSS = """<style>
 .cd-tile.tg-b { border-color:var(--g); background:rgba(63,185,80,.09); }
 .cd-tile.ta-b { border-color:var(--a); background:rgba(210,153,34,.10); }
 .cd-tile.tm-b { border-color:var(--line); }
-.cd-row { display:flex; justify-content:space-between; align-items:flex-start; gap:6px; }
+.cd-row { display:flex; justify-content:space-between; align-items:flex-start; gap:6px; flex-wrap:wrap; }
+.cd-tile { overflow:hidden; }
 .cd-band { font-size:26px; font-weight:600; line-height:1.1; } .cd-mhz { font-size:13px; opacity:.75; }
 .cd-bars { display:flex; gap:2px; align-items:flex-end; height:20px; margin-top:4px; }
 .cd-bars i { width:4px; border-radius:1px; background:currentColor; } .cd-bars i.off { opacity:.25; }
