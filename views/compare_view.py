@@ -1,4 +1,4 @@
-"""Compare mode: separating the A and B sides, setting up the test, and showing the verdict and its evidence."""
+"""Comparing two antennas: separating the A and B sides, setting up the test, and showing the verdict and its evidence."""
 import re
 from datetime import datetime, timezone
 
@@ -86,7 +86,7 @@ def _separate_by_frequency(spots, gap_khz):
         groups = frequency_groups(spots, tighter)
     freqs = ", ".join(f"{f:.1f}" for f, _ in groups)
     if len(groups) < 2:
-        st.warning(f"Found only {len(groups)} frequency group ({freqs or 'none'} kHz). Compare mode needs spots on at "
+        st.warning(f"Found only {len(groups)} frequency group ({freqs or 'none'} kHz). Comparing needs spots on at "
                    f"least two frequencies. Call CQ on a different frequency with each antenna, at least 0.1 kHz apart.")
         return None
 
@@ -766,7 +766,7 @@ def _test_setup(sep, names, kind, callsign, label, file_date, bands, pa, pb, off
 
 def compare_view(spots, locs, home, label, callsign, file_date, tiles, show_all, units, split, gap_khz,
                  scale, noun, kind, all_spots):
-    """Compare mode: separate `spots` into an A side and a B side (by frequency, time window, timed blocks,
+    """Compare antennas: separate `spots` into an A side and a B side (by frequency, time window, timed blocks,
     or every other transmission), then say which one is getting out better, by how much, and in which directions."""
     name_a, name_b = _name_inputs()
     if split == SPLIT_FREQ:

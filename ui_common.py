@@ -70,9 +70,9 @@ def snr_radius(snr, scale=RBN_SNR_SCALE):
     return 5 + 6 * snr_strength(snr, scale)
 
 
-# ----------------------------------------------------------------- compare mode
+# ----------------------------------------------------------------- comparing antennas
 
-# The ways compare mode can tell the A side from the B side (these are the labels people see).
+# The ways the Compare page can tell the A side from the B side (these are the labels people see).
 SPLIT_FREQ = "Two frequencies"
 
 

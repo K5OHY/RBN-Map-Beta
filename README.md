@@ -38,7 +38,7 @@ See where your signal is heard, how strong it is, and how conditions change. Map
 
 1. Open the site (or [run it locally](#run-it-locally)).
 2. Type your **callsign** in the sidebar.
-3. Pick where the spots come from, then click **Load spots**. For a WSPR antenna test, tick **Compare two antennas or tests** and follow the steps on the page.
+3. Pick where the spots come from, then click **Load spots**. To test antennas, open the **Compare antennas** page: it shows the three steps (load your spots, say how you switched, read the result) and explains how to run a good test.
 4. Use the filters in the sidebar, and download the map, a PDF report, or the spots and tables as CSV if you want to share or keep them.
 
 **Share what you are looking at.** Once spots are loaded, the sidebar shows a link to this view and your browser's address bar holds the same link. Send it to someone and they land on the same callsign, date and band, with the spots already loaded. The same link also brings your sidebar choices back if you refresh the page or your computer sleeps.
@@ -60,8 +60,8 @@ WSPR differs from RBN in a few ways: SNR is mostly negative (about -30 to +5 dB)
 - Paths from you to every station that heard you, drawn as great circles and coloured by band.
 - Dots sized and coloured by SNR. Click one for every spot from that station. The farthest station is circled.
 - Filters: **Band**, **UTC time window** (one-minute steps), and **Minimum SNR** (RBN). They update the map instantly.
-- With Compare mode off, a **Session report** tab for the whole day, across every band you loaded: when you were heard on each band, a band-by-hour grid (spots, farthest reach or median signal), a band scorecard, and how many stations heard you on each band by region (US East/Central/West, Canada, Europe, Asia and so on). It counts time you were *heard*, not time on the air, because a spot only exists when someone heard you.
-- With Compare mode off, a **World view from your station** below the map: the same azimuthal map, coloured by average SNR or by how many stations heard you in each direction and distance cell.
+- A **Session report** tab for the whole day, across every band you loaded: when you were heard on each band, a band-by-hour grid (spots, farthest reach or median signal), a band scorecard, and how many stations heard you on each band by region (US East/Central/West, Canada, Europe, Asia and so on). It counts time you were *heard*, not time on the air, because a spot only exists when someone heard you.
+- A **World view from your station** below the map: the same azimuthal map, coloured by average SNR or by how many stations heard you in each direction and distance cell.
 - Stats above the map, a compass chart of your spots by direction below it, and a sortable spot table.
 - Map style (light, dark, satellite, street), miles or kilometres, and **Download map** (a standalone HTML file).
 - **Download report (PDF)** next to it: key numbers, the session report, direction chart and the stations that heard you.
@@ -70,7 +70,7 @@ Your location comes from the grid you typed, else the RBN skimmer list, else the
 
 ## Compare two antennas
 
-Tick **Compare two antennas or tests**. Name your antennas under *Name your antennas* if you like.
+Open **Compare antennas** in the menu. It shows three steps: load your spots, say how you switched, and read the result. What you load on **My spots** is already there, and the other way round. Name your antennas under *Name your antennas* if you like.
 
 ### With WSPR (the best way to test antennas)
 
