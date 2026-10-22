@@ -282,7 +282,13 @@ The **Help and README** page in the app shows this README, so the instructions a
 
 | File | Purpose |
 | --- | --- |
-| `web.py` | The Streamlit app |
+| `web.py` | The Streamlit app's entry point: page setup and navigation |
+| `views/` | One file per page: `spots_view.py` (My spots), `compare_view.py` (comparing antennas), `conditions_view.py` (Band conditions), `help_view.py` (Help and README) |
+| `ui_common.py` | Settings, colours, constants and small helpers shared by the pages |
+| `data_sources.py` | Getting spots: the RBN download and pasted rows, WSPR from wspr.live, the skimmer list |
+| `maps.py` | The interactive map of who heard you |
+| `charts.py` | The charts and tables for comparisons and the session report |
+| `pdfs.py` | Builds the PDF reports from those charts and tables |
 | `compare_stats.py` | The A/B maths and the plain-English verdict |
 | `report_pdf.py` | Lays out the PDF reports |
 | `tests/` | Automated checks of the calculations and the pages. Run them with `python -m unittest discover -s tests -v`; set `RBN_TEST_NETWORK=1` to include the ones that use the internet |
