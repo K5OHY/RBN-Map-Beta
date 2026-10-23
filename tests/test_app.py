@@ -119,14 +119,14 @@ class ComparePage(unittest.TestCase):
     def test_opens_with_the_steps_and_the_three_buttons(self):
         at = page("compare_page").run()
         self.assertEqual(errors(at), [])
-        self.assertEqual([b.label for b in at.sidebar.button], ["Load spots", "Try an example", "Try a long-test example"])
+        self.assertEqual([b.label for b in at.sidebar.button], ["Load spots", "Try an example", "Try an RBN example", "Try a long-test example"])
         text = " ".join(m.value for m in at.markdown)
         self.assertIn("With WSPR, the best way", text)
         self.assertIn("With RBN, for a quick CW check", text)
 
     def test_the_empty_page_has_both_examples_on_the_main_stage(self):
         at = page("compare_page").run()
-        self.assertEqual([b.label for b in at.main.button], ["Try the quick example", "Try the long-test example"])
+        self.assertEqual([b.label for b in at.main.button], ["Try the quick example", "Try the RBN example", "Try the long-test example"])
 
     def test_it_starts_on_wspr(self):
         at = page("compare_page").run()
@@ -145,6 +145,17 @@ class ComparePage(unittest.TestCase):
         self.assertIn("This is an example", text)
         self.assertIn("better", text)
         self.assertTrue(any("call=K5OHY" in c.value for c in at.sidebar.code))
+
+    @needs_network
+    def test_the_rbn_example_compares_the_loop_and_the_dipole_by_frequency(self):
+        at = page("compare_page").run()
+        click(at, "Try an RBN example")
+        self.assertEqual(errors(at), [])
+        self.assertEqual(at.session_state["kind"], "RBN")
+        self.assertEqual(at.session_state["cmp_name_b"], "20m dipole, 40 ft")
+        text = " ".join(m.value for m in at.markdown) + " " + " ".join(i.value for i in at.info)
+        self.assertIn("14069.5 kHz", text)
+        self.assertIn("20m dipole, 40 ft", text)
 
     @needs_network
     def test_the_long_test_example_uses_dales_schedule_and_40_reports(self):

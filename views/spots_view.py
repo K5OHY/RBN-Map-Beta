@@ -35,7 +35,8 @@ def _azimuth_single_section(spots, locs, home, callsign, noun, units, scale):
     choice = st.radio("How much of the world", list(views), index=1, horizontal=True, key="azmap_single_view")
     radius = views[choice]
     map_col, info_col = st.columns([3, 2])
-    map_col.pyplot(azimuth_map_figure(home[0], home[1], pts, {"A": "", "B": ""}, callsign, units, radius, layer, show_dots, scale),
+    map_col.pyplot(azimuth_map_figure(home[0], home[1], pts, {"A": "", "B": ""}, callsign, units, radius, layer, show_dots, scale,
+                                    label_min=3 if noun == "skimmer" else 5),
                    width="stretch")
     k = KM_PER_MILE if units == "mi" else 1
     far = pts.loc[pts["km"].idxmax()]

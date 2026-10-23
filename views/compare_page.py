@@ -67,6 +67,9 @@ def compare_page():
         load = st.button("Load spots", type="primary", width="stretch")
         st.button("Try an example", width="stretch", on_click=inputs.start_example, args=("quick",),
                   help="Loads a real WSPR antenna test, a 40m loop against a 20m dipole, so you can see what the results look like.")
+        st.button("Try an RBN example", width="stretch", on_click=inputs.start_example, args=("rbn",),
+                  help="Loads a quick CW check on the Reverse Beacon Network: a 40m loop on 14069.5 kHz against a 20m dipole "
+                       "on 14070.5 kHz, told apart by frequency.")
         st.button("Try a long-test example", width="stretch", on_click=inputs.start_example, args=("long",),
                   help="Loads Dale Ostergaard's long WSPR test of 26 August 2026: a POTA Performer against a Chameleon MPAS Lite, "
                        "switched every 30 minutes for nine and a half hours.")
@@ -85,9 +88,11 @@ def _result(ss, skimmers, where, view):
     loaded = ss.raw is not None and not ss.raw.empty
     _steps(loaded, comparing_rbn=where.kind == "RBN")
     if ss.raw is None:
-        quick, long_ = st.columns(2)
+        quick, rbn, long_ = st.columns(3)
         quick.button("Try the quick example", key="hero_quick", type="primary", width="stretch", on_click=inputs.start_example,
                      args=("quick",), help="A real WSPR test: a 40m loop against a 20m dipole, switched after every transmission.")
+        rbn.button("Try the RBN example", key="hero_rbn", width="stretch", on_click=inputs.start_example, args=("rbn",),
+                   help="A quick CW check on the Reverse Beacon Network: the same loop and dipole, on two frequencies.")
         long_.button("Try the long-test example", key="hero_long", width="stretch", on_click=inputs.start_example, args=("long",),
                      help="Dale Ostergaard's long WSPR test: a POTA Performer against a Chameleon MPAS Lite, switched every 30 minutes.")
         _how_to_test()

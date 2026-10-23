@@ -75,7 +75,7 @@ def _link_for(ss, callsign, grid, source, span, days, units, band, extra=None):
 
 def start_example(which):
     """The example buttons, each set up and loaded so the result shows straight away. 'map' is K5OHY's Reverse Beacon Network
-    spots of 23 Oct 2025 on the My spots page. On the Compare page, 'quick' is the same day's test of 12 transmissions alternating a 40m loop and a
+    spots of 23 Oct 2025 on the My spots page. On the Compare page, 'rbn' is a quick CW check by frequency (27 Sep 2026, loop on 14069.5 against dipole on 14070.5), 'quick' is the same day's test of 12 transmissions alternating a 40m loop and a
     20m dipole, and 'long' is Dale Ostergaard N3HXZ's test of 26 Aug 2026: a POTA Performer against a Chameleon MPAS Lite system,
     alternating 30 minute blocks from 12:00 to 21:30 UTC, judged on stations with 40 or more reports per antenna as in his
     write-up."""
@@ -84,6 +84,9 @@ def start_example(which):
         ss.update(callsign_in="N3HXZ", grid_in="", src_in=WSPR_SOURCE, span_in="Single day", day_in=date(2026, 8, 26),
                   band_choice="20m", cmp_name_a="Chameleon MPAS Lite (ground-mounted)", cmp_name_b="POTA Performer (elevated)",
                   test_mode="In long blocks", rx_min_reports_blk=40, _autoload=True, _example="long")
+    elif which == "rbn":
+        ss.update(callsign_in="K5OHY", grid_in="", src_in="Download by date", span_in="Single day", day_in=date(2026, 9, 27),
+                  band_choice="20m", cmp_name_a="40m loop, 20 ft", cmp_name_b="20m dipole, 40 ft", _autoload=True, _example="rbn")
     elif which == "quick":
         ss.update(callsign_in="K5OHY", grid_in="", src_in=WSPR_SOURCE, span_in="Single day", day_in=date(2026, 10, 4),
                   band_choice="20m", cmp_name_a="40m loop, 20 ft", cmp_name_b="20m dipole, 40 ft",
@@ -108,6 +111,11 @@ def example_banner(ss):
         st.info("This is an example: a real WSPR test from K5OHY on 4 October 2026. A 40m loop (A) and a 20m dipole (B) "
                 "took turns on 12 two-minute transmissions, and the result says which got out better. It was set up as 12 transmissions "
                 "from 18:00 UTC in the order A, B, B, A. To try your own, enter your callsign and a date and click Load spots.")
+    elif which == "rbn":
+        st.info("This is an example: a quick CW check from K5OHY on 27 September 2026, on the Reverse Beacon Network. A 40m loop "
+                "at 20 ft (A) called CQ on 14069.5 kHz and a 20m dipole at 40 ft (B) on 14070.5 kHz, back to back, and the "
+                "skimmers that heard each are compared. RBN can only tell the two apart by frequency, so WSPR is the better test. "
+                "To try your own, enter your callsign and a date and click Load spots.")
     elif which == "map":
         st.info("This is an example: the Reverse Beacon Network stations that heard K5OHY's CW calls on 23 October 2025. To see "
                 "your own, enter your callsign and a date and click Load spots.")

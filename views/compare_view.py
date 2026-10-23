@@ -472,7 +472,8 @@ def _azimuth_map_section(points, an, names, noun, units, home, callsign, scale):
     choice = st.radio("How much of the world", list(views), index=1, horizontal=True, key="azmap_view")
     radius = views[choice]
     map_col, info_col = st.columns([3, 2])
-    map_col.pyplot(azimuth_map_figure(home[0], home[1], points, names, callsign, units, radius, layer, show_dots, scale),
+    map_col.pyplot(azimuth_map_figure(home[0], home[1], points, names, callsign, units, radius, layer, show_dots, scale,
+                                    label_min=3 if noun == "skimmer" else 5),
                    width="stretch")
     outside = int((points["km"] > radius).sum())
     counts = points["group"].value_counts()
@@ -486,7 +487,7 @@ def _azimuth_map_section(points, an, names, noun, units, home, callsign, scale):
     info_col.caption(
         "The station is at the centre. Distance from the centre is true distance from you and the angle is true compass "
         "bearing, so a straight line from the centre is the path the signal takes. Each coloured cell is one direction "
-        f"(30\u00b0) and distance band, shown only where at least {MIN_CELL} {noun}s were heard. "
+        f"(30\u00b0) and distance band, shown only where at least {MIN_CELL} {noun}s were heard, with its number written in it from {3 if noun == 'skimmer' else 5}. "
         + ("Blue cells are where A was stronger and orange where B was; a brighter colour is a bigger difference and a more solid "
            "cell rests on more receivers." if layer == "advantage" else
            "The colour is the average SNR in the cell." if layer in ("snr_a", "snr_b") else

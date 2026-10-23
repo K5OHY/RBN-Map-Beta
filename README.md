@@ -32,7 +32,7 @@ See where your signal is heard, how strong it is, and how conditions change. Map
 
 ## Quick start
 
-**Just looking? Click Try an example** in the sidebar. It loads a real WSPR antenna test (a 40m loop against a 20m dipole) and shows the result, so you can see what the program does before you use your own data. **Try a long-test example** loads a nine-and-a-half-hour test by Dale, N3HXZ, a POTA Performer against a Chameleon MPAS Lite, switched every 30 minutes.
+**Just looking? Click Try an example** in the sidebar. It loads a real WSPR antenna test (a 40m loop against a 20m dipole) and shows the result, so you can see what the program does before you use your own data. **Try a long-test example** loads a nine-and-a-half-hour test by Dale, N3HXZ, a POTA Performer against a Chameleon MPAS Lite, switched every 30 minutes. **Try an RBN example** loads a quick CW check on the Reverse Beacon Network, a 40m loop on 14069.5 kHz against a 20m dipole on 14070.5 kHz, told apart by frequency.
 
 **With your own data:**
 

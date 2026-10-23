@@ -147,11 +147,12 @@ def _cells(points, layer, radius_km, sector):
 
 
 def azimuth_map_figure(lat0, lon0, points, names, callsign, units="mi", radius_km=MAX_KM, layer="dots", show_dots=True,
-                       snr_range=(-28, 2), size=7.2, when=None):
+                       snr_range=(-28, 2), size=7.2, when=None, label_min=5):
     """The map. `points` is a DataFrame with `km`, `bearing` (degrees), `group` ('both', 'only_a', 'only_b' or 'single'), `gap`
     (A's SNR minus B's, for stations that heard both), `snr_a` and `snr_b` (each antenna's SNR at the station; for one antenna,
     `snr_a`) and optionally `color`. `layer` colours direction-and-distance cells: 'advantage', 'snr_a', 'snr_b', 'snr',
     'reach', or 'dots' for none. With `when` (naive UTC) the night side is shaded and the line between day and night drawn.
+    A cell's number is written in it from `label_min` receivers up (cells are drawn from MIN_CELL).
     Returns a matplotlib Figure."""
     radius_km = min(float(radius_km), MAX_KM)
     km_per_unit = 1.609344 if units == "mi" else 1.0
@@ -200,7 +201,7 @@ def azimuth_map_figure(lat0, lon0, points, names, callsign, units="mi", radius_k
             ax.add_patch(Wedge((0, 0), c["r1"], 90 - c["b1"], 90 - c["b0"], width=c["r1"] - c["r0"], facecolor=color,
                                edgecolor="#0b1119", linewidth=0.5, alpha=alpha, zorder=3))
             mid_r, ang = (c["r0"] + c["r1"]) / 2, math.radians((c["b0"] + c["b1"]) / 2)
-            if c["n"] >= 5 and (c["r1"] - c["r0"]) > R * 0.07:
+            if c["n"] >= label_min and (c["r1"] - c["r0"]) > R * 0.07:
                 label = f"{abs(v):.1f}" if layer == "advantage" else f"{v:.0f}"
                 ax.text(mid_r * math.sin(ang), mid_r * math.cos(ang), label, fontsize=6.5, color="white", ha="center", va="center",
                         zorder=6, fontweight="bold")

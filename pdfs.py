@@ -51,7 +51,8 @@ def compare_report_pdf(ctx):
         if len(ctx["az_points"]):
             blocks += [("heading", "Where each antenna reached"),
                        ("figure", azimuth_map_figure(ctx["home"][0], ctx["home"][1], ctx["az_points"], names, ctx["callsign"],
-                                                      units, MAX_KM, "advantage", True, ctx["scale"]), 5.6),
+                                                      units, MAX_KM, "advantage", True, ctx["scale"],
+                                                      label_min=3 if ctx["noun"] == "skimmer" else 5), 5.6),
                        ("note", "The station is at the centre; a dot's distance and angle are its true distance and bearing from "
                                 "you. Cells show which antenna was stronger there (blue A, orange B) where at least 3 receivers heard both; "+"filled dots heard both antennas, open rings only one.")]
         if ctx["adv"]["n"].sum():
