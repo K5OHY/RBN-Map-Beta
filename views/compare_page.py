@@ -19,13 +19,12 @@ STEPS_CSS = """<style>
 </style>"""
 
 
-def _steps(loaded, comparing_rbn, confirmed=False):
-    """The three steps of a comparison as a row, with where you are marked."""
-    states = (["done", "done", "now"] if confirmed else ["done", "now", "next"]) if loaded else ["now", "next", "next"]
+def _steps(loaded, comparing_rbn):
+    """The three steps of a comparison as a row, with where you are marked. Shown until the setup is confirmed."""
+    states = ["done", "now", "next"] if loaded else ["now", "next", "next"]
     labels = [("Load your spots", "in the sidebar (the » at the top left on a phone)"),
-              ("Say how you switched", ("I guessed it: check it below, then confirm" if loaded and not confirmed else "change it under the verdict"
-                                                                              if loaded else "which antenna, and when")
-               if not comparing_rbn else "which frequency was which"),
+              ("Say how you switched", "I guessed it: check it below, then confirm" if loaded
+               else "which frequency was which" if comparing_rbn else "which antenna, and when"),
               ("Read the result", "the verdict and the evidence")]
     cells = "".join(f'<div class="{state}"><b>{"&#10003;" if state == "done" else n}</b><div style="border:0;background:none;padding:0;'
                     f'display:block"><span>{head}</span><small>{sub}</small></div></div>'
@@ -91,7 +90,8 @@ def compare_page():
 def _result(ss, skimmers, where, view):
     """Everything under the title once spots are (or are not yet) loaded."""
     loaded = ss.raw is not None and not ss.raw.empty
-    _steps(loaded, comparing_rbn=where.kind == "RBN", confirmed=bool(ss.get("setup_ok")))
+    if not (loaded and ss.get("setup_ok")):  # once the setup is confirmed the strip has done its job; the result gets the room
+        _steps(loaded, comparing_rbn=where.kind == "RBN")
     if ss.raw is None:
         quick, rbn, long_ = st.columns(3)
         quick.button("Try the quick example", key="hero_quick", type="primary", width="stretch", on_click=inputs.start_example,

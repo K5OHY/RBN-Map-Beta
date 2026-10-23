@@ -147,6 +147,23 @@ class ComparePage(unittest.TestCase):
         self.assertTrue(any("call=K5OHY" in c.value for c in at.sidebar.code))
 
     @needs_network
+    def test_hand_corrected_antenna_cells_travel_in_the_link(self):
+        at = page("compare_page", call="K5OHY", src="wspr", date="2026-10-04", band="20m", go="1", n="12", ord="abba",
+                  ed="3B,5X").run()
+        self.assertEqual(errors(at), [])
+        link = [c.value for c in at.sidebar.code if "call=K5OHY" in c.value][0]
+        self.assertIn("ed=3B%2C5X", link)
+
+    @needs_network
+    def test_a_pasted_block_schedule_travels_in_the_link(self):
+        schedule = "12:00-12:30 A;12:30-13:00 B;13:00-13:30 A;13:30-14:00 B"
+        at = page("compare_page", call="N3HXZ", src="wspr", date="2026-08-26", band="20m", go="1", sw="blocks", bl="30",
+                  bp=schedule).run()
+        self.assertEqual(errors(at), [])
+        link = [c.value for c in at.sidebar.code if "call=N3HXZ" in c.value][0]
+        self.assertIn("bp=12%3A00-12%3A30+A%3B12%3A30-13%3A00+B", link)
+
+    @needs_network
     def test_your_own_spots_wait_for_you_to_confirm_the_setup(self):
         at = page("compare_page", call="K5OHY", src="wspr", date="2026-10-04", band="20m", go="1").run()
         self.assertEqual(errors(at), [])

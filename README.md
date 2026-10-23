@@ -41,7 +41,7 @@ See where your signal is heard, how strong it is, and how conditions change. Map
 3. Pick where the spots come from, then click **Load spots**. To test antennas, open the **Compare antennas** page: it shows the three steps (load your spots, say how you switched, read the result) and explains how to run a good test.
 4. Use the filters in the sidebar, and download the map, a PDF report, or the spots and tables as CSV if you want to share or keep them.
 
-**Share what you are looking at.** Once spots are loaded, the sidebar shows a link to this view and your browser's address bar holds the same link. Send it to someone and they land on the same callsign, date and band, with the spots already loaded. The same link also brings your sidebar choices back if you refresh the page or your computer sleeps. On the Compare page the link also carries the whole test: the antenna names, how you switched, the start and order, and the averaging choices, so the person you send it to sees the same verdict.
+**Share what you are looking at.** Once spots are loaded, the sidebar shows a link to this view and your browser's address bar holds the same link. Send it to someone and they land on the same callsign, date and band, with the spots already loaded. The same link also brings your sidebar choices back if you refresh the page or your computer sleeps. On the Compare page the link also carries the whole test: the antenna names, how you switched, the start and order, a pasted block schedule, any antenna cells you corrected by hand, and the averaging choices, so the person you send it to sees the same verdict.
 
 Free hosting can fall asleep: click the button to wake it. A local copy also remembers your settings in `settings.json`.
 

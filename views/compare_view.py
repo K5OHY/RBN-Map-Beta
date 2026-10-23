@@ -216,6 +216,7 @@ def _separate_by_log(spots):
         st.caption("\u26a0 Some cycles are missing between these rows (the transmitter skipped them, or nobody heard "
                    "them). The labels assume you changed antenna after each transmission you made; if you changed on "
                    "a timer instead, correct the rows after each gap.")
+    log_key = f"antenna_log_{pattern}_{len(stamps)}_{stamps[0]:%d%H%M}"
     heard = spots.groupby("time")["spotter"].nunique()
     right_now = pd.Timestamp(datetime.now(timezone.utc).replace(tzinfo=None))
     arriving = [(right_now - t).total_seconds() / 60 < DATA_LAG_MINUTES for t in stamps]
@@ -226,8 +227,11 @@ def _separate_by_log(spots):
                           "Status": [("\u23f3 may be incomplete" if late else
                                       (f"\u26a0 {gap:.0f} min after the row above" if gap > 2.5 else ""))
                                      for late, gap in zip(arriving, gaps)]})
+    for row, lab in test_link.log_base(st.session_state, log_key).items():  # corrections a shared link carried
+        if row < len(table):
+            table.loc[row, "Antenna"] = lab
     edited = st.data_editor(
-        table, key=f"antenna_log_{pattern}_{len(stamps)}_{stamps[0]:%d%H%M}", hide_index=True, width="stretch",
+        table, key=log_key, hide_index=True, width="stretch",
         disabled=["UTC time", "Receivers that heard it", "Status"], height=min(35 * (len(table) + 1) + 3, 420),
         column_config={"Antenna": st.column_config.SelectboxColumn("Antenna", options=["A", "B"],
                                                                    help="A, B, or empty to leave this one out.")})
