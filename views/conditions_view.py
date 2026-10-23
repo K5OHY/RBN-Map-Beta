@@ -112,26 +112,28 @@ def _conditions_body(result, power, mode, margin_db, units, k, lat, lon, who, wi
     st.html(dash.CSS)
     st.html(dash.top_html(setup, f"{result['n_spots']:,} WSPR spots from {result['n_tx']} stations{area}, last {window} minutes",
                           badge, badge_tone, badge_help))
-    tiles_slot = st.container()  # drawn after the band buttons below, which decide which tiles to outline
-    all_bands = list(bands.index)
-    st.html(dash.band_buttons_css("cond_focus", all_bands))
-    focus = st.pills("Look closer at a band", all_bands, selection_mode="multi", key="cond_focus",
-                     help="Pick one or more bands to outline them in the tiles and the table, and to show only those on the "
-                          "map, with a short summary of each.") or []
-    with tiles_slot:
-        st.html(dash.tiles_html(bands, result["series"], focus))
+    tiles_slot = st.container()  # the tiles and the table are drawn once the band buttons by the map have been read
     st.html(dash.strip_html(sw.readings(data), est))
 
     left, right = st.columns([1.5, 1])
-    with left.container(border=True):
-        st.html(dash.grid_html(result["chance"], result["regions_n"], focus))
+    grid_slot = left.container(border=True)
     with right.container(border=True):
         st.html(dash.highlights_html(cond.short_highlights(result, power, mode, margin_db, units, window)))
 
     good = result["receivers"][result["receivers"]["margin"] >= 0]
     with st.container(border=True):
         st.html('<div class="cd"><p class="cd-h">Map of receivers that would hear you</p>'
-                f'<p class="cd-sub">{len(good)} receiver and band pairs with a good signal. Pick bands above to show only those.</p></div>')
+                f'<p class="cd-sub">{len(good)} receiver and band pairs with a good signal. Pick bands to show only those; they '
+                'are outlined in the tiles and the table above.</p></div>')
+        all_bands = list(bands.index)
+        st.html(dash.band_buttons_css("cond_focus", all_bands))
+        focus = st.pills("Look closer at a band", all_bands, selection_mode="multi", key="cond_focus",
+                         help="Pick one or more bands to show only those on the map, with a short summary of each, and to "
+                              "outline them in the tiles and the table above.") or []
+        with tiles_slot:
+            st.html(dash.tiles_html(bands, result["series"], focus))
+        with grid_slot:
+            st.html(dash.grid_html(result["chance"], result["regions_n"], focus))
         if len(good):
             views = _views(units)
             view_choice = st.selectbox("How much of the world", list(views), index=1, key=f"cond_map_view_{units}",
