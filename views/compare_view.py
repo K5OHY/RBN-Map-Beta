@@ -1,5 +1,6 @@
 """Comparing two antennas: separating the A and B sides, setting up the test, and showing the verdict and its evidence."""
 import re
+from contextlib import contextmanager
 from datetime import datetime, timezone
 
 import numpy as np
@@ -73,9 +74,17 @@ def frequency_groups(spots, gap_khz):
     return [(g["freq"].median(), g) for _, g in ordered.groupby(group_id)]
 
 
+@contextmanager
+def _box(title, **_):
+    """A titled box for the setup. The setup lives inside one expander, and Streamlit cannot put an expander in an expander."""
+    with st.container(border=True):
+        st.markdown(f"**{title}**")
+        yield
+
+
 def _name_inputs():
     """Optional names for the two sides, used everywhere in the results."""
-    with st.expander("Name your antennas (optional)"):
+    with _box("Name your antennas (optional)"):
         c1, c2 = st.columns(2)
         return (c1.text_input("\U0001F535 Name for A", placeholder="e.g. Dipole", key="cmp_name_a").strip(),
                 c2.text_input("\U0001F7E0 Name for B", placeholder="e.g. 40m loop", key="cmp_name_b").strip())
@@ -343,7 +352,7 @@ def _blocks_test(spots, all_stamps):
         t0 = all_stamps[0]
     pattern = patterns[order]
     day0 = t0.normalize()
-    with st.expander("Paste a schedule instead (for uneven blocks)"):
+    with _box("Paste a schedule instead (for uneven blocks)"):
         pasted = st.text_area("One block per line, like 16:40-17:12 A", key=f"blk_paste_{sig}", height=110,
                               help="Use this when the blocks are not all the same length, or when a switch came a cycle early or "
                                    "late. The antenna letter is optional: leave it off and the blocks follow your A, B order. "
@@ -413,7 +422,7 @@ def _blocks_test(spots, all_stamps):
             if lo <= t < hi:
                 labels[t] = antenna
                 break
-    with st.expander("The blocks as the test will use them (From, To and what each caught)", expanded=True):
+    with _box("The blocks as the test will use them (From, To and what each caught)"):
         caught = pd.DataFrame([{"Block": n, "Antenna": a, "From (UTC)": stamp(lo), "To (UTC)": stamp(hi),
                                 "Transmissions": sum(lo <= t < hi for t in all_stamps),
                                 "Receivers": int(spots[(spots["time"] >= lo) & (spots["time"] < hi)]["spotter"].nunique())}
@@ -820,7 +829,7 @@ def _setup_line(sep, names, kind):
     else:
         how = "separated by frequency"
     who = f"A is {names['A']} and B is {names['B']}, " if (names["A"], names["B"]) != ("A", "B") else ""
-    return (f"Assumed setup: {who}{how}. If that is not what you did, change it in the setup section just below.")
+    return (f"Assumed setup: {who}{how}. If that is not what you did, open \"How this test was set up\" just below to change it.")
 
 
 def compare_view(spots, locs, home, label, callsign, file_date, tiles, show_all, units, split, gap_khz,
@@ -831,9 +840,15 @@ def compare_view(spots, locs, home, label, callsign, file_date, tiles, show_all,
     notes = top.container()
     setup = st.container()
     details = st.container()
-    with setup:
-        st.markdown("#### How this test was set up")
-        st.caption("Check that this matches what you did. Change anything here and the result above updates.")
+    confirmed = bool(st.session_state.get("setup_ok"))
+    with setup:  # open until you say it is right, then it folds away and the result is all you see
+        box = st.expander("How this test was set up" if confirmed else "Check how this test was set up", expanded=not confirmed)
+    with box:
+        if confirmed:
+            st.caption("Change anything here and the result above updates.")
+        else:
+            st.info("I guessed how you switched, from the spots. Check it below and fix anything that is wrong, then confirm "
+                    "and I will work out the result.")
         name_a, name_b = _name_inputs()
         if split == SPLIT_FREQ:
             sep = _separate_by_frequency(spots, gap_khz)
@@ -844,6 +859,10 @@ def compare_view(spots, locs, home, label, callsign, file_date, tiles, show_all,
         spots_a, spots_b = sep["a"], sep["b"]
         if spots_a.empty or spots_b.empty:
             st.warning("One side has no spots. Adjust the selection above, or the filters in the sidebar.")
+            return
+        if not confirmed:
+            st.button("This matches what I did: show the result", type="primary", key="confirm_setup",
+                      on_click=lambda: st.session_state.update(setup_ok=True))
             return
         map_a, map_b = spots_a, spots_b  # the maps and timeline show everything that was heard
         unpaired = 0
@@ -898,7 +917,7 @@ def compare_view(spots, locs, home, label, callsign, file_date, tiles, show_all,
             names = {"A": names["A"] + " (A)", "B": names["B"] + " (B)"}
 
         # ---- power: WSPR sends it with every spot; for RBN you can say what you ran
-        with st.expander("Power", expanded=False):
+        with _box("Power"):
             if kind == "WSPR":
                 pa, pb = median_power_dbm(spots_a), median_power_dbm(spots_b)
                 watts = lambda dbm: 10 ** ((dbm - 30) / 10)  # noqa: E731
@@ -960,7 +979,7 @@ def compare_view(spots, locs, home, label, callsign, file_date, tiles, show_all,
         r, s_, dx = an["reach"], an["strength"], an["dx"]
         k = KM_PER_MILE if units == "mi" else 1
         means_a, means_b = sector_means(ta_all), sector_means(tb_all)
-        with st.expander("Leave out some reports or receivers (for the averages)"):
+        with _box("Leave out some reports or receivers (for the averages)"):
             f1, f2, f3 = st.columns(3)
             floor_on = kind == "WSPR" and f1.checkbox(
                 f"Ignore reports at or below {WSPR_FLOOR_DB} dB", key="avg_floor",

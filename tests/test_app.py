@@ -147,6 +147,30 @@ class ComparePage(unittest.TestCase):
         self.assertTrue(any("call=K5OHY" in c.value for c in at.sidebar.code))
 
     @needs_network
+    def test_your_own_spots_wait_for_you_to_confirm_the_setup(self):
+        at = page("compare_page", call="K5OHY", src="wspr", date="2026-10-04", band="20m", go="1").run()
+        self.assertEqual(errors(at), [])
+        self.assertFalse(at.session_state["setup_ok"])
+        text = " ".join(m.value for m in at.markdown)
+        self.assertNotIn("Signal advantage", text)  # no result until it is confirmed
+        confirm = [b for b in at.main.button if b.label.startswith("This matches what I did")]
+        self.assertEqual(len(confirm), 1)
+        confirm[0].click()
+        at.run()
+        self.assertEqual(errors(at), [])
+        self.assertTrue(at.session_state["setup_ok"])
+        self.assertIn("Signal advantage", " ".join(m.value for m in at.markdown))
+        self.assertEqual([b for b in at.main.button if b.label.startswith("This matches what I did")], [])
+
+    @needs_network
+    def test_examples_and_shared_tests_need_no_confirming(self):
+        at = page("compare_page").run()
+        click(at, "Try an example")
+        self.assertTrue(at.session_state["setup_ok"])
+        shared = page("compare_page", call="K5OHY", src="wspr", date="2026-10-04", band="20m", go="1", n="12", ord="abba").run()
+        self.assertTrue(shared.session_state["setup_ok"])
+
+    @needs_network
     def test_the_rbn_example_compares_the_loop_and_the_dipole_by_frequency(self):
         at = page("compare_page").run()
         click(at, "Try an RBN example")
@@ -246,19 +270,19 @@ class BandConditionsPage(unittest.TestCase):
         self.assertEqual(at.session_state["cond_window"], 60)
         self.assertEqual(at.session_state["cond_units"], "km")
 
-    def test_the_empty_page_offers_an_example_location(self):
+    def test_the_empty_page_offers_a_use_my_location_button(self):
         at = page("conditions_page").run()
         self.assertEqual(errors(at), [])
-        self.assertEqual([b.label for b in at.main.button], ["Try an example location"])
+        self.assertEqual([b.label for b in at.main.button], ["Use my location"])
 
-    @needs_network
-    def test_the_example_location_opens_the_dashboard(self):
+    def test_the_use_my_location_button_switches_to_your_location(self):
         at = page("conditions_page").run()
         at.main.button[0].click()
         at.run()
-        self.assertEqual(errors(at), [])
-        self.assertEqual(at.session_state["cond_grid"], "DM81wx")
-        self.assertEqual([b.label for b in at.main.button if b.label == "Try an example location"], [])
+        # the test runner cannot load the page's own location component; that is the only thing allowed to fail here
+        self.assertEqual([e for e in errors(at) if "not registered" not in e], [])
+        self.assertEqual(at.session_state["cond_where"], "My location")
+        self.assertEqual(at.session_state["_locate_ticket"], 1)
 
     def test_bad_link_values_are_ignored(self):
         at = page("conditions_page", call="K5OHY", power="99999", mode="bogus", window="7").run()

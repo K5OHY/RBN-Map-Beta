@@ -19,11 +19,11 @@ from wspr_data import WsprError
 
 _LOCATE_JS = """
 export default function (component) {
-  const { parentElement, setTriggerValue } = component
+  const { parentElement, setTriggerValue, data } = component
   const button = parentElement.querySelector("#locate")
   const note = parentElement.querySelector("#note")
   if (!button || !note) return
-  button.onclick = () => {
+  const ask = () => {
     if (!navigator.geolocation) {
       note.textContent = "This browser can't share a location."
       setTriggerValue("error", "unsupported")
@@ -42,6 +42,13 @@ export default function (component) {
       },
       { enableHighAccuracy: false, timeout: 20000, maximumAge: 300000 }
     )
+  }
+  button.onclick = ask
+  // The page's own "Use my location" button sends a new ticket; each ticket asks the browser once.
+  const ticket = data && data.ticket ? String(data.ticket) : ""
+  if (ticket && window.__locateAsked !== ticket) {
+    window.__locateAsked = ticket
+    ask()
   }
 }
 """
@@ -283,8 +290,10 @@ def _muf_card(lat, lon, boxed=True):
                    "Only a few dozen report at any time, so this is an estimate for your location, not a measurement.")
 
 
-def _example_location():
-    st.session_state.update(cond_where="Callsign or grid", cond_call="", cond_grid="DM81wx")
+def _use_my_location():
+    """The page's own button: switch to My location and have the browser asked for it straight away."""
+    ss = st.session_state
+    ss.update(cond_where="My location", _locate_ticket=ss.get("_locate_ticket", 0) + 1)
 
 
 def conditions_page():
@@ -328,7 +337,7 @@ def conditions_page():
                                  placeholder="Looked up from your callsign",
                                  help="Enter the grid you are activating from, such as a park, to see conditions there.")
         else:
-            fix = _LOCATE(key="cond_locate", on_position_change=lambda: None, on_error_change=lambda: None)
+            fix = _LOCATE(key="cond_locate", data={"ticket": ss.get("_locate_ticket", 0)}, on_position_change=lambda: None, on_error_change=lambda: None)
             if fix.position:
                 st.session_state["cond_geo"] = (float(fix.position["lat"]), float(fix.position["lon"]))
             geo = st.session_state.get("cond_geo")
@@ -408,15 +417,16 @@ def conditions_page():
         if where == "My location":
             geo = st.session_state.get("cond_geo")
             if not geo:
-                st.info("Click **Use my location** in the sidebar and allow your browser to share it. If it can't, switch to "
-                        "**Callsign or grid**.")
+                st.info("Allow your browser to share your location when it asks. If it can't, or you would rather not, switch "
+                        "to **Callsign or grid** in the sidebar.")
                 return
             lat, lon = geo
             label = f"your location, grid {cond.latlon_to_maidenhead(lat, lon)}"
         elif not (callsign or grid.strip()):
             st.info("Enter your callsign or a grid square in the sidebar, or choose **My location**.")
-            st.button("Try an example location", key="hero_cond", type="primary", on_click=_example_location,
-                      help="Shows the conditions around a station in grid DM81 (Texas), so you can see what the page does.")
+            st.button("Use my location", key="hero_cond", type="primary", on_click=_use_my_location,
+                      help="Your browser asks before sharing your location. It is used only to find the WSPR stations near "
+                           "you and is not saved.")
             return
         else:
             lat, lon, label = resolve_home(callsign, grid, skimmers)

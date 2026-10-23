@@ -345,6 +345,8 @@ def load_spots(ss, skimmers, where):
         ss.kind, ss.locs, ss.tx_call = ("WSPR" if where.source == WSPR_SOURCE else "RBN"), locs, tx_call
         ss.notice = notice
         ss.loaded_at = datetime.now(timezone.utc)
+        # An example, or a link that carries the test's setup, needs no checking. Your own spots do: the page has guessed.
+        ss["setup_ok"] = bool(ss.get("_example")) or bool(ss.pop("_setup_given", False))
         st.rerun()  # redraw the sidebar, so the time window and the link to this view follow the spots just loaded
     except Exception as e:
         ss.raw = None

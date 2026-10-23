@@ -21,6 +21,8 @@ def read(ss, q):
     if ss.get("_test_link_read"):
         return
     ss["_test_link_read"] = True
+    if any(q.get(p) for p in ("na", "nb", "sw", "n", "ts", "ord", "bl", "bn", "bs")):
+        ss["_setup_given"] = True  # the link carries the test's setup, so there is nothing to confirm
     for param, key in (("na", "cmp_name_a"), ("nb", "cmp_name_b")):
         if q.get(param):
             ss[key] = q[param][:60]
