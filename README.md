@@ -304,6 +304,7 @@ The **Help and README** page in the app shows this README, so the instructions a
 | `dashboard.py` | The HTML for the Band conditions dashboard: band tiles, sun strip, region grids and highlights |
 | `space_weather.py` | Current space weather from NOAA and a short plain reading of it |
 | `ionosphere.py` | MUF and foF2 near you from the nearest working ionosondes (GIRO data via KC2G) |
+| `example_data.py`, `examples/`, `build_examples.py` | The example buttons open saved copies of the real data (spots, where the station is, and for WSPR who was listening), so they appear at once; `build_examples.py` refreshes them from the internet |
 | `world_land.npz`, `build_world_mask.py` | The land/ocean grid the map is drawn from, and the one-off script that built it |
 | `spotter_coords.csv` | Cached skimmer locations (updated automatically) |
 | `cty.dat` | Country prefixes from [country-files.com](https://www.country-files.com), for the approximate-location fallback |

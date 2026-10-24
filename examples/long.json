@@ -1,0 +1,17 @@
+{
+ "callsign": "N3HXZ",
+ "kind": "WSPR",
+ "file_date": "20260826",
+ "tx_call": "N3HXZ",
+ "listening": {
+  "band": "20m",
+  "start": "2026-08-26 12:00:00",
+  "end": "2026-08-26 21:30:00"
+ },
+ "home": [
+  40.360747,
+  -80.040544,
+  "EN90xi via FCC (callook.info)"
+ ],
+ "fetched": "2026-10-24"
+}

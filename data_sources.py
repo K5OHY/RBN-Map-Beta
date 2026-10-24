@@ -8,6 +8,7 @@ import pandas as pd
 import requests
 import streamlit as st
 
+import example_data
 from rbn_data import get_band, load_skimmers, lookup_callsign_location, maidenhead_to_latlon, refresh_skimmer_cache
 from wspr_data import fetch_listening, fetch_wspr_spots
 
@@ -105,5 +106,7 @@ def load_wspr(tx_call, start, end):
 
 @st.cache_data(show_spinner=False, ttl=60)
 def load_listening(band, start, end):
-    """Which receivers were decoding on `band` in each slot. Remembered for a minute because the screen redraws often."""
-    return fetch_listening(band, start, end)
+    """Which receivers were decoding on `band` in each slot. Remembered for a minute because the screen redraws often. The
+    saved examples carry their own copy, so they work without asking wspr.live."""
+    saved = example_data.listening(band, start, end)
+    return saved if saved is not None else fetch_listening(band, start, end)

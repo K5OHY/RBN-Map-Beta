@@ -93,7 +93,6 @@ class MySpotsPage(unittest.TestCase):
         self.assertEqual(at.session_state["callsign_in"], "K5OHY")
         self.assertIsNone(at.session_state["raw"])
 
-    @needs_network
     def test_use_my_own_data_clears_an_example(self):
         at = page("spots_page").run()
         click(at, "Try an example")
@@ -125,7 +124,6 @@ class MySpotsPage(unittest.TestCase):
         at = page("spots_page").run()
         self.assertEqual([b.label for b in at.main.button], ["Try an example"])
 
-    @needs_network
     def test_the_example_shows_rbn_spots_on_the_map_and_a_shareable_link(self):
         at = page("spots_page").run()
         click(at, "Try an example")
@@ -165,7 +163,6 @@ class ComparePage(unittest.TestCase):
         at = page("compare_page").run()
         self.assertEqual([s.label for s in at.sidebar.slider if s.label == "UTC time window"], [])
 
-    @needs_network
     def test_the_quick_example_shows_a_verdict(self):
         at = page("compare_page").run()
         click(at, "Try an example")
@@ -216,7 +213,6 @@ class ComparePage(unittest.TestCase):
         shared = page("compare_page", call="K5OHY", src="wspr", date="2026-10-04", band="20m", go="1", n="12", ord="abba").run()
         self.assertTrue(shared.session_state["setup_ok"])
 
-    @needs_network
     def test_the_rbn_example_compares_the_loop_and_the_dipole_by_frequency(self):
         at = page("compare_page").run()
         click(at, "Try an RBN example")
@@ -227,7 +223,6 @@ class ComparePage(unittest.TestCase):
         self.assertIn("14069.5 kHz", text)
         self.assertIn("20m dipole, 40 ft", text)
 
-    @needs_network
     def test_the_long_test_example_uses_dales_schedule_and_40_reports(self):
         at = page("compare_page").run()
         click(at, "Try a long-test example")
@@ -239,7 +234,6 @@ class ComparePage(unittest.TestCase):
         self.assertTrue(any("receivers with at least 40 reports" in c.value for c in at.caption))
         self.assertTrue(any("getting out better" in m.value for m in at.markdown))
 
-    @needs_network
     def test_comparison_filters_run(self):
         at = page("compare_page").run()
         click(at, "Try a long-test example")
@@ -281,13 +275,24 @@ class ComparePage(unittest.TestCase):
         self.assertEqual(again.session_state["rx_min_reports_blk"], 40)
         self.assertTrue(any("getting out better" in m.value for m in again.markdown))
 
-    @needs_network
     def test_a_loaded_example_carries_over_to_my_spots(self):
         """What you load on one page is there on the other, so you do not have to enter it twice."""
         at = page("compare_page").run()
         click(at, "Try an example")
         self.assertIsNotNone(at.session_state["raw"])
         self.assertEqual(at.session_state["callsign"], "K5OHY")
+
+
+class SavedExamplesMatchTheLiveData(unittest.TestCase):
+    @needs_network
+    def test_the_saved_rbn_example_still_matches_the_download(self):
+        """The saved copy is a snapshot; this notices if RBN's file for that day ever changes."""
+        import example_data
+        from data_sources import download_rbn_day
+        _, saved = example_data.load("rbn")
+        live = download_rbn_day("20260927", "K5OHY")
+        self.assertEqual(len(live), len(saved))
+        self.assertAlmostEqual(float(live["snr"].sum()), float(saved["snr"].sum()), places=3)
 
 
 class BandConditionsPage(unittest.TestCase):

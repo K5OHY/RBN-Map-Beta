@@ -16,6 +16,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import compare_stats as cs  # noqa: E402
 import conditions as cond  # noqa: E402
 import dashboard as dash  # noqa: E402
+import example_data  # noqa: E402
 import ionosphere as iono  # noqa: E402
 import space_weather as sw  # noqa: E402
 import world_map as wm  # noqa: E402
@@ -187,6 +188,30 @@ class SunAndSky(unittest.TestCase):
         fig = wm.azimuth_map_figure(31.0, -102.0, pts, {"A": "", "B": ""}, "TEST", "mi", 12000.0, "dots", True, (0, 20),
                                     when=datetime(2026, 10, 21, 12, 0))
         self.assertIsNotNone(fig)
+
+
+class SavedExamples(unittest.TestCase):
+    def test_every_example_has_its_spots_and_a_place(self):
+        for name, kind in (("map", "RBN"), ("rbn", "RBN"), ("quick", "WSPR"), ("long", "WSPR")):
+            meta, spots = example_data.load(name)
+            self.assertEqual(meta["kind"], kind)
+            self.assertGreater(len(spots), 100, name)
+            self.assertEqual(len(meta["home"]), 3)
+            self.assertTrue({"spotter", "snr", "time", "band", "freq"} <= set(spots.columns), name)
+            self.assertTrue(pd.api.types.is_datetime64_any_dtype(spots["time"]), name)
+
+    def test_the_wspr_examples_carry_who_was_listening(self):
+        meta, spots = example_data.load("long")
+        on_band = spots[spots["band"] == meta["listening"]["band"]]
+        start, end = on_band["time"].min(), on_band["time"].max() + pd.Timedelta(minutes=2)
+        listening, truncated = example_data.listening("20m", start, end)
+        self.assertFalse(truncated)
+        self.assertGreater(len(listening), 10_000)
+        self.assertEqual(list(listening.columns), ["time", "spotter"])
+
+    def test_nothing_is_returned_for_a_band_or_time_no_example_covers(self):
+        self.assertIsNone(example_data.listening("40m", "2026-08-26 12:00", "2026-08-26 13:00"))
+        self.assertIsNone(example_data.listening("20m", "2020-01-01 00:00", "2020-01-01 01:00"))
 
 
 if __name__ == "__main__":

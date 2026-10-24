@@ -1,0 +1,13 @@
+{
+ "callsign": "K5OHY",
+ "kind": "RBN",
+ "file_date": "20251023",
+ "tx_call": null,
+ "listening": null,
+ "home": [
+  31.99917,
+  -102.158146,
+  "DM81wx via FCC (callook.info)"
+ ],
+ "fetched": "2026-10-24"
+}

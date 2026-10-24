@@ -6,6 +6,7 @@ from urllib.parse import urlencode
 import pandas as pd
 import streamlit as st
 
+import example_data
 from data_sources import download_rbn_day, load_wspr, parse_pasted_data, resolve_home
 from ui_common import (
     BAND_COLORS,
@@ -73,6 +74,21 @@ def _link_for(ss, callsign, grid, source, span, days, units, band, extra=None):
     return link
 
 
+def _load_saved(which):
+    """Puts a saved example's real spots into the session, as if Load spots had just fetched them. False when the example's files
+    are missing, and the caller then loads it from the internet instead."""
+    saved = example_data.load(which)
+    if saved is None:
+        return False
+    meta, spots = saved
+    ss = st.session_state
+    ss.raw, ss.callsign, ss.kind, ss.tx_call = spots, meta["callsign"], meta["kind"], meta["tx_call"]
+    ss.locs = (receiver_locations(spots) if len(spots) else {}) if meta["kind"] == "WSPR" else None
+    ss.file_date, ss.home, ss.notice, ss.loaded_at = meta["file_date"], tuple(meta["home"]), None, None
+    ss["setup_ok"] = True
+    return True
+
+
 def start_example(which):
     """The example buttons, each set up and loaded so the result shows straight away. 'map' is K5OHY's Reverse Beacon Network
     spots of 23 Oct 2025 on the My spots page. On the Compare page, 'rbn' is a quick CW check by frequency (27 Sep 2026, loop on 14069.5 against dipole on 14070.5), 'quick' is the same day's test of 12 transmissions alternating a 40m loop and a
@@ -83,18 +99,20 @@ def start_example(which):
     if which == "long":
         ss.update(callsign_in="N3HXZ", grid_in="", src_in=WSPR_SOURCE, span_in="Single day", day_in=date(2026, 8, 26),
                   band_choice="20m", cmp_name_a="Chameleon MPAS Lite (ground-mounted)", cmp_name_b="POTA Performer (elevated)",
-                  test_mode="In long blocks", rx_min_reports_blk=40, _autoload=True, _example="long")
+                  test_mode="In long blocks", rx_min_reports_blk=40, _example="long")
     elif which == "rbn":
         ss.update(callsign_in="K5OHY", grid_in="", src_in="Download by date", span_in="Single day", day_in=date(2026, 9, 27),
-                  band_choice="20m", cmp_name_a="40m loop, 20 ft", cmp_name_b="20m dipole, 40 ft", _autoload=True, _example="rbn")
+                  band_choice="20m", cmp_name_a="40m loop, 20 ft", cmp_name_b="20m dipole, 40 ft", _example="rbn")
     elif which == "quick":
         ss.update(callsign_in="K5OHY", grid_in="", src_in=WSPR_SOURCE, span_in="Single day", day_in=date(2026, 10, 4),
                   band_choice="20m", cmp_name_a="40m loop, 20 ft", cmp_name_b="20m dipole, 40 ft",
                   test_mode="After every transmission", test_cycles=12, test_start="18:00", test_order="A, B, B, A …",
-                  _autoload=True, _example="quick")
+                  _example="quick")
     else:
         ss.update(callsign_in="K5OHY", grid_in="", src_in="Download by date", span_in="Single day", day_in=date(2025, 10, 23),
-                  band_choice="All", _autoload=True, _example="map")
+                  band_choice="All", _example="map")
+    if not _load_saved(which):  # no saved copy: fetch it live, as a click on Load spots would
+        ss["_autoload"] = True
 
 
 _SETUP_KEYS = ("cmp_name_a", "cmp_name_b", "test_mode", "test_cycles", "test_start", "test_order", "avg_floor", "avg_weak",
@@ -141,6 +159,8 @@ def example_banner(ss):
     elif which == "map":
         st.info("This is an example: the Reverse Beacon Network stations that heard K5OHY's CW calls on 23 October 2025. To see "
                 "your own, enter your callsign and a date and click Load spots.")
+    if which and example_data.available(which):
+        st.caption("Opened from a saved copy of the real data, so it appears at once. Your own spots are downloaded live.")
     if which:
         st.button("Use my own data instead", key="banner_own", on_click=start_over, kwargs={"clear_callsign": True},
                   help="Clears the example and the callsign and dates it filled in, so you can enter your own.")
