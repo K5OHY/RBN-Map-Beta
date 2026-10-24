@@ -251,7 +251,7 @@ def relative_gain_chart(shared, names, units, by="direction"):
     ax.scatter(x, gain, c=colors, s=24, alpha=0.8, linewidths=0, zorder=3)
     ax.axhline(0, color=COLOR_TIE, linestyle="--", linewidth=1, zorder=2)
     mean = float(gain.mean())
-    ax.axhline(mean, color="#e5e7eb", linewidth=1.1, alpha=0.8, zorder=2)
+    ax.axhline(mean, color="#6b7280", linewidth=1.5, zorder=2)  # a mid grey: it has to show on a light page, a dark one and a PDF
     ax.text(0.99, 0.02 if mean >= 0 else 0.98, f"average {mean:+.1f} dB", transform=ax.transAxes, fontsize=8,
             color=COLOR_TIE, ha="right", va="bottom" if mean >= 0 else "top")
     span = float(max(abs(gain.max()), abs(gain.min()), 2)) * 1.15
