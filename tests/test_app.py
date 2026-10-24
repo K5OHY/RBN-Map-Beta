@@ -44,7 +44,7 @@ class MySpotsPage(unittest.TestCase):
     def test_opens_with_the_load_and_example_buttons(self):
         at = page("spots_page").run()
         self.assertEqual(errors(at), [])
-        self.assertEqual([b.label for b in at.sidebar.button], ["Load spots", "Try an example"])
+        self.assertEqual([b.label for b in at.sidebar.button], ["Load spots", "Try an example", "Start over"])
 
     def test_the_old_compare_checkbox_is_gone(self):
         at = page("spots_page").run()
@@ -75,6 +75,35 @@ class MySpotsPage(unittest.TestCase):
         [r for r in at.sidebar.radio if r.key == "net_in"][0].set_value("RBN")
         at.run()
         self.assertEqual(at.session_state["src_in"], "Paste from RBN site")  # it remembers your last RBN choice
+
+    def test_a_date_range_is_picked_on_one_calendar(self):
+        at = page("spots_page", call="K5OHY", src="rbn", date="2024-03-01..2024-03-03").run()
+        self.assertEqual(errors(at), [])
+        self.assertEqual(at.session_state["span_in"], "Date range")
+        self.assertEqual(tuple(at.session_state["range_in"]), (date(2024, 3, 1), date(2024, 3, 3)))
+        self.assertEqual([d.label for d in at.sidebar.date_input], ["Dates (UTC)"])
+        self.assertEqual(at.session_state["to_in"], date(2024, 3, 3))
+
+    def test_start_over_goes_back_to_the_latest_day_and_keeps_the_callsign(self):
+        at = page("spots_page", call="K5OHY", src="rbn", date="2024-03-01").run()
+        self.assertEqual(at.session_state["day_in"], date(2024, 3, 1))
+        click(at, "Start over")
+        self.assertEqual(errors(at), [])
+        self.assertGreater(at.session_state["day_in"], date(2025, 1, 1))
+        self.assertEqual(at.session_state["callsign_in"], "K5OHY")
+        self.assertIsNone(at.session_state["raw"])
+
+    @needs_network
+    def test_use_my_own_data_clears_an_example(self):
+        at = page("spots_page").run()
+        click(at, "Try an example")
+        self.assertEqual(at.session_state["callsign_in"], "K5OHY")
+        [b for b in at.main.button if b.label == "Use my own data instead"][0].click()
+        at.run()
+        self.assertEqual(errors(at), [])
+        self.assertEqual(at.session_state["callsign_in"], "")
+        self.assertIsNone(at.session_state["raw"])
+        self.assertFalse(at.session_state["_example"] if "_example" in at.session_state else False)
 
     def test_a_bad_link_is_ignored(self):
         at = page("spots_page", call="K5OHY", src="nonsense", date="not-a-date", band="99m", units="furlongs").run()
@@ -119,7 +148,7 @@ class ComparePage(unittest.TestCase):
     def test_opens_with_the_steps_and_the_three_buttons(self):
         at = page("compare_page").run()
         self.assertEqual(errors(at), [])
-        self.assertEqual([b.label for b in at.sidebar.button], ["Load spots", "Try an example", "Try an RBN example", "Try a long-test example"])
+        self.assertEqual([b.label for b in at.sidebar.button], ["Load spots", "Try an example", "Try an RBN example", "Try a long-test example", "Start over"])
         text = " ".join(m.value for m in at.markdown)
         self.assertIn("With WSPR, the best way", text)
         self.assertIn("With RBN, for a quick CW check", text)

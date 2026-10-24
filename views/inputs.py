@@ -20,7 +20,7 @@ from ui_common import (
 from wspr_data import clean_callsign, receiver_locations
 
 DATA_KEYS = ("raw", "home", "callsign", "file_date", "kind", "locs", "tx_call", "notice", "loaded_at")
-SHARED_WIDGET_KEYS = ("callsign_in", "grid_in", "src_in", "net_in", "how_in", "span_in", "day_in", "from_in", "to_in", "units_in", "band_choice")
+SHARED_WIDGET_KEYS = ("callsign_in", "grid_in", "src_in", "net_in", "how_in", "span_in", "day_in", "range_in", "from_in", "to_in", "units_in", "band_choice")
 
 
 def _parse_day(text):
@@ -97,6 +97,28 @@ def start_example(which):
                   band_choice="All", _autoload=True, _example="map")
 
 
+_SETUP_KEYS = ("cmp_name_a", "cmp_name_b", "test_mode", "test_cycles", "test_start", "test_order", "avg_floor", "avg_weak",
+               "setup_ok", "_setup_given", "_blk_pending", "_log_pending", "_log_base", "_example", "_autoload")
+_SETUP_PREFIXES = ("blk_", "antenna_log_", "avg_near_", "rx_min_reports_")
+
+
+def start_over(clear_callsign=False):
+    """Back to a clean page: the loaded spots, the dates (to the latest), the band and a comparison's setup are cleared. Your
+    callsign and grid stay unless `clear_callsign`. The source (RBN or WSPR), units and map settings stay."""
+    ss = st.session_state
+    for key in DATA_KEYS:
+        ss[key] = None
+    for key in list(ss.keys()):
+        if key in _SETUP_KEYS or (isinstance(key, str) and key.startswith(_SETUP_PREFIXES)):
+            del ss[key]
+    for key in ("day_in", "from_in", "to_in", "range_in", "_range_seen"):  # the next run sets them to the latest day
+        ss.pop(key, None)
+    ss.update(span_in="Single day", band_choice="All")
+    if clear_callsign:
+        ss.update(callsign_in="", grid_in="")
+    st.query_params.clear()
+
+
 def example_banner(ss):
     """A note above the results explaining a loaded example, or nothing."""
     which = ss.get("_example")
@@ -119,6 +141,9 @@ def example_banner(ss):
     elif which == "map":
         st.info("This is an example: the Reverse Beacon Network stations that heard K5OHY's CW calls on 23 October 2025. To see "
                 "your own, enter your callsign and a date and click Load spots.")
+    if which:
+        st.button("Use my own data instead", key="banner_own", on_click=start_over, kwargs={"clear_callsign": True},
+                  help="Clears the example and the callsign and dates it filled in, so you can enter your own.")
 
 
 def begin(default_source=None):
@@ -207,14 +232,19 @@ def where_inputs(ss, cfg):
         if span == "Single day":
             days = [st.date_input("Date (UTC)", key="day_in", max_value=last_day)]
         else:
-            first = st.date_input("From (UTC)", key="from_in", max_value=last_day)
-            last = st.date_input("To (UTC)", key="to_in", max_value=last_day,
-                                 help=f"Up to {MAX_DAYS} days." + (" Each day is a separate download."
-                                                                  if source != WSPR_SOURCE else ""))
-            days = [first + timedelta(n) for n in range((last - first).days + 1)] if last >= first else []
-            if last < first:
-                st.caption("⚠️ 'To' must be on or after 'From'.")
-            elif len(days) > MAX_DAYS:
+            # One calendar picks both ends: click the first day, then the last. A link or example sets from_in and to_in, and
+            # the calendar follows them.
+            if ss.get("_range_seen") != (ss["from_in"], ss["to_in"]):
+                ss["range_in"] = (ss["from_in"], ss["to_in"])
+            picked = st.date_input("Dates (UTC)", key="range_in", max_value=last_day,
+                                   help=f"Click the first day, then the last. Up to {MAX_DAYS} days." + (
+                                       " Each day is a separate download." if source != WSPR_SOURCE else ""))
+            picked = tuple(picked) if isinstance(picked, (list, tuple)) else (picked,)
+            first, last = picked[0], picked[-1]  # until the second click it is a single day
+            ss["from_in"], ss["to_in"] = first, last
+            ss["_range_seen"] = (first, last)
+            days = [first + timedelta(n) for n in range((last - first).days + 1)]
+            if len(days) > MAX_DAYS:
                 st.caption(f"⚠️ That's {len(days)} days; the limit is {MAX_DAYS}.")
         if source == WSPR_SOURCE:
             st.caption("Uses your callsign above as the WSPR transmitter. Reports take about 5 minutes to arrive "

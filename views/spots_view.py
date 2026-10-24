@@ -113,6 +113,8 @@ def spots_page():
         load = st.button("Load spots", type="primary", width="stretch")
         st.button("Try an example", width="stretch", on_click=inputs.start_example, args=("map",),
                   help="Loads K5OHY's real Reverse Beacon Network spots from 23 October 2025, so you can see what the map and reports look like.")
+        st.button("Start over", type="tertiary", on_click=inputs.start_over,
+                  help="Clears the loaded spots and goes back to the latest date. Your callsign and grid stay.")
         where.load = inputs.take_autoload(ss, load)
         st.divider()
         view = inputs.view_controls(ss, cfg, pick, where.kind)
