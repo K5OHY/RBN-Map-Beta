@@ -266,7 +266,7 @@ class ComparePage(unittest.TestCase):
         at = page("compare_page").run()
         click(at, "Try a long-test example")
         link = [c.value for c in at.sidebar.code if "call=N3HXZ" in c.value][0]
-        for part in ("sw=blocks", "bl=30", "bn=", "bs=12%3A00", "mr=40", "na=Chameleon"):
+        for part in ("sw=blocks", "bl=30", "bn=", "bs=12%3A00", "mr=40", "na=17+ft"):
             self.assertIn(part, link)
         from urllib.parse import parse_qs, urlparse
         q = {k: v[0] for k, v in parse_qs(urlparse(link).query).items()}

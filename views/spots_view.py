@@ -1,5 +1,4 @@
 """The My spots page: the sidebar, loading spots, the map and the session report."""
-import numpy as np
 import pandas as pd
 import streamlit as st
 
@@ -64,7 +63,8 @@ def _session_report_view(spots, locs, home, units, noun, band_choice):
     st.pyplot(sr.timeline_figure(spots, BAND_COLORS, day), width="stretch")
     st.caption("Each bar is a stretch of time you were being heard (a pause of up to 30 minutes stays inside one bar) and each "
                "white tick is one spot. A spot only exists when someone heard you, so a gap can mean you were off the air, "
-               f"calling to nobody, or the band was closed to you. The number after each band is its spots.")
+               f"calling to nobody, or the band was closed to you. The number after each band is its spots. The bar colours are "
+               "the band colours used on the map.")
 
     st.subheader("When each band worked")
     label = st.radio("Show", list(sr.GRID_METRICS), horizontal=True, key="sr_grid_metric")
@@ -87,13 +87,21 @@ def _session_report_view(spots, locs, home, units, noun, band_choice):
     st.subheader("Where each band reached")
     regions = sr.region_table(spots, locs, home)
     cols = [c for c in regions.columns if c != "Total"]
-    view = regions.astype(float).replace(0, np.nan)
+    view = regions.astype(int)
+    body = view.loc[view.index[1:], cols]
+    top = max(int(body.to_numpy().max()), 1) if body.size else 1
+
+    def shade(cell):
+        """A blue wash that deepens with the count and is see-through, so it reads on both a light and a dark page. A zero
+        has no shading and shows nothing."""
+        return f"background-color: rgba(37, 99, 235, {0.15 + 0.6 * cell / top:.2f})" if cell > 0 else ""
+
     try:
-        styled = view.style.format("{:.0f}", na_rep="").background_gradient(
-            cmap="Blues", axis=None, subset=pd.IndexSlice[view.index[1:], cols])
+        styled = (view.style.format(lambda v: "" if v == 0 else f"{v:.0f}")
+                  .map(shade, subset=pd.IndexSlice[view.index[1:], cols]))
         st.dataframe(styled, width="stretch")
     except Exception:  # styling is a nicety; the numbers matter
-        st.dataframe(view.fillna(0).astype(int), width="stretch")
+        st.dataframe(view, width="stretch")
     st.caption(f"The number of different {noun}s that heard you on each band, grouped by where they are. The first row counts "
                f"each {noun} once across all bands. US regions come from the {noun}'s position, the rest from its callsign.")
     with st.expander("Countries heard"):

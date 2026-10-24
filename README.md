@@ -32,7 +32,7 @@ See where your signal is heard, how strong it is, and how conditions change. Map
 
 ## Quick start
 
-**Just looking? Click Try an example** in the sidebar. It loads a real WSPR antenna test (a 40m loop against a 20m dipole) and shows the result, so you can see what the program does before you use your own data. **Try a long-test example** loads a nine-and-a-half-hour test by Dale, N3HXZ, a POTA Performer against a Chameleon MPAS Lite, switched every 30 minutes. **Try an RBN example** loads a quick CW check on the Reverse Beacon Network, a 40m loop on 14069.5 kHz against a 20m dipole on 14070.5 kHz, told apart by frequency.
+**Just looking? Click Try an example** in the sidebar. It loads a real WSPR antenna test (a 40m loop against a 20m dipole) and shows the result, so you can see what the program does before you use your own data. **Try a long-test example** loads a nine-and-a-half-hour test by Dale, N3HXZ, a Performer (tuned elevated quarter-wave) against a 17 ft whip on a 5:1 unun at ground level, switched every 30 minutes. **Try an RBN example** loads a quick CW check on the Reverse Beacon Network, a 40m loop on 14069.5 kHz against a 20m dipole on 14070.5 kHz, told apart by frequency.
 
 **With your own data:**
 
@@ -73,6 +73,8 @@ Your location comes from the grid you typed, else the RBN skimmer list, else the
 ## Compare two antennas
 
 Open **Compare antennas** in the menu. It shows three steps: load your spots, say how you switched, and read the result. What you load on **My spots** is already there, and the other way round. Name your antennas under *Name your antennas* if you like.
+
+**How long a test?** An hour or so is enough for a first look at how two antennas compare. A longer test, several hours in 30 minute blocks, is worth doing when you want to see how changing band conditions affect the result. You do not need a long test to get started.
 
 ### With WSPR (the best way to test antennas)
 
@@ -220,7 +222,7 @@ It is a guide good to a few dB, not a promise: it only counts receivers that hea
 
 ## Checked against a published study
 
-Dale Ostergaard, N3HXZ, published a long WSPR test of two vertical antennas, "Comparing Performance between an Elevated and a Ground mounted Vertical Antenna" (31 August 2026): a POTA Performer elevated vertical against a Chameleon MPAS Lite ground-mounted system (with its matching unit, not a bare whip), on 20m at 1 W, switched in 30 minute blocks from 12:00 to 21:30 UTC on 26 August 2026, using the stations with 40 or more spots on each antenna. His table gives each station's relative gain. Loading his transmitter and date, with that schedule, gives the same answers in this program:
+Dale Ostergaard, N3HXZ, published a long WSPR test of two vertical antennas, "Comparing Performance between an Elevated and a Ground mounted Vertical Antenna" (31 August 2026): a Performer (tuned elevated quarter-wave vertical, two raised radials) against an untuned 17 ft whip on a 5:1 matching unit, ground-mounted with two radials, on 20m at 1 W, switched in 30 minute blocks from 12:00 to 21:30 UTC on 26 August 2026, using the stations with 40 or more spots on each antenna. His table gives each station's relative gain. Loading his transmitter and date, with that schedule, gives the same answers in this program:
 
 - On the 27 stations in his table, the program's relative gain differs from his by 0.00 dB on average, and by no more than 0.12 dB at any one station.
 - The average over 500 to 1,500 miles is 3.87 dB here against 3.86 dB in his table.

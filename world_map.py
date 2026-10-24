@@ -23,8 +23,9 @@ INK, DIM = "#cbd2dc", "#7b8596"
 CELL_EDGES_KM = [0, 1000, 2000, 3500, 5500, 8000, 11000, 15000, 20100]  # narrow near the station, where most receivers are
 MIN_CELL = 3  # a cell needs at least this many receivers to be drawn
 COL_A, COL_B = "#4f8cff", "#ff9a3c"
-SNR_CMAP = LinearSegmentedColormap.from_list("snr", ["#46327e", "#365c8d", "#277f8e", "#1fa187", "#4ac16d", "#a0da39", "#fde725"])
-REACH_CMAP = LinearSegmentedColormap.from_list("reach", ["#2b1b4d", "#6a2c91", "#d1495b", "#f6a04d", "#fff3b0"])
+SNR_COLORS = ["#22b14c", "#ffd60a", "#8b0000"]  # weak to strong: green, yellow, dark red, as on the main map
+SNR_CMAP = LinearSegmentedColormap.from_list("snr", SNR_COLORS)
+REACH_CMAP = LinearSegmentedColormap.from_list("reach", ["#bcd4f6", "#6a9be8", "#2563eb", "#0b2e7a"])  # counts and distances: soft to deep blue
 REGIONS = [("North America", 46, -102), ("South America", -15, -60), ("Europe", 51, 14), ("Africa", 5, 21), ("Asia", 52, 92),
            ("India", 22, 79), ("Japan", 37, 138), ("SE Asia", 8, 108), ("Australia", -25, 134), ("New Zealand", -42, 172),
            ("Antarctica", -80, 30), ("Greenland", 73, -42), ("Middle East", 28, 45), ("Pacific", 5, -150), ("Atlantic", 10, -35),
@@ -121,6 +122,13 @@ def _ring_step(radius_units):
     return 5000
 
 
+def text_color_on(rgb, alpha=1.0, backdrop=(0.06, 0.08, 0.11)):
+    """Dark or white lettering for a cell of colour `rgb` drawn with `alpha` over the dark map, whichever reads better."""
+    blended = [alpha * c + (1 - alpha) * b for c, b in zip(rgb[:3], backdrop)]
+    luminance = 0.2126 * blended[0] + 0.7152 * blended[1] + 0.0722 * blended[2]
+    return "#111111" if luminance > 0.45 else "white"
+
+
 def _cells(points, layer, radius_km, sector):
     """Direction-and-distance cells: for each sector and distance band, the number of receivers and their average value.
     `layer` says what is averaged: 'advantage' (A minus B, at receivers that heard both), 'snr_a', 'snr_b', 'snr' (one antenna)
@@ -203,7 +211,8 @@ def azimuth_map_figure(lat0, lon0, points, names, callsign, units="mi", radius_k
             mid_r, ang = (c["r0"] + c["r1"]) / 2, math.radians((c["b0"] + c["b1"]) / 2)
             if c["n"] >= label_min and (c["r1"] - c["r0"]) > R * 0.07:
                 label = f"{abs(v):.1f}" if layer == "advantage" else f"{v:.0f}"
-                ax.text(mid_r * math.sin(ang), mid_r * math.cos(ang), label, fontsize=6.5, color="white", ha="center", va="center",
+                ax.text(mid_r * math.sin(ang), mid_r * math.cos(ang), label, fontsize=6.5,
+                        color=text_color_on(color, alpha) if layer != "advantage" else "white", ha="center", va="center",
                         zorder=6, fontweight="bold")
     # distance rings, labelled in the user's units
     step = _ring_step(R / km_per_unit)

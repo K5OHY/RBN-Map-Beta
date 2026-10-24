@@ -231,12 +231,17 @@ def hour_grid_figure(spots, locs, home, metric="spots", units="mi"):
             grid[i, j] = (len(cell) if metric == "spots" else cell["snr"].median() if metric == "snr"
                           else cell["km"].max() / k if cell["km"].notna().any() else np.nan)
     cmap = SNR_CMAP if metric == "snr" else REACH_CMAP
-    fig = Figure(figsize=(max(5.5, 0.42 * len(hours) + 2.0), 0.55 * len(bands) + 1.0))
+    fig = Figure(figsize=(max(4.4, 0.34 * len(hours) + 1.8), 0.42 * len(bands) + 0.9))
     fig.patch.set_alpha(0)
     ax = fig.add_subplot(111)
     ax.set_facecolor("none")
     shown = np.ma.masked_invalid(grid)
-    ax.imshow(shown, cmap=cmap, aspect="auto", vmin=np.nanmin(grid) if metric == "snr" else 0, vmax=np.nanmax(grid))
+    image = ax.imshow(shown, cmap=cmap, aspect="auto", vmin=np.nanmin(grid) if metric == "snr" else 0, vmax=np.nanmax(grid))
+    key = fig.colorbar(image, ax=ax, fraction=0.035, pad=0.02)  # without it the colours mean nothing at a glance
+    key.set_label({"spots": "spots in the hour", "farthest": f"farthest ({units})", "snr": "median SNR (dB)"}[metric],
+                  color=GREY, fontsize=8)
+    key.ax.tick_params(colors=GREY, labelsize=7)
+    key.outline.set_visible(False)
     top = np.nanmax(grid) if np.isfinite(grid).any() else 1
     low = np.nanmin(grid) if metric == "snr" else 0
     for i in range(len(bands)):
@@ -245,8 +250,9 @@ def hour_grid_figure(spots, locs, home, metric="spots", units="mi"):
             if np.isnan(v):
                 continue
             text = (f"{v:.0f}" if metric != "farthest" or v < 1000 else f"{v / 1000:.1f}k")
-            dark = (v - low) / max(top - low, 1e-9) > 0.55
-            ax.text(j, i, text, ha="center", va="center", fontsize=8, color="#111111" if dark else "white")
+            rgb = cmap(float(np.clip((v - low) / max(top - low, 1e-9), 0, 1)))
+            light = 0.2126 * rgb[0] + 0.7152 * rgb[1] + 0.0722 * rgb[2] > 0.5
+            ax.text(j, i, text, ha="center", va="center", fontsize=8, color="#111111" if light else "white")
     ax.set_xticks(range(len(hours)))
     ax.set_xticklabels([f"{h:02d}" for h in hours], fontsize=8)
     ax.set_yticks(range(len(bands)))

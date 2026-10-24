@@ -7,7 +7,7 @@ import matplotlib.colors as mcolors
 import numpy as np
 import streamlit as st
 
-from world_map import MAX_KM
+from world_map import MAX_KM, SNR_CMAP
 
 
 # Same colours the RBN website uses for each band.
@@ -41,10 +41,6 @@ RBN_SNR_SCALE = (5, 35)
 WSPR_SNR_SCALE = (-28, 2)
 
 
-SNR_COLORS = ["#22b14c", "#ffd60a", "#8b0000"]
-
-
-SNR_CMAP = mcolors.LinearSegmentedColormap.from_list("snr", SNR_COLORS)
 
 
 KM_PER_MILE = 1.609344

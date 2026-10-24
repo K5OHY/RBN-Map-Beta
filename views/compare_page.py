@@ -44,6 +44,8 @@ def _how_to_test():
         "or worse, B gets the later slot every time, and that can tilt the result.\n"
         "   - **A, B, B, A** (then repeat) is usually better. Each antenna gets the same mix of earlier and later "
         "slots, so a steady change in the band cancels out. Use a multiple of 4 transmissions so every round is complete.\n"
+        "   - **How long?** An hour or so is enough for a first look. A longer test, several hours in 30 minute blocks, "
+        "shows how changing band conditions affect the result, but you do not need one to get started.\n"
         "3. Wait about five minutes after the last transmission. Enter your callsign and the date in the sidebar, choose the "
         "band, and click **Load spots**.\n"
         "4. Tell the page how you switched. It works out which antenna got out better, by how much, and in which directions.")
@@ -75,7 +77,7 @@ def compare_page():
                   help="Loads a quick CW check on the Reverse Beacon Network: a 40m loop on 14069.5 kHz against a 20m dipole "
                        "on 14070.5 kHz, told apart by frequency.")
         st.button("Try a long-test example", width="stretch", on_click=inputs.start_example, args=("long",),
-                  help="Loads Dale Ostergaard's long WSPR test of 26 August 2026: a POTA Performer against a Chameleon MPAS Lite, "
+                  help="Loads Dale Ostergaard's long WSPR test of 26 August 2026: a Performer (tuned elevated quarter-wave) against a 17 ft whip on a 5:1 unun, "
                        "switched every 30 minutes for nine and a half hours.")
         st.button("Start over", type="tertiary", on_click=inputs.start_over,
                   help="Clears the loaded spots, the dates and the test setup. Your callsign and grid stay.")
@@ -101,7 +103,7 @@ def _result(ss, skimmers, where, view):
         rbn.button("Try the RBN example", key="hero_rbn", width="stretch", on_click=inputs.start_example, args=("rbn",),
                    help="A quick CW check on the Reverse Beacon Network: the same loop and dipole, on two frequencies.")
         long_.button("Try the long-test example", key="hero_long", width="stretch", on_click=inputs.start_example, args=("long",),
-                     help="Dale Ostergaard's long WSPR test: a POTA Performer against a Chameleon MPAS Lite, switched every 30 minutes.")
+                     help="Dale Ostergaard's long WSPR test: a Performer (tuned elevated quarter-wave) against a 17 ft whip on a 5:1 unun, switched every 30 minutes.")
         _how_to_test()
         return
     if inputs.nothing_found_message(ss):

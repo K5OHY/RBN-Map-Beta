@@ -3,17 +3,22 @@ import matplotlib.dates as mdates
 import numpy as np
 import pandas as pd
 from geographiclib.geodesic import Geodesic
+from matplotlib.cm import ScalarMappable
+from matplotlib.colors import Normalize
 from matplotlib.figure import Figure
 from matplotlib.ticker import FuncFormatter
 
 from compare_stats import BIN_MIN_SHARED, SECTOR_NAMES, locate as skimmer_location, t_crit
-from ui_common import KM_PER_MILE, RBN_SNR_SCALE, _bold, snr_color
+from ui_common import KM_PER_MILE, RBN_SNR_SCALE, SNR_CMAP, _bold, snr_color
 
 
 SECTORS = 16
 
 
 COMPASS_16 = ["N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE", "S", "SSW", "SW", "WSW", "W", "WNW", "NW", "NNW"]
+
+
+MIN_SPOTS_FOR_BEST = 3
 
 
 def bearing_chart(spots, skimmers, home, scale=RBN_SNR_SCALE):
@@ -50,14 +55,22 @@ def bearing_chart(spots, skimmers, home, scale=RBN_SNR_SCALE):
     ax.grid(color=grey, alpha=0.3)
     ax.spines["polar"].set_color(grey)
     ax.spines["polar"].set_alpha(0.3)
+    key = fig.colorbar(ScalarMappable(norm=Normalize(*scale), cmap=SNR_CMAP), ax=ax, orientation="horizontal",
+                       fraction=0.05, pad=0.12)
+    key.set_label("average SNR in that direction (dB): the colour of a bar", color=grey, fontsize=8)
+    key.ax.tick_params(colors=grey, labelsize=7)
+    key.outline.set_visible(False)
 
     top = int(per["count"].idxmax())
-    best = int(per["mean"].idxmax())
+    # a direction with one or two spots can top the average by luck, so only directions with enough spots are compared
+    enough = per["mean"].where(per["count"] >= MIN_SPOTS_FOR_BEST)
+    best = int(enough.idxmax()) if enough.notna().any() else int(per["mean"].idxmax())
     summary = (
         f"**Most spots:** {COMPASS_16[top]} ({int(per['count'][top])} spots)  \n"
-        f"**Strongest on average:** {COMPASS_16[best]} ({per['mean'][best]:.0f} dB)  \n\n"
-        "Bar length is the number of spots in that direction from your station. "
-        "Colour is the average SNR, using the same scale as the map."
+        f"**Strongest on average:** {COMPASS_16[best]} ({per['mean'][best]:.0f} dB, from {int(per['count'][best])} spots)  \n\n"
+        "**A long bar means many spots, not a strong signal.** Bar length is the number of spots in that direction from your "
+        "station; the colour is the average SNR there, on the same scale as the map. "
+        + (f"Only directions with at least {MIN_SPOTS_FOR_BEST} spots are considered for strongest." if enough.notna().any() else "")
     )
     return fig, summary
 
