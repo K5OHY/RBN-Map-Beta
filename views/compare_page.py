@@ -37,22 +37,20 @@ def _how_to_test():
     left, right = st.columns(2)
     left.markdown(
         "#### With WSPR, the best way\n"
-        "1. Connect your WSPR transmitter to an A/B coax switch, antenna A on one side and B on the other.\n"
-        "2. Keep the band, power and settings the same, and **always start with A**. Switch after every transmission, or "
-        "after a set time, for example every 10 to 30 minutes, and write down the times.\n"
-        "   - **A, B, B, A** (then repeat) is usually best. Each antenna gets the same mix of earlier and later slots, so a "
-        "steady change in the band cancels out. **A, B, A, B** is simpler, but B always goes second.\n"
-        "   - **How long?** A test can be as short as 4 transmissions (about 8 minutes) or run for hours. More data is "
-        "better: it narrows the uncertainty, and a long test also shows how changing band conditions affect the result.\n"
-        "3. Wait about five minutes after the last transmission. Enter your callsign and the date in the sidebar, choose the "
-        "band, and click **Load spots**.\n"
-        "4. Tell the page how you switched. It works out which antenna got out better, by how much, and in which directions.")
+        "1. Connect your WSPR transmitter to an A/B coax switch, antenna A on one side and B on the other. Keep the band, power and settings the same.\n"
+        "2. Decide how long each antenna stays on before you switch: **one transmission** (2 minutes), or a **set time**, for example 10 to 30 minutes. Write down the times.\n"
+        "3. Switch in this order, **always starting with A**:\n"
+        "   - **A, B, B, A, A, B, B, A …** is usually best. Each antenna gets the same mix of earlier and later turns, so a steady change in the band cancels out. Each antenna stays on for two turns in a row, so use shorter turns (for example 15 minutes instead of 30).\n"
+        "   - **A, B, A, B …** is simpler, but B always goes second.\n"
+        "4. **How long?** A test can be as short as 4 transmissions (about 8 minutes) or run for hours. More data is better: it narrows the uncertainty, and a long test also shows how changing band conditions affect the result.\n"
+        "5. Wait about five minutes after the last transmission. Enter your callsign and the date in the sidebar, choose the band, and click **Load spots**.\n"
+        "6. Tell the page how you switched. It works out which antenna got out better, by how much, and in which directions.")
     right.markdown(
         "#### With RBN, for a quick CW check\n"
         "1. Call CQ on one frequency with antenna A, then on a nearby frequency with antenna B, a minute or two apart, "
         "at the same speed and power.\n"
-        "2. Pick **Download by date** (for yesterday or earlier) or copy the spots from reversebeacon.net and pick "
-        "**Paste from RBN site**.\n"
+        "2. Pick **Download a day** (for yesterday or earlier) or copy the spots from reversebeacon.net and pick "
+        "**Paste spots**.\n"
         "3. Load the spots and confirm which frequency was A and which was B.\n\n"
         "RBN is a rough check: skimmers report a CQ a minute or more after it was sent, so the two antennas can only be told "
         "apart by frequency. WSPR is better for a careful test.")
