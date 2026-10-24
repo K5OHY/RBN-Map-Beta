@@ -138,6 +138,14 @@ def _without_ghost_cycles(spots):
     return spots[~spots["time"].isin(ghosts)]
 
 
+def _labels_by_call(spots, stamps, call_a, call_b):
+    """The antenna for each transmission when each antenna had its own callsign: A for the first callsign, B for the second,
+    and empty for a time slot where both were heard (it cannot be told apart, so it is left out unless the user sets it)."""
+    heard = spots.groupby("time")["dx"].agg(lambda calls: set(str(c).upper() for c in calls))
+    labels = {call_a: "A", call_b: "B"}
+    return [labels[next(iter(heard[t]))] if len(heard[t]) == 1 and next(iter(heard[t])) in labels else None for t in stamps]
+
+
 def _separate_by_log(spots):
     """WSPR antenna test: each transmission is logged with the antenna that was connected. Either the antenna changed
     after every transmission (the user says how many there were and where the test started, and the app lists them with a
@@ -152,11 +160,19 @@ def _separate_by_log(spots):
         st.warning(f"These spots cover {spots['band'].nunique()} bands. Test one band at a time: pick it under "
                    "**Filters \u2192 Band** in the sidebar.")
     st.markdown("**Your test**")
-    mode = st.radio("How did you switch antennas?", ["After every transmission", "In long blocks"], horizontal=True,
-                    key="test_mode",
-                    help="After every transmission: A, then B, then A \u2026 (or A, B, B, A), the quick test. "
-                         "In long blocks: one antenna for 30 minutes or an hour, then the other, repeated over several hours, "
-                         "which suits a long, time-averaged test.")
+    call_a, call_b = st.session_state.get("tx_call"), st.session_state.get("tx_call_b")
+    by_call = bool(call_a and call_b)  # each antenna sent under its own callsign: the callsign says which antenna it was
+    if by_call:
+        st.session_state["test_mode"] = "After every transmission"
+        st.caption(f"🔵 A is {call_a} and 🟠 B is {call_b}: each transmission is labelled by the callsign it was "
+                   "sent under. Neighbouring transmissions on the two callsigns are compared as a pair.")
+        mode = "After every transmission"
+    else:
+        mode = st.radio("How did you switch antennas?", ["After every transmission", "In long blocks"], horizontal=True,
+                        key="test_mode",
+                        help="After every transmission: A, then B, then A \u2026 (or A, B, B, A), the quick test. "
+                             "In long blocks: one antenna for 30 minutes or an hour, then the other, repeated over several hours, "
+                             "which suits a long, time-averaged test.")
     if mode == "In long blocks":
         return _blocks_test(spots, all_stamps)
     top = st.columns([4, 2, 3])
@@ -185,11 +201,14 @@ def _separate_by_log(spots):
         help="Leave on Latest for a test you have just run. To use an earlier test, pick the time of its first "
              "transmission.")
     patterns = {"A, B, A, B \u2026": "ABAB", "A, B, B, A \u2026": "ABBA"}  # every test starts on A
-    order = top[2].radio("Order", list(patterns), key="test_order",
-                         help="The order the antennas were connected, starting with A. A, B, B, A balances which "
-                              "antenna goes first in each pair. If a test really started on B, change the Antenna "
-                              "cells below.")
-    pattern = patterns[order]
+    if by_call:
+        pattern = "CALLS"
+    else:
+        order = top[2].radio("Order", list(patterns), key="test_order",
+                             help="The order the antennas were connected, starting with A. A, B, B, A balances which "
+                                  "antenna goes first in each pair. If a test really started on B, change the Antenna "
+                                  "cells below.")
+        pattern = patterns[order]
     if start_choice == LATEST:
         first = len(all_stamps) - n_cycles
     else:
@@ -223,7 +242,8 @@ def _separate_by_log(spots):
     gaps = [0.0] + [(b - a).total_seconds() / 60 for a, b in zip(stamps, stamps[1:])]
     table = pd.DataFrame({"UTC time": [fmt(t) for t in stamps],
                           "Receivers that heard it": [int(heard[t]) for t in stamps],
-                          "Antenna": default_labels(stamps, pattern),
+                          "Antenna": (_labels_by_call(spots, stamps, call_a, call_b) if by_call
+                                      else default_labels(stamps, pattern)),
                           "Status": [("\u23f3 may be incomplete" if late else
                                       (f"\u26a0 {gap:.0f} min after the row above" if gap > 2.5 else ""))
                                      for late, gap in zip(arriving, gaps)]})

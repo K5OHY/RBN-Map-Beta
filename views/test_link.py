@@ -2,6 +2,8 @@
 choices, so a link opens the same comparison for someone else (the callsign, date and band travel in the basic link)."""
 import re
 
+from ui_common import WSPR_SOURCE
+
 BLOCKS = "In long blocks"
 ORDERS = {"abab": "A, B, A, B …", "abba": "A, B, B, A …"}
 _TIME = re.compile(r"^(\d{1,2} [A-Za-z]{3} )?\d{2}:\d{2}$")
@@ -22,7 +24,7 @@ def read(ss, q):
     if ss.get("_test_link_read"):
         return
     ss["_test_link_read"] = True
-    if any(q.get(p) for p in ("na", "nb", "sw", "n", "ts", "ord", "bl", "bn", "bs", "bp", "ed")):
+    if any(q.get(p) for p in ("cb", "na", "nb", "sw", "n", "ts", "ord", "bl", "bn", "bs", "bp", "ed")):
         ss["_setup_given"] = True  # the link carries the test's setup, so there is nothing to confirm
     for param, key in (("na", "cmp_name_a"), ("nb", "cmp_name_b")):
         if q.get(param):
@@ -93,6 +95,8 @@ def params(ss, units):
     for param, key in (("na", "cmp_name_a"), ("nb", "cmp_name_b")):
         if (ss.get(key) or "").strip():
             out[param] = ss[key].strip()[:60]
+    if (ss.get("callsign_b_in") or "").strip() and ss.get("src_in") == WSPR_SOURCE:
+        out["cb"] = ss["callsign_b_in"].strip()[:12]
     blocks = ss.get("test_mode") == BLOCKS
     reverse = {text: code for code, text in ORDERS.items()}
     if blocks:

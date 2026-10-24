@@ -25,9 +25,9 @@ from wspr_data import BAND_CODES, HEADERS, MAX_ROWS, WSPR_URL, WsprError, clean_
 # is what puts you on the spotting sites that POTA hunters watch) was removed from the list; it came out at -3 dB, 2 dB above CW.
 # Skimmers report a station from about 3 dB on RBN's own scale, and RBN's scale reads above the
 # WSPR-based figure by an amount that depends on the station. First set from two stations on 16 Oct 2026 (K5OHY +12.5 dB with an
-# OCF dipole at 75 W; WB0RLJ +7 dB with a vertical at 100 W). Re-set on 20 Oct 2026 from a week (13 to 19 Oct) of four stations'
-# RBN spots against the local WSPR stations, with 100 W assumed: WB0RLJ +9.0 dB (749 matches), AE0YM +7.0 (106, 20m only),
-# K4NYM +5.0 (255), WC1D +2.5 (326), each with a spread of about 7 to 9 dB, so about +6 dB. 3 - 6 = -3 dB here.
+# OCF dipole at 75 W; another station +7 dB with a vertical at 100 W). Re-set on 20 Oct 2026 from a week (13 to 19 Oct) of four stations'
+# RBN spots against the local WSPR stations, with 100 W assumed: +9.0 dB (749 matches), +7.0 (106, 20m only),
+# +5.0 (255), +2.5 (326), each with a spread of about 7 to 9 dB, so about +6 dB. 3 - 6 = -3 dB here.
 MODES = {"CW": -5.0, "SSB": 8.0, "FT8": -21.0, "WSPR": -28.0}
 CODE_TO_BAND = {code: band for band, code in BAND_CODES.items()}
 EARTH_KM = 6371.0

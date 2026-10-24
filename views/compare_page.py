@@ -65,7 +65,7 @@ def compare_page():
     ss, cfg, pick = inputs.begin(default_source=WSPR_SOURCE)
     test_link.read(ss, st.query_params)
     with st.sidebar:
-        where = inputs.where_inputs(ss, cfg)
+        where = inputs.where_inputs(ss, cfg, second_call=True)
         load = st.button("Load spots", type="primary", width="stretch")
         st.button("Try an example", width="stretch", on_click=inputs.start_example, args=("quick",),
                   help="Loads a real WSPR antenna test, a 40m loop against a 20m dipole, so you can see what the results look like.")
@@ -124,7 +124,7 @@ def _result(ss, skimmers, where, view):
     if wspr and ss.loaded_at is not None:
         st.caption(f"\U0001F552 Loaded at {ss.loaded_at:%H:%M} UTC. The newest transmission in it is at "
                    f"{ss.raw['time'].max():%H:%M} UTC. Sent something since? Click **Load spots** again.")
-    st.caption(f"\U0001F4CD {ss.callsign} · {label}")
+    st.caption(f"\U0001F4CD {ss.callsign}" + (f" (A) and {ss.tx_call_b} (B)" if ss.get("tx_call_b") else "") + f" · {label}")
     if not wspr:
         st.caption("RBN tells A and B apart by frequency: call CQ on one frequency with the first antenna, then on a nearby "
                    "frequency with the other, back to back (a minute or two apart).")

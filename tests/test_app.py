@@ -173,6 +173,17 @@ class ComparePage(unittest.TestCase):
         self.assertTrue(any("call=K5OHY" in c.value for c in at.sidebar.code))
 
     @needs_network
+    def test_two_callsigns_compare_as_a_and_b_and_travel_in_the_link(self):
+        at = page("compare_page", call="M0MCX", cb="M0XXT", src="wspr", date="2026-01-14", band="20m", go="1", n="6",
+                  ts="13:38").run()
+        self.assertEqual(errors(at), [])
+        self.assertEqual(at.session_state["tx_call_b"], "M0XXT")
+        text = " ".join(m.value for m in at.markdown)
+        self.assertIn("Signal advantage", text)
+        link = [c.value for c in at.sidebar.code if "call=M0MCX" in c.value][0]
+        self.assertIn("cb=M0XXT", link)
+
+    @needs_network
     def test_hand_corrected_antenna_cells_travel_in_the_link(self):
         at = page("compare_page", call="K5OHY", src="wspr", date="2026-10-04", band="20m", go="1", n="12", ord="abba",
                   ed="3B,5X").run()

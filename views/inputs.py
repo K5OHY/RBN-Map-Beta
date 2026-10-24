@@ -20,8 +20,8 @@ from ui_common import (
 )
 from wspr_data import clean_callsign, receiver_locations
 
-DATA_KEYS = ("raw", "home", "callsign", "file_date", "kind", "locs", "tx_call", "notice", "loaded_at")
-SHARED_WIDGET_KEYS = ("callsign_in", "grid_in", "src_in", "net_in", "how_in", "span_in", "day_in", "range_in", "from_in", "to_in", "units_in", "band_choice")
+DATA_KEYS = ("raw", "home", "callsign", "file_date", "kind", "locs", "tx_call", "tx_call_b", "notice", "loaded_at")
+SHARED_WIDGET_KEYS = ("callsign_in", "callsign_b_in", "grid_in", "src_in", "net_in", "how_in", "span_in", "day_in", "range_in", "from_in", "to_in", "units_in", "band_choice")
 
 
 def _parse_day(text):
@@ -53,6 +53,8 @@ def _fill_from_link(ss):
         ss["span_in"], ss["from_in"], ss["to_in"] = "Date range", _parse_day(first), _parse_day(last)
     elif _parse_day(first):
         ss["span_in"], ss["day_in"] = "Single day", _parse_day(first)
+    if q.get("cb"):
+        ss["callsign_b_in"] = q["cb"].strip().upper()[:12]
     if q.get("band") in ["All"] + list(BAND_COLORS):
         ss["band_choice"] = q["band"]
     if q.get("go") == "1" and ss.get("callsign_in"):
@@ -116,7 +118,7 @@ def start_example(which):
 
 
 _SETUP_KEYS = ("cmp_name_a", "cmp_name_b", "test_mode", "test_cycles", "test_start", "test_order", "avg_floor", "avg_weak",
-               "setup_ok", "_setup_given", "_blk_pending", "_log_pending", "_log_base", "_example", "_autoload")
+               "setup_ok", "callsign_b_in", "_setup_given", "_blk_pending", "_log_pending", "_log_base", "_example", "_autoload")
 _SETUP_PREFIXES = ("blk_", "antenna_log_", "avg_near_", "rx_min_reports_")
 
 
@@ -225,7 +227,7 @@ def _source_choice(ss):
     return source
 
 
-def where_inputs(ss, cfg):
+def where_inputs(ss, cfg, second_call=False):
     """The sidebar's 'Your signal' controls: callsign, grid, where the spots come from and for which dates. Call it inside
     `with st.sidebar:`. Returns what was chosen; the Load button is the page's to draw."""
     st.header("Your signal")
@@ -239,6 +241,7 @@ def where_inputs(ss, cfg):
 
     source = _source_choice(ss)
     wspr_start, wspr_end = None, None
+    callsign_b = ""
     pasted, days, span = "", [], cfg.get("span")
     if source in ("Download by date", WSPR_SOURCE):
         # RBN publishes a day's file once the UTC day is over; WSPR spots are there up to a few minutes ago
@@ -270,6 +273,12 @@ def where_inputs(ss, cfg):
         if source == WSPR_SOURCE:
             st.caption("Uses your callsign above as the WSPR transmitter. Reports take about 5 minutes to arrive "
                        "in full, so for a test you have just run, wait a few minutes before loading.")
+            if second_call:
+                callsign_b = st.text_input(
+                    "Second callsign (optional)", key="callsign_b_in", placeholder="Only if B sent under its own call",
+                    help="For a test where each antenna transmitted under its own callsign: the callsign above is antenna A and "
+                         "this one is antenna B. Leave it empty if one callsign was switched between the antennas.",
+                    on_change=lambda: ss.update(callsign_b_in=ss.callsign_b_in.strip().upper())).strip().upper()
             if days:
                 wspr_start = datetime.combine(days[0], time(0, 0))
                 wspr_end = min(datetime.combine(days[-1], time(23, 59, 59)),
@@ -278,7 +287,7 @@ def where_inputs(ss, cfg):
         pasted = st.text_area("Paste spot rows here", height=150)
     # What the screen shows follows the data that is loaded, not the radio button, until you load again.
     kind = ss.kind if ss.raw is not None else ("WSPR" if source == WSPR_SOURCE else "RBN")
-    return SimpleNamespace(callsign=callsign, grid=grid_override, source=source, span=span, days=days, pasted=pasted,
+    return SimpleNamespace(callsign=callsign, callsign_b=callsign_b, grid=grid_override, source=source, span=span, days=days, pasted=pasted,
                            wspr_start=wspr_start, wspr_end=wspr_end, kind=kind, load=False)
 
 
@@ -354,7 +363,7 @@ def load_spots(ss, skimmers, where):
         if len(where.days) > MAX_DAYS:
             raise RuntimeError(f"Please pick {MAX_DAYS} days or fewer.")
         ss.home = resolve_home(where.callsign, where.grid, skimmers)
-        locs, tx_call = None, None
+        locs, tx_call, tx_call_b = None, None, None
         ss.notice = None
         notice = None
         days = where.days
@@ -362,8 +371,15 @@ def load_spots(ss, skimmers, where):
             if not days:
                 raise RuntimeError("The 'To' date must be on or after the 'From' date.")
             tx_call = clean_callsign(where.callsign)
+            tx_call_b = clean_callsign(where.callsign_b) if where.callsign_b else None
+            if tx_call_b == tx_call:
+                raise RuntimeError("The second callsign is the same as the first. Leave it empty to compare one callsign's transmissions.")
             with st.spinner(f"Looking up {tx_call}'s WSPR spots…"):
                 df, truncated = load_wspr(tx_call, where.wspr_start, where.wspr_end)
+            if tx_call_b:
+                with st.spinner(f"Looking up {tx_call_b}'s WSPR spots…"):
+                    df_b, truncated_b = load_wspr(tx_call_b, where.wspr_start, where.wspr_end)
+                df, truncated = pd.concat([df, df_b], ignore_index=True), truncated or truncated_b
             if truncated:
                 notice = "That much hit the spot limit, so the oldest spots are missing. Pick fewer days."
             locs = receiver_locations(df) if not df.empty else {}
@@ -393,7 +409,7 @@ def load_spots(ss, skimmers, where):
             df = pd.concat(frames, ignore_index=True)
             ss.file_date = f"{days[0]:%Y%m%d}" + (f"-{days[-1]:%Y%m%d}" if len(days) > 1 else "")
         ss.raw, ss.callsign = df, where.callsign
-        ss.kind, ss.locs, ss.tx_call = ("WSPR" if where.source == WSPR_SOURCE else "RBN"), locs, tx_call
+        ss.kind, ss.locs, ss.tx_call, ss.tx_call_b = ("WSPR" if where.source == WSPR_SOURCE else "RBN"), locs, tx_call, tx_call_b
         ss.notice = notice
         ss.loaded_at = datetime.now(timezone.utc)
         # An example, or a link that carries the test's setup, needs no checking. Your own spots do: the page has guessed.
