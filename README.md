@@ -74,7 +74,7 @@ Your location comes from the grid you typed, else the RBN skimmer list, else the
 
 Open **Compare antennas** in the menu. It shows three steps: load your spots, say how you switched, and read the result. What you load on **My spots** is already there, and the other way round. Name your antennas under *Name your antennas* if you like.
 
-**How long a test?** An hour or so is enough for a first look at how two antennas compare. A longer test, several hours in 30 minute blocks, is worth doing when you want to see how changing band conditions affect the result. You do not need a long test to get started.
+**How long a test?** As short as 4 transmissions (about 8 minutes) or as long as you like. More data is better: it narrows the uncertainty, and a long test also shows how changing band conditions affect the result. You can switch antennas after every transmission or after a set time, for example every 10 to 30 minutes. The page tells you how small a difference your number of transmissions can reliably show.
 
 ### With WSPR (the best way to test antennas)
 
@@ -222,7 +222,7 @@ It is a guide good to a few dB, not a promise: it only counts receivers that hea
 
 ## Checked against a published study
 
-Dale Ostergaard, N3HXZ, published a long WSPR test of two vertical antennas, "Comparing Performance between an Elevated and a Ground mounted Vertical Antenna" (31 August 2026): a Performer (tuned elevated quarter-wave vertical, two raised radials) against an untuned 17 ft whip on a 5:1 matching unit, ground-mounted with two radials, on 20m at 1 W, switched in 30 minute blocks from 12:00 to 21:30 UTC on 26 August 2026, using the stations with 40 or more spots on each antenna. His table gives each station's relative gain. Loading his transmitter and date, with that schedule, gives the same answers in this program:
+Dale, N3HXZ, published a long WSPR test of two vertical antennas, "Comparing Performance between an Elevated and a Ground mounted Vertical Antenna" (31 August 2026): a Performer (tuned elevated quarter-wave vertical, two raised radials) against an untuned 17 ft whip on a 5:1 matching unit, ground-mounted with two radials, on 20m at 1 W, switched in 30 minute blocks from 12:00 to 21:30 UTC on 26 August 2026, using the stations with 40 or more spots on each antenna. His table gives each station's relative gain. Loading his transmitter and date, with that schedule, gives the same answers in this program:
 
 - On the 27 stations in his table, the program's relative gain differs from his by 0.00 dB on average, and by no more than 0.12 dB at any one station.
 - The average over 500 to 1,500 miles is 3.87 dB here against 3.86 dB in his table.

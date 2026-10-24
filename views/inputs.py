@@ -92,7 +92,7 @@ def _load_saved(which):
 def start_example(which):
     """The example buttons, each set up and loaded so the result shows straight away. 'map' is K5OHY's Reverse Beacon Network
     spots of 23 Oct 2025 on the My spots page. On the Compare page, 'rbn' is a quick CW check by frequency (27 Sep 2026, loop on 14069.5 against dipole on 14070.5), 'quick' is the same day's test of 12 transmissions alternating a 40m loop and a
-    20m dipole, and 'long' is Dale Ostergaard N3HXZ's test of 26 Aug 2026: a Performer (tuned elevated quarter-wave) against an untuned 17 ft whip on a 5:1 unun at ground level,
+    20m dipole, and 'long' is Dale N3HXZ's test of 26 Aug 2026: a Performer (tuned elevated quarter-wave) against an untuned 17 ft whip on a 5:1 unun at ground level,
     alternating 30 minute blocks from 12:00 to 21:30 UTC, judged on stations with 40 or more reports per antenna as in his
     write-up."""
     ss = st.session_state
@@ -141,7 +141,7 @@ def example_banner(ss):
     """A note above the results explaining a loaded example, or nothing."""
     which = ss.get("_example")
     if which == "long":
-        st.info("This is an example: a real long WSPR test by Dale Ostergaard, N3HXZ, on 26 August 2026, at 1 W on 20m. A "
+        st.info("This is an example: a real long WSPR test by Dale, N3HXZ, on 26 August 2026, at 1 W on 20m. A "
                 "Performer, a tuned elevated quarter-wave with two raised radials (B), and an untuned 17 ft whip on a 5:1 matching unit, ground-mounted "
                 "with two radials (A), took "
                 "turns in 30 minute blocks from 12:00 to 21:30 UTC. As in his write-up, only stations with 40 or more reports on "

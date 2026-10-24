@@ -38,14 +38,12 @@ def _how_to_test():
     left.markdown(
         "#### With WSPR, the best way\n"
         "1. Connect your WSPR transmitter to an A/B coax switch, antenna A on one side and B on the other.\n"
-        "2. Keep the band, power and settings the same, and **always start with A**. Switch after every transmission for a "
-        "quick test, or every 30 minutes for a long one, and write down the times.\n"
-        "   - **A, B, A, B** is the simplest. But A always goes first in each pair, so if the band is steadily getting better "
-        "or worse, B gets the later slot every time, and that can tilt the result.\n"
-        "   - **A, B, B, A** (then repeat) is usually better. Each antenna gets the same mix of earlier and later "
-        "slots, so a steady change in the band cancels out. Use a multiple of 4 transmissions so every round is complete.\n"
-        "   - **How long?** An hour or so is enough for a first look. A longer test, several hours in 30 minute blocks, "
-        "shows how changing band conditions affect the result, but you do not need one to get started.\n"
+        "2. Keep the band, power and settings the same, and **always start with A**. Switch after every transmission, or "
+        "after a set time, for example every 10 to 30 minutes, and write down the times.\n"
+        "   - **A, B, B, A** (then repeat) is usually best. Each antenna gets the same mix of earlier and later slots, so a "
+        "steady change in the band cancels out. **A, B, A, B** is simpler, but B always goes second.\n"
+        "   - **How long?** A test can be as short as 4 transmissions (about 8 minutes) or run for hours. More data is "
+        "better: it narrows the uncertainty, and a long test also shows how changing band conditions affect the result.\n"
         "3. Wait about five minutes after the last transmission. Enter your callsign and the date in the sidebar, choose the "
         "band, and click **Load spots**.\n"
         "4. Tell the page how you switched. It works out which antenna got out better, by how much, and in which directions.")
@@ -77,7 +75,7 @@ def compare_page():
                   help="Loads a quick CW check on the Reverse Beacon Network: a 40m loop on 14069.5 kHz against a 20m dipole "
                        "on 14070.5 kHz, told apart by frequency.")
         st.button("Try a long-test example", width="stretch", on_click=inputs.start_example, args=("long",),
-                  help="Loads Dale Ostergaard's long WSPR test of 26 August 2026: a Performer (tuned elevated quarter-wave) against a 17 ft whip on a 5:1 unun, "
+                  help="Loads Dale's long WSPR test of 26 August 2026: a Performer (tuned elevated quarter-wave) against a 17 ft whip on a 5:1 unun, "
                        "switched every 30 minutes for nine and a half hours.")
         st.button("Start over", type="tertiary", on_click=inputs.start_over,
                   help="Clears the loaded spots, the dates and the test setup. Your callsign and grid stay.")
@@ -103,7 +101,7 @@ def _result(ss, skimmers, where, view):
         rbn.button("Try the RBN example", key="hero_rbn", width="stretch", on_click=inputs.start_example, args=("rbn",),
                    help="A quick CW check on the Reverse Beacon Network: the same loop and dipole, on two frequencies.")
         long_.button("Try the long-test example", key="hero_long", width="stretch", on_click=inputs.start_example, args=("long",),
-                     help="Dale Ostergaard's long WSPR test: a Performer (tuned elevated quarter-wave) against a 17 ft whip on a 5:1 unun, switched every 30 minutes.")
+                     help="Dale's long WSPR test: a Performer (tuned elevated quarter-wave) against a 17 ft whip on a 5:1 unun, switched every 30 minutes.")
         _how_to_test()
         return
     if inputs.nothing_found_message(ss):

@@ -230,7 +230,7 @@ class ComparePage(unittest.TestCase):
         self.assertEqual(at.session_state["callsign_in"], "N3HXZ")
         self.assertEqual(at.session_state["test_mode"], "In long blocks")
         self.assertEqual(at.session_state["rx_min_reports_blk"], 40)
-        self.assertIn("Dale Ostergaard", " ".join(i.value for i in at.info))
+        self.assertIn("Dale, N3HXZ", " ".join(i.value for i in at.info))
         self.assertTrue(any("receivers with at least 40 reports" in c.value for c in at.caption))
         self.assertTrue(any("getting out better" in m.value for m in at.markdown))
 

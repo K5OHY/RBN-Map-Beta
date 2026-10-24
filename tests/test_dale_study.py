@@ -1,7 +1,7 @@
-"""The program against a published study. Dale Ostergaard, N3HXZ, compared a POTA Performer elevated vertical with a Chameleon
-MPAS Lite ground-mounted system (with its matching unit) on 26 August 2026: WSPR on 20m at 1 W, alternating 30 minute blocks from 12:00 to 21:30 UTC with the
-Chameleon (the reference, A) first, using the stations that recorded 40 or more spots per antenna. His table gives each
-station's relative gain, the Performer minus the Chameleon in dB, from linear-power averaging.
+"""The program against a published study. Dale, N3HXZ, compared a tuned elevated vertical with a ground-mounted 17 ft whip on a
+5:1 matching unit on 26 August 2026: WSPR on 20m at 1 W, alternating 30 minute blocks from 12:00 to 21:30 UTC with the
+ground-mounted whip (the reference, A) first, using the stations that recorded 40 or more spots per antenna. His table gives each
+station's relative gain, the elevated vertical minus the ground-mounted one in dB, from linear-power averaging.
 
 These checks download that day's spots from wspr.live, so they only run when you ask for them:
 
