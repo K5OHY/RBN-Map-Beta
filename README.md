@@ -236,6 +236,8 @@ Click **Try a long-test example** in the app to see it. The automated check in `
 
 You need [Python 3.9+](https://www.python.org/downloads/). These steps install the stable version; the beta is at [github.com/K5OHY/RBN-Map-Beta](https://github.com/K5OHY/RBN-Map-Beta).
 
+When you run it yourself, days that have already ended are remembered in a folder (in your computer's temporary folder, or the folder named by the `RBN_CACHE_DIR` setting), up to about 400 MB, so loading the same day again does not download it again. Anything from the last hour is always fetched fresh.
+
 **Windows (PowerShell).** Set it up once:
 
 ```bash
@@ -294,6 +296,7 @@ The **Help and README** page in the app shows this README, so the instructions a
 | `views/` | One file per page: `spots_view.py` (My spots), `compare_view.py` (comparing antennas), `conditions_view.py` (Band conditions), `compare_page.py`, `inputs.py` (the sidebar choices and loading both spots pages share), `test_link.py` (a whole test in a link), `help_view.py` (Help and README) |
 | `ui_common.py` | Settings, colours, constants and small helpers shared by the pages |
 | `data_sources.py` | Getting spots: the RBN download and pasted rows, WSPR from wspr.live, the skimmer list |
+| `disk_cache.py` | Remembers days that are over (the RBN file, WSPR spots and who was listening), so each is fetched once and wspr.live's limit of 20 requests a minute is not used up on repeats |
 | `maps.py` | The interactive map of who heard you |
 | `charts.py` | The charts and tables for comparisons and the session report |
 | `pdfs.py` | Builds the PDF reports from those charts and tables |

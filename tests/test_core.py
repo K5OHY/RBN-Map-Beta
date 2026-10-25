@@ -3,10 +3,14 @@
     python -m unittest discover -s tests -v
 """
 import math
+import io
 import os
 import sys
+import tempfile
 import unittest
-from datetime import datetime
+import zipfile
+from datetime import datetime, timedelta, timezone
+from unittest import mock
 
 import numpy as np
 import pandas as pd
@@ -14,6 +18,8 @@ import pandas as pd
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import compare_stats as cs  # noqa: E402
+import data_sources as ds  # noqa: E402
+import disk_cache  # noqa: E402
 import conditions as cond  # noqa: E402
 import dashboard as dash  # noqa: E402
 import example_data  # noqa: E402
@@ -230,6 +236,85 @@ class ReportTitle(unittest.TestCase):
     def test_a_long_name_is_shortened(self):
         lines = pdfs.comparison_headline({"A": "x" * 80, "B": "B"}, "")
         self.assertLessEqual(len(lines[0][0][0]), 45)
+
+
+class DownloadsAreRemembered(unittest.TestCase):
+    """A day that is over is fetched once. These use a throwaway cache folder and made-up answers, so they need no internet."""
+
+    def setUp(self):
+        self.folder = tempfile.TemporaryDirectory()
+        patch = mock.patch.dict(os.environ, {"RBN_CACHE_DIR": self.folder.name})
+        patch.start()
+        self.addCleanup(patch.stop)
+        self.addCleanup(self.folder.cleanup)
+
+    def frame(self, hours_ago):
+        stamp = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(hours=hours_ago)
+        return pd.DataFrame({"time": [pd.Timestamp(stamp)], "spotter": ["W1AW"], "snr": [-12]})
+
+    def test_a_frame_comes_back_as_it_went_in(self):
+        original = self.frame(5)
+        disk_cache.put_frame("t", "key", original, {"truncated": True})
+        frame, meta = disk_cache.get_frame("t", "key")
+        pd.testing.assert_frame_equal(frame, original, check_dtype=False)
+        self.assertTrue(meta["truncated"])
+        self.assertIsNone(disk_cache.get_frame("t", "another key"))
+
+    def test_the_folder_is_trimmed_oldest_first(self):
+        with mock.patch.object(disk_cache, "MAX_BYTES", 3000):
+            for n in range(6):
+                disk_cache.put_bytes("b", f"k{n}", bytes(1000))
+            kept = [n for n in range(6) if disk_cache.get_bytes("b", f"k{n}") is not None]
+        self.assertLessEqual(len(kept), 3)
+        self.assertIn(5, kept)
+
+    def test_a_finished_wspr_period_is_fetched_once(self):
+        start = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(hours=30)
+        end = start + timedelta(hours=1)
+        with mock.patch.object(ds, "fetch_wspr_spots", return_value=(self.frame(30), False)) as fetch:
+            first = ds.load_wspr("K5OHY", start, end)
+            second = ds.load_wspr("k5ohy", start, end)
+        self.assertEqual(fetch.call_count, 1)
+        self.assertEqual(len(first[0]), len(second[0]))
+        self.assertFalse(second[1])
+
+    def test_a_period_in_the_last_hour_is_always_fetched_fresh(self):
+        end = datetime.now(timezone.utc).replace(tzinfo=None)
+        start = end - timedelta(hours=3)
+        with mock.patch.object(ds, "fetch_wspr_spots", return_value=(self.frame(0), False)) as fetch:
+            ds.load_wspr("K5OHY", start, end)
+            ds.load_wspr("K5OHY", start, end)
+        self.assertEqual(fetch.call_count, 2)
+
+    def test_a_cut_off_answer_is_remembered_as_cut_off(self):
+        start = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(hours=40)
+        with mock.patch.object(ds, "fetch_wspr_spots", return_value=(self.frame(40), True)) as fetch:
+            ds.load_wspr("K5OHY", start, start + timedelta(hours=2))
+            again = ds.load_wspr("K5OHY", start, start + timedelta(hours=2))
+        self.assertEqual(fetch.call_count, 1)
+        self.assertTrue(again[1])
+
+    def test_who_was_listening_is_fetched_once_for_a_finished_period(self):
+        start = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(hours=50)
+        end = start + timedelta(hours=1)
+        ds.load_listening.clear()
+        with mock.patch.object(ds, "fetch_listening", return_value=(self.frame(50), False)) as fetch:
+            ds.load_listening("17m", start, end)
+            ds.load_listening.clear()  # forget the in-memory minute, so only the saved copy can answer
+            ds.load_listening("17m", start, end)
+        self.assertEqual(fetch.call_count, 1)
+
+    def test_a_days_rbn_file_is_downloaded_once_for_every_callsign(self):
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w") as z:
+            z.writestr("day.csv", "callsign,dx,db,freq,date\nW1AW,K5OHY,12,14050.0,2026-01-02 10:00:00\n"
+                                  "W1AW,K5ABC,9,7030.0,2026-01-02 11:00:00\n")
+        reply = mock.Mock(status_code=200, content=buf.getvalue())
+        with mock.patch.object(ds.requests, "get", return_value=reply) as get:
+            mine = ds.download_rbn_day("20260102", "K5OHY")
+            theirs = ds.download_rbn_day("20260102", "K5ABC")
+        self.assertEqual(get.call_count, 1)
+        self.assertEqual((len(mine), len(theirs)), (1, 1))
 
 
 if __name__ == "__main__":

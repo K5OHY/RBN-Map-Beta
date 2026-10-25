@@ -8,9 +8,10 @@ import pandas as pd
 import requests
 import streamlit as st
 
+import disk_cache
 import example_data
 from rbn_data import get_band, load_skimmers, lookup_callsign_location, maidenhead_to_latlon, refresh_skimmer_cache
-from wspr_data import fetch_listening, fetch_wspr_spots
+from wspr_data import clean_callsign, fetch_listening, fetch_wspr_spots
 
 
 # ----------------------------------------------------------------- data loading
@@ -18,12 +19,16 @@ from wspr_data import fetch_listening, fetch_wspr_spots
 @st.cache_data(show_spinner=False, ttl=3600)
 def download_rbn_day(date, callsign):
     """Download one day of RBN history and keep only spots of `callsign` (streamed, never written to disk)."""
-    resp = requests.get(f"https://data.reversebeacon.net/rbn_history/{date}.zip", timeout=180)
-    if resp.status_code == 404:
-        raise RuntimeError(f"RBN has no data file for {date} yet. Try an earlier date.")
-    resp.raise_for_status()
+    raw = disk_cache.get_bytes("rbnzip", date)  # a day's file never changes once published, and it serves every callsign
+    if raw is None:
+        resp = requests.get(f"https://data.reversebeacon.net/rbn_history/{date}.zip", timeout=180)
+        if resp.status_code == 404:
+            raise RuntimeError(f"RBN has no data file for {date} yet. Try an earlier date.")
+        resp.raise_for_status()
+        raw = resp.content
+        disk_cache.put_bytes("rbnzip", date, raw)
 
-    with zipfile.ZipFile(BytesIO(resp.content)) as z:
+    with zipfile.ZipFile(BytesIO(raw)) as z:
         name = next((n for n in z.namelist() if n.endswith(".csv")), None)
         if name is None:
             raise RuntimeError("No CSV file found in the RBN ZIP archive")
@@ -98,10 +103,28 @@ def resolve_home(callsign, grid_override, skimmers):
     return lat, lon, f"{grid or f'{lat:.2f}, {lon:.2f}'} via {source}"
 
 
+SETTLED_HOURS = 1  # wspr.live has everything for a period within minutes; an hour on is long past any late reports
+
+
+def _settled(end):
+    """True when a period ended long enough ago that nothing more will arrive for it, so what was fetched can be reused."""
+    return pd.Timestamp(end) <= pd.Timestamp(datetime.now(timezone.utc).replace(tzinfo=None)) - pd.Timedelta(hours=SETTLED_HOURS)
+
+
 def load_wspr(tx_call, start, end):
-    """WSPR spots from wspr.live. Not cached: it only runs when you click Load spots, and then you want what is there
-    now, including a test you have only just sent."""
-    return fetch_wspr_spots(tx_call, start, end)
+    """WSPR spots from wspr.live. A period that has ended is remembered, because it will not change and wspr.live allows the whole
+    site only 20 requests a minute. A period that reaches into the last hour is always fetched fresh, so a test you have only just
+    sent is there."""
+    key = f"{clean_callsign(tx_call)}|{pd.Timestamp(start):%Y-%m-%d %H:%M:%S}|{pd.Timestamp(end):%Y-%m-%d %H:%M:%S}"
+    settled = _settled(end)
+    if settled:
+        hit = disk_cache.get_frame("wspr", key)
+        if hit:
+            return hit[0], bool(hit[1].get("truncated"))
+    spots, truncated = fetch_wspr_spots(tx_call, start, end)
+    if settled and len(spots.columns):
+        disk_cache.put_frame("wspr", key, spots, {"truncated": bool(truncated)})
+    return spots, truncated
 
 
 @st.cache_data(show_spinner=False, ttl=60)
@@ -109,4 +132,15 @@ def load_listening(band, start, end):
     """Which receivers were decoding on `band` in each slot. Remembered for a minute because the screen redraws often. The
     saved examples carry their own copy, so they work without asking wspr.live."""
     saved = example_data.listening(band, start, end)
-    return saved if saved is not None else fetch_listening(band, start, end)
+    if saved is not None:
+        return saved
+    key = f"{band}|{pd.Timestamp(start):%Y-%m-%d %H:%M:%S}|{pd.Timestamp(end):%Y-%m-%d %H:%M:%S}"
+    settled = _settled(end)
+    if settled:
+        hit = disk_cache.get_frame("listening", key)
+        if hit:
+            return hit[0], bool(hit[1].get("truncated"))
+    listening, truncated = fetch_listening(band, start, end)
+    if settled and len(listening.columns):
+        disk_cache.put_frame("listening", key, listening, {"truncated": bool(truncated)})
+    return listening, truncated
