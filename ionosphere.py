@@ -94,22 +94,29 @@ def interpret(est):
     muf = est["muf"]
     far = top_band(muf[3000])
     sweet = 0.85 * muf[3000]
-    lines = [f"For a 3,000 km path the MUF is about {muf[3000]:.0f} MHz, so {far} is the highest band under it. The best "
-             f"frequency is usually a little below the MUF, near {sweet:.0f} MHz."]
-    shorter = ", ".join(f"about {muf[d]:.0f} MHz at {_fmt_km(d)} km (up to {top_band(muf[d])})" for d in (2000, 1000, 500)
+    try_band = top_band(sweet)
+    bands_to_try = (f"{try_band} to {far}" if try_band and try_band != far else far)
+    lines = [f"For a 3,000 km path the MUF is about {muf[3000]:.1f} MHz, so {far} is the highest band under it. Working a little "
+             f"below the MUF (a common rule of thumb is about 85%, near {sweet:.1f} MHz) is usually steadier than working right "
+             f"at it, so {bands_to_try} {'are reasonable bands' if try_band and try_band != far else 'is a reasonable band'} to try."]
+    shorter = ", ".join(f"about {muf[d]:.1f} MHz at {_fmt_km(d)} km (up to {top_band(muf[d])})" for d in (2000, 1000, 500)
                         if top_band(muf[d]))
     if shorter:
-        lines.append("Shorter hops cannot use as high a frequency: " + shorter + ".")
+        lines.append("Shorter hops cannot use as high a frequency, and these figures are calculated from the 3,000 km one: "
+                     + shorter + ".")
     nvis = top_band(est["fof2"])
     if nvis:
-        lines.append(f"For local contacts by NVIS (steep skywave) the ceiling is foF2, about {est['fof2']:.1f} MHz, so {nvis} and "
-                     "below should work, and anything higher will skip over a nearby station.")
+        lines.append(f"For local contacts by NVIS (steep skywave) the ceiling is foF2, about {est['fof2']:.1f} MHz. {nvis} and the "
+                     "bands below it are under that ceiling, and anything higher will tend to skip over a nearby station. "
+                     "Being under the ceiling is not a guarantee: absorption and noise can still limit the lowest bands.")
     names = " and ".join(f"{name} ({_fmt_km(d)} km away, {a:.0f} min ago)" for name, d, a in est["sounders"])
     km = est["nearest_km"]
     low = " Near the equator the ionosphere varies more from place to place, so treat it with extra caution."         if abs(est["lat"]) < 25 else ""
     if km <= 2500:
-        lines.append(f"This is an estimate from {names}; at mid-latitudes it is usually good to within about "
-                     f"{'1' if km <= 1000 else '2'} MHz.{low}")
+        lines.append(f"This is an estimate from {names}. It describes the ionosphere over those sounders, not your exact path. "
+                     "In a check of sounders against each other, the middle error was about 1.3 MHz when they were within "
+                     f"2,000 km of each other, and it can be larger.{low}")
     else:
-        lines.append(f"This is an estimate from {names}. The nearest working sounder is far away, so treat it as a rough guide.{low}")
+        lines.append(f"This is an estimate from {names}. The nearest working sounder is far away, so treat it as a rough guide, "
+                     f"not a measurement for your path.{low}")
     return lines

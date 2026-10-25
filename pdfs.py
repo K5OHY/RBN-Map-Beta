@@ -1,4 +1,6 @@
 """The PDF reports, laid out from the charts and tables."""
+import re
+
 import pandas as pd
 
 import session_report as sr
@@ -18,9 +20,19 @@ from charts import (
 )
 from compare_stats import BIN_MIN_SHARED, receiver_table
 from maps import _single_points, compute_stats
-from report_pdf import build_pdf
+from report_pdf import INK, build_pdf
 from ui_common import BAND_COLORS, KM_PER_MILE, _pretty_date
 from world_map import MAX_KM, azimuth_map_figure
+
+
+def comparison_headline(names, bands):
+    """The report's title as coloured pieces, one list per line: 'Loop (A)' in A's colour, then 'vs Dipole (B) on 20 m' with B in
+    its colour, so the colours decode A and B the same way they do in every chart."""
+    short = lambda name: name if len(name) <= 40 else name[:39].rstrip() + "\u2026"  # noqa: E731
+    on = "   on " + re.sub(r"(\d)m\b", r"\1 m", bands) if bands else ""
+    if names["A"] == "A" and names["B"] == "B":
+        return [[("A", COLOR_A), (" vs ", INK), ("B", COLOR_B), (on, INK)]]
+    return [[(f"{short(names['A'])} (A)", COLOR_A)], [("vs ", INK), (f"{short(names['B'])} (B)", COLOR_B), (on, INK)]]
 
 
 def compare_report_pdf(ctx):
@@ -101,7 +113,8 @@ def compare_report_pdf(ctx):
                             "per receiver. If they disagree a lot, find out why before drawing a conclusion.")]
     if ctx["timeline"] is not None:
         blocks += [("heading", "Timeline"), ("figure", timeline_chart(*ctx["timeline"], names), 3.0)]
-    meta = {"title": "Antenna comparison report", "callsign": ctx["callsign"], "subtitle": sub}
+    meta = {"title": "Antenna comparison report", "callsign": ctx["callsign"], "subtitle": sub,
+            "headline": comparison_headline(names, ctx["bands"])}
     return build_pdf(meta, blocks)
 
 

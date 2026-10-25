@@ -233,6 +233,8 @@ class ComparePage(unittest.TestCase):
         text = " ".join(m.value for m in at.markdown) + " " + " ".join(i.value for i in at.info)
         self.assertIn("14069.5 kHz", text)
         self.assertIn("20m dipole, 40 ft", text)
+        self.assertIn("(A)</span> vs", text)  # the result's title, with A and B coloured
+        self.assertIn("on 20 m", text)
 
     def test_the_long_test_example_uses_dales_schedule_and_40_reports(self):
         at = page("compare_page").run()

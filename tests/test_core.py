@@ -19,6 +19,7 @@ import dashboard as dash  # noqa: E402
 import example_data  # noqa: E402
 import ionosphere as iono  # noqa: E402
 import space_weather as sw  # noqa: E402
+import pdfs  # noqa: E402
 import world_map as wm  # noqa: E402
 
 HOME = (31.0, -102.0)
@@ -212,6 +213,23 @@ class SavedExamples(unittest.TestCase):
     def test_nothing_is_returned_for_a_band_or_time_no_example_covers(self):
         self.assertIsNone(example_data.listening("40m", "2026-08-26 12:00", "2026-08-26 13:00"))
         self.assertIsNone(example_data.listening("20m", "2020-01-01 00:00", "2020-01-01 01:00"))
+
+
+class ReportTitle(unittest.TestCase):
+    def test_named_antennas_make_a_two_line_coloured_title(self):
+        lines = pdfs.comparison_headline({"A": "Loop", "B": "Dipole"}, "20m")
+        self.assertEqual(len(lines), 2)
+        self.assertEqual(lines[0], [("Loop (A)", pdfs.COLOR_A)])
+        self.assertEqual(lines[1][1], ("Dipole (B)", pdfs.COLOR_B))
+        self.assertIn("on 20 m", lines[1][2][0])
+
+    def test_unnamed_antennas_make_one_line(self):
+        lines = pdfs.comparison_headline({"A": "A", "B": "B"}, "20m")
+        self.assertEqual([piece[0].strip() for piece in lines[0]], ["A", "vs", "B", "on 20 m"])
+
+    def test_a_long_name_is_shortened(self):
+        lines = pdfs.comparison_headline({"A": "x" * 80, "B": "B"}, "")
+        self.assertLessEqual(len(lines[0][0][0]), 45)
 
 
 if __name__ == "__main__":

@@ -18,6 +18,7 @@ import re
 import textwrap
 from datetime import datetime, timezone
 
+from matplotlib.backends.backend_agg import FigureCanvasAgg
 from matplotlib.backends.backend_pdf import PdfPages
 from matplotlib.figure import Figure
 from matplotlib.patches import Rectangle
@@ -60,6 +61,7 @@ class _Flow:
             self.pdf.savefig(self.fig)
         self.page += 1
         self.fig = Figure(figsize=(PAGE_W, PAGE_H))
+        FigureCanvasAgg(self.fig)  # a canvas that can measure text, so a line can be drawn in coloured pieces
         self.fig.patch.set_facecolor("white")
         self.y = MARGIN
         if self.page == 1:
@@ -102,10 +104,37 @@ class _Flow:
         self.y += 0.12
 
     # -- blocks
+    def _pieces(self, pieces, size, weight="bold"):
+        """One line drawn as coloured pieces, [(text, colour), ...], each starting where the one before ended."""
+        renderer = self.fig.canvas.get_renderer()
+
+        def width(s):  # spaces at either end do not count in a text's extent, so measure it between two letters
+            probe = [self.fig.text(0, 0, text, fontsize=size, fontweight=weight) for text in ("x" + s + "x", "xx")]
+            wide, tight = (p.get_window_extent(renderer).width for p in probe)
+            for p in probe:
+                p.remove()
+            return (wide - tight) / self.fig.dpi
+
+        x = MARGIN
+        for s, color in pieces:
+            s = _EMOJI.sub("", str(s))  # not clean(): it would trim the spaces that separate the pieces
+            core = s.strip()
+            fx, fy = self._inches(x + width(s[:len(s) - len(s.lstrip())]), self.y)
+            self.fig.text(fx, fy, core, fontsize=size, fontweight=weight, color=color, ha="left", va="top")
+            x += width(s)
+
     def _title(self):
         m = self.meta
-        self.text(MARGIN, self.y, m["title"], 21, "bold")
-        self.y += 0.42
+        if m.get("headline"):  # a plain label above, then the headline in colours, one line per entry
+            self.text(MARGIN, self.y, m["title"], 10, "bold", GREY)
+            self.y += 0.3
+            for pieces in m["headline"]:
+                self._pieces(pieces, 15)
+                self.y += 0.3
+            self.y += 0.04
+        else:
+            self.text(MARGIN, self.y, m["title"], 21, "bold")
+            self.y += 0.42
         for line in m.get("subtitle", []):
             self.text(MARGIN, self.y, clean(line), 9.5, color=GREY)
             self.y += 0.2
@@ -266,7 +295,7 @@ class _Flow:
 def build_pdf(meta, blocks):
     """The finished PDF as bytes. `meta` = {"title", "callsign", "subtitle": [lines], "footer"}."""
     meta = dict(meta)
-    meta.setdefault("footer", "Made with RBN Signal Mapper")
+    meta.setdefault("footer", "Made with RBN Signal Mapper by K5OHY")
     meta["footer"] = f"{meta['footer']}  ·  generated {datetime.now(timezone.utc):%Y-%m-%d %H:%M} UTC"
     buf = io.BytesIO()
     with PdfPages(buf, metadata={"Title": clean(meta["title"]), "Author": "RBN Signal Mapper"}) as pdf:

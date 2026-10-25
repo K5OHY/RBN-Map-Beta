@@ -263,8 +263,10 @@ def _space_weather_card(boxed=True):
         st.markdown("\n".join(f"- {line}" for line in lines))
         flux_t, kp_t = sw.when_text(data["times"].get("flux"), "%d %b"), sw.when_text(data["times"].get("kp"), "%H:%M")
         st.caption("From NOAA's Space Weather Prediction Center. Solar flux is the daily noon reading"
-                   + (f" (latest {flux_t})" if flux_t else "") + ", Kp is for the 3-hour period"
-                   + (f" starting {kp_t} UTC" if kp_t else "") + ", and the rest update every few minutes.")
+                   + (f" (latest {flux_t})" if flux_t else "")
+                   + ", the sunspot number and the A index are daily values, Kp is for the 3-hour period"
+                   + (f" starting {kp_t} UTC" if kp_t else "") + ", and the X-ray, wind and Bz readings are near real time. "
+                   "This page reads NOAA again every 15 minutes.")
 
 
 @st.cache_data(ttl=900, show_spinner=False)

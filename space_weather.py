@@ -113,25 +113,28 @@ def _trend_text(week, month):
 
 
 def _flux_sentence(flux):
+    """What the solar flux says about the background: a tendency, not a forecast for any band. Which bands are open is for the
+    MUF and the WSPR picture to say."""
     if flux < 70:
-        return (f"Solar flux is {flux:.0f}, very low: expect 40m and below to carry the load, with 20m mostly by day and the "
-                "upper bands unlikely.")
-    if flux < 90:
-        return (f"Solar flux is {flux:.0f}, low: 20m is the workhorse, and 17m and 15m open only on good days.")
-    if flux < 120:
-        return (f"Solar flux is {flux:.0f}, fair to good: 20m and 17m should be solid, 15m often open, and 12m and 10m only "
-                "now and then.")
-    if flux < 150:
-        return (f"Solar flux is {flux:.0f}, good: 20m through 15m should be strong, with 12m and 10m opening when the sun is up "
-                "on your path.")
-    if flux < 200:
-        return f"Solar flux is {flux:.0f}, very good: 12m and 10m should be open widely, and 6m may open now and then."
-    return f"Solar flux is {flux:.0f}, excellent: expect 10m wide open and a chance of 6m."
+        mood = "very low, so the higher bands are unlikely to open widely and the lower bands tend to carry more of the traffic"
+    elif flux < 90:
+        mood = "low: openings on the higher bands tend to be limited, and the lower bands carry more of the traffic"
+    elif flux < 120:
+        mood = "fair: solar activity is modest, which tends to favour the middle bands over the highest ones"
+    elif flux < 150:
+        mood = "good: the higher bands are more likely to open when the sun is up on your path"
+    elif flux < 200:
+        mood = "very good: the highest bands open more often, and 6m may open now and then"
+    else:
+        mood = "excellent: the highest bands tend to open widely, with a better chance on 6m"
+    return (f"Solar flux is {flux:.0f}, {mood}. Which bands are actually open also depends on the time of day, the season and "
+            "your path, so check the MUF and the WSPR picture below.")
 
 
 def _kp_sentence(kp):
     if kp < 2.5:
-        return f"The geomagnetic field is quiet (Kp {kp:.1f}), so paths over the northern latitudes should hold up."
+        return (f"The geomagnetic field is quiet (Kp {kp:.1f}), which is generally favourable for HF, including paths toward the "
+                "north.")
     if kp < 4:
         return (f"The geomagnetic field is slightly unsettled (Kp {kp:.1f}): northern and polar paths may be a little weaker "
                 "or flutter.")
@@ -153,7 +156,7 @@ def _xray_sentence(xray, xray_max):
     if big_peak:
         return (f"There was {'an' if peak[0] in 'XM' else 'a'} {peak} flare in the last 6 hours, but the X-ray level is back to {cls}, so any radio fade-out "
                 "should have recovered.")
-    return f"The X-ray level is {cls}, so there are no flares to worry about."
+    return f"The X-ray level is {cls}, low: this reading shows no flare-related HF absorption right now."
 
 
 def _wind_sentence(wind, bz, bt):
@@ -186,7 +189,8 @@ def interpret(data):
     if scales:
         lines.append("NOAA currently reports " + ", ".join(scales) + ".")
     if lines:
-        lines.append("These are worldwide numbers, not your path: the WSPR picture below is what is actually working near you.")
+        lines.append("These are worldwide numbers, not your path. The WSPR picture below shows recently reported paths involving "
+                     "stations near you; a band with few reports is not necessarily closed.")
     return lines
 
 

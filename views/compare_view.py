@@ -840,6 +840,18 @@ def _summary_tiles_html(an, names, rounds, noun):
     return f'<div style="display:flex;flex-wrap:wrap;gap:10px;margin:2px 0 10px 0">{cells}</div>'
 
 
+def _headline_html(names, bands):
+    """The title of the result, 'Loop (A) vs Dipole (B) on 20 m', with A and B in their colours."""
+    e = lambda s: s.replace("&", "&amp;").replace("<", "&lt;")  # noqa: E731
+    on = " on " + re.sub(r"(\d)m\b", r"\1 m", bands) if bands else ""
+    if names["A"] == "A" and names["B"] == "B":
+        body = f'<span style="color:{COLOR_A}">A</span> vs <span style="color:{COLOR_B}">B</span>{e(on)}'
+    else:
+        body = (f'<span style="color:{COLOR_A}">{e(names["A"])} (A)</span> vs '
+                f'<span style="color:{COLOR_B}">{e(names["B"])} (B)</span>{e(on)}')
+    return f'<div style="font-size:1.45rem;font-weight:700;line-height:1.35;margin:2px 0 8px 0">{body}</div>'
+
+
 def _setup_line(sep, names, kind):
     """One line saying what the comparison assumed, so a wrong guess is spotted without opening anything."""
     if sep.get("blocks"):
@@ -1027,6 +1039,7 @@ def compare_view(spots, locs, home, label, callsign, file_date, tiles, show_all,
                              + ([f"stations with more than {weak_pct}% of their reports at the floor left out"] if weak_pct else []))
 
     with top:
+        st.markdown(_headline_html(names, ", ".join(sorted(set(map_a["band"]) | set(map_b["band"])))), unsafe_allow_html=True)
         st.markdown(_summary_tiles_html(an, names, rounds, noun), unsafe_allow_html=True)
         st.caption(_setup_line(sep, names, kind))
         st.markdown(verdict_card_html(verdict), unsafe_allow_html=True)
