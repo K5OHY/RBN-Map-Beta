@@ -226,11 +226,11 @@ It is a guide good to a few dB, not a promise: it only counts receivers that hea
 
 Dale, N3HXZ, published a long WSPR test of two vertical antennas, "Comparing Performance between an Elevated and a Ground mounted Vertical Antenna" (31 August 2026): a Performer (tuned elevated quarter-wave vertical, two raised radials) against an untuned 17 ft whip on a 5:1 matching unit, ground-mounted with two radials, on 20m at 1 W, switched in 30 minute blocks from 12:00 to 21:30 UTC on 26 August 2026, using the stations with 40 or more spots on each antenna. His table gives each station's relative gain. Loading his transmitter and date, with that schedule, gives the same answers in this program:
 
-- On the 27 stations in his table, the program's relative gain differs from his by 0.00 dB on average, and by no more than 0.12 dB at any one station.
-- The average over 500 to 1,500 miles is 3.87 dB here against 3.86 dB in his table.
-- Over 1,500 to 2,500 miles it is 5.81 dB here against his 6.06 dB, because the program also counts four more stations that met the 40-spot rule (ON5KQ, W0AY, WA3TTS and WA7LNW).
+- On the 27 stations in the first version of his table, the program's relative gain differs from his by 0.00 dB on average, and by no more than 0.12 dB at any one station.
+- The average over 500 to 1,500 miles was 3.87 dB here against 3.86 dB in his table.
+- The program also counted four more stations that met the 40-spot rule (ON5KQ, W0AY, WA3TTS and WA7LNW), which was why the 1,500 to 2,500 mile averages first differed (5.81 dB here against 6.06 dB). Dale traced this to a copy and paste slip in his spreadsheet, where the spot counts for those four stations had been entered as 9. He corrected the spreadsheet and updated his paper, and it now agrees with this program on which stations qualify.
 
-Click **Try a long-test example** in the app to see it. The automated check in `tests/test_dale_study.py` repeats the comparison against his table. His article also works out the expected gain by hand from antenna measurements and compares it with the WSPR result, which is worth reading on his site, [n3hxz.net](https://www.n3hxz.net/).
+Click **Try a long-test example** in the app to see it. The automated check in `tests/test_dale_study.py` repeats the comparison against the 27 stations of the first version of his table. His article also works out the expected gain by hand from antenna measurements and compares it with the WSPR result, which is worth reading on his site, [n3hxz.net](https://www.n3hxz.net/).
 
 ## Run it locally
 

@@ -17,7 +17,8 @@ def main():
              st.Page(help_page, title="Help and README", icon="\u2753", url_path="help")]
     st.navigation(pages).run()
     st.sidebar.divider()
-    st.sidebar.caption(f"[README and code on GitHub]({github_url()}#readme) \u00b7 long-test method by [Dale, N3HXZ](https://www.n3hxz.net/)")
+    st.sidebar.caption(f"Built by Tim, K5OHY \u00b7 [README and code on GitHub]({github_url()}#readme) \u00b7 long-test method by "
+                       "[Dale, N3HXZ](https://www.n3hxz.net/)")
 
 
 if __name__ == "__main__":
