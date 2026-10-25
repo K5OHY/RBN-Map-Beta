@@ -68,6 +68,9 @@ _LOCATE = st.components.v2.component(
     css=_LOCATE_CSS, js=_LOCATE_JS)
 
 
+MAP_INCHES = 4.8  # the band conditions map, square; about 480 pixels
+
+
 _STATUS = {"Open": "\U0001F7E2 Open", "Marginal": "\U0001F7E1 Marginal", "Quiet": "\u26AA Quiet"}
 
 
@@ -136,29 +139,33 @@ def _conditions_body(result, power, mode, margin_db, units, k, lat, lon, who, wi
             st.html(dash.grid_html(result["chance"], result["regions_n"], focus))
         if len(good):
             views = _views(units)
-            view_choice = st.selectbox("How much of the world", list(views), index=1, key=f"cond_map_view_{units}",
-                                       label_visibility="collapsed")
-            night = st.checkbox("Day and night line", key="cond_map_night",
-                                help="Shades the night side and draws the line between day and night (the gray line), "
-                                     "which is where the low bands tend to do best.")
             shown = good[good["band"].isin(focus)] if focus else good
-            map_col, panel_col = st.columns([3, 1.3]) if focus else (st.container(), None)
+            # The map is a fixed, modest size with its controls and summaries beside it, so the pills, the map and the controls
+            # fit on one laptop screen instead of the map filling the whole width and running far below the buttons.
+            map_col, side_col = st.columns([1, 1])
+            with side_col:
+                view_choice = st.selectbox("How much of the world", list(views), index=1, key=f"cond_map_view_{units}")
+                night = st.checkbox("Day and night line", key="cond_map_night",
+                                    help="Shades the night side and draws the line between day and night (the gray line), "
+                                         "which is where the low bands tend to do best.")
+                if not focus:
+                    st.caption("Pick a band above to see only that band on the map, with a short summary of it here.")
+                for band in focus[:3]:
+                    st.html(dash.band_panel_html(band, bands.loc[band], result["chance"].loc[band], result["regions_n"].loc[band],
+                                                 result["power_needed"].loc[band], units, k))
             if len(shown):
                 points = pd.DataFrame({"km": shown["km"].to_numpy(), "bearing": shown["bearing"].to_numpy(), "group": "single",
                                        "gap": float("nan"), "snr_a": shown["margin"].to_numpy(), "snr_b": float("nan"),
                                        "color": [dash.MAP_COLORS.get(b, "#8a8f98") for b in shown["band"]]})
                 map_col.pyplot(azimuth_map_figure(lat, lon, points, {"A": "", "B": ""}, who, units, views[view_choice], "dots", True,
-                                                  (0, 20), when=datetime.now(timezone.utc).replace(tzinfo=None) if night else None),
-                               width="stretch")
+                                                  (0, 20), size=MAP_INCHES,
+                                                  when=datetime.now(timezone.utc).replace(tzinfo=None) if night else None),
+                               width="content")
                 beyond = int((points["km"] > views[view_choice]).sum())
                 if beyond:
                     map_col.caption(f"{beyond} receiver{'s' if beyond != 1 else ''} beyond this view.")
             else:
                 map_col.caption("No receiver would hear you on the band you picked right now.")
-            if panel_col is not None:
-                for band in focus[:3]:
-                    panel_col.html(dash.band_panel_html(band, bands.loc[band], result["chance"].loc[band], result["regions_n"].loc[band],
-                                                        result["power_needed"].loc[band], units, k))
         else:
             st.caption("No receiver would hear you at this power and mode right now.")
     st.caption("Estimated from WSPR reports, not measured: good for comparing bands and directions, but the percentages run high "
