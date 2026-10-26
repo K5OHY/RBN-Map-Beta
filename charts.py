@@ -56,7 +56,7 @@ def bearing_chart(spots, skimmers, home, scale=RBN_SNR_SCALE):
     ax.spines["polar"].set_color(grey)
     ax.spines["polar"].set_alpha(0.3)
     key = fig.colorbar(ScalarMappable(norm=Normalize(*scale), cmap=SNR_CMAP), ax=ax, orientation="horizontal",
-                       fraction=0.05, pad=0.12)
+                       fraction=0.03, pad=0.12, aspect=45)
     key.set_label("average SNR in that direction (dB): the colour of a bar", color=grey, fontsize=8)
     key.ax.tick_params(colors=grey, labelsize=7)
     key.outline.set_visible(False)

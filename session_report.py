@@ -237,7 +237,7 @@ def hour_grid_figure(spots, locs, home, metric="spots", units="mi"):
     ax.set_facecolor("none")
     shown = np.ma.masked_invalid(grid)
     image = ax.imshow(shown, cmap=cmap, aspect="auto", vmin=np.nanmin(grid) if metric == "snr" else 0, vmax=np.nanmax(grid))
-    key = fig.colorbar(image, ax=ax, fraction=0.035, pad=0.02)  # without it the colours mean nothing at a glance
+    key = fig.colorbar(image, ax=ax, fraction=0.03, pad=0.02, aspect=30)  # without it the colours mean nothing at a glance
     key.set_label({"spots": "spots in the hour", "farthest": f"farthest ({units})", "snr": "median SNR (dB)"}[metric],
                   color=GREY, fontsize=8)
     key.ax.tick_params(colors=GREY, labelsize=7)
