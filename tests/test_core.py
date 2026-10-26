@@ -123,6 +123,39 @@ class BandConditions(unittest.TestCase):
         self.assertEqual({(b, r) for b, r, _ in hints}, {("20m", "Europe"), ("15m", "Europe")})
 
 
+class LocalOnlyBands(unittest.TestCase):
+    """A band is not open just because receivers a few miles away hear you: on the upper bands that is ground wave, not skip."""
+
+    def status(self, band, miles):
+        t0 = datetime(2026, 10, 25, 12, 0)
+        rows = [{"time": t0 + timedelta(minutes=2 * k), "band": band, "rx": f"R{i}", "rx_lat": HOME[0] + mi / 69.0,
+                 "rx_lon": HOME[1], "tx": "T1", "snr": 5.0, "power": 37.0}
+                for i, mi in enumerate(miles) for k in range(3)]
+        result = cond.analyze(pd.DataFrame(rows), HOME, 100, "CW", t0 + timedelta(minutes=10), 30, 0.0, 3.0)
+        return result["bands"].at[band, "Status"]
+
+    def test_nearby_receivers_on_10m_are_local_only(self):
+        self.assertEqual(self.status("10m", [36, 54, 80, 101, 135, 179]), "Local")
+
+    def test_receivers_beyond_the_skip_distance_open_10m(self):
+        self.assertEqual(self.status("10m", [36, 54, 700, 900, 1200]), "Open")
+
+    def test_close_receivers_still_count_on_40m(self):
+        self.assertEqual(self.status("40m", [36, 54, 80]), "Open")
+
+    def test_each_band_has_its_own_distance(self):
+        self.assertEqual(self.status("20m", [100, 150, 200]), "Local")
+        self.assertEqual(self.status("20m", [300, 400, 500]), "Open")
+
+    def test_a_local_band_is_not_listed_as_rising_or_open(self):
+        bands = pd.DataFrame({"Status": ["Local"], "Trend": ["opening"], "Receivers": [12], "Good": [10], "Marginal": [0],
+                              "Farthest good (km)": [250.0]}, index=["10m"])
+        self.assertEqual(dash.state("Local", "opening"), ("Local only", "tm"))
+        html = dash.tiles_html(bands, {})
+        self.assertIn("Local only", html)
+        self.assertIn("to 155 mi", html)
+
+
 class DashboardPieces(unittest.TestCase):
     def test_open_and_rising_reads_open_with_an_arrow(self):
         self.assertEqual(dash.state("Open", "opening"), ("Open ↗", "tg"))

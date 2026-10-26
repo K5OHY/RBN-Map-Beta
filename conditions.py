@@ -145,6 +145,11 @@ def fetch_nearby(lat, lon, radius_km, start, end, timeout=90):
 # readings (about 7.4 dB overall, 6 dB within 1,000 mi, 9 dB at 1,000 to 2,000 mi; no DX paths in the sample), so a receiver whose
 # predicted margin is zero is a coin flip, and a margin of +8 dB is about an 84% chance.
 SIGMA_DB = 8.0
+# Receivers closer than this (miles) do not count toward a band being "Open" or "Marginal". On the upper bands a receiver
+# nearby usually hears you by ground wave or local scatter, not by the ionosphere, so it says nothing about the band being open.
+# The low bands carry local traffic by steep skywave (NVIS), so close receivers count there. Rules of thumb, not measurements.
+MIN_SKIP_MILES = {"160m": 0, "80m": 0, "60m": 0, "40m": 0, "30m": 100, "20m": 250, "17m": 400, "15m": 400, "12m": 500,
+                  "10m": 500, "6m": 500}
 THIN = 3  # fewer receivers than this in a region and the picture is a hint, not a result
 DX_REGIONS = ["Europe", "Africa", "Asia", "Oceania", "South America", "Mexico, Caribbean & Central America"]
 DOMESTIC = ["US East", "US Central", "US West", "Canada"]
@@ -203,8 +208,8 @@ def short_highlights(result, power_w, mode, margin_db, units="mi", window_min=60
             near = [b for b in avg.index[1:3] if avg[b] >= avg.iloc[0] - 2]
             out.append((f"US and Canada: {avg.index[0]}" + (f" (also {', '.join(near)})" if near else ""),
                         f"Strongest, about {avg.iloc[0]:+.0f} dB over the threshold."))
-    rising = [b for b in bands.index if bands.at[b, "Trend"] == "opening" and bands.at[b, "Status"] != "Quiet"]
-    falling = [b for b in bands.index if bands.at[b, "Trend"] == "fading" and bands.at[b, "Status"] != "Quiet"]
+    rising = [b for b in bands.index if bands.at[b, "Trend"] == "opening" and bands.at[b, "Status"] not in ("Quiet", "Local")]
+    falling = [b for b in bands.index if bands.at[b, "Trend"] == "fading" and bands.at[b, "Status"] not in ("Quiet", "Local")]
     if rising:
         out.append((f"{', '.join(rising)} rising", f"These figures average the last {window_min} minutes, so expect it a little "
                     "stronger now."))
@@ -259,17 +264,19 @@ def headline(result, power_w, mode, margin_db, units="mi", window_min=60):
             band, region, m = max(need_more, key=lambda c: c[2])
             lines.append(f"With more power: {band} to {_where(region)} would need about {_watts(float(need.at[band, region]))}.")
     status = bands["Status"]
-    open_, marg, quiet = (list(status[status == s].index) for s in ("Open", "Marginal", "Quiet"))
+    open_, marg, local, quiet = (list(status[status == s].index) for s in ("Open", "Marginal", "Local", "Quiet"))
     parts = []
     if open_:
         parts.append(f"**open:** {', '.join(open_)}")
     if marg:
         parts.append(f"**marginal:** {', '.join(marg)}")
+    if local:
+        parts.append(f"**local only** (heard nearby, no skip yet): {', '.join(local)}")
     if quiet:
         parts.append(f"**quiet:** {', '.join(quiet)}")
     lines.append("Bands " + "; ".join(parts) + ".")
-    rising = [b for b in bands.index if bands.at[b, "Trend"] == "opening" and bands.at[b, "Status"] != "Quiet"]
-    falling = [b for b in bands.index if bands.at[b, "Trend"] == "fading" and bands.at[b, "Status"] != "Quiet"]
+    rising = [b for b in bands.index if bands.at[b, "Trend"] == "opening" and bands.at[b, "Status"] not in ("Quiet", "Local")]
+    falling = [b for b in bands.index if bands.at[b, "Trend"] == "fading" and bands.at[b, "Status"] not in ("Quiet", "Local")]
     moves = ([f"{', '.join(rising)} {'is' if len(rising) == 1 else 'are'} opening up"] if rising else []) +             ([f"{', '.join(falling)} {'is' if len(falling) == 1 else 'are'} fading"] if falling else [])
     if moves:
         lines.append("Right now " + " and ".join(moves) + ".")
@@ -343,7 +350,10 @@ def analyze(spots, home, power_w, mode, end, window_min=60, antenna_db=0.0, marg
         recent, earlier = int(r["recent"].sum()), int(r["earlier"].sum())
         trend = ("unclear" if len(r) < 8 else "new" if earlier == 0 else "opening" if recent >= 1.3 * earlier
                  else "fading" if recent <= 0.7 * earlier else "steady")  # a trend from a handful of receivers is noise
-        status = "Open" if len(good) >= 3 else "Marginal" if len(good) + len(marginal) >= 2 else "Quiet"
+        skip_km = MIN_SKIP_MILES.get(band, 0) * 1.609344
+        good_far, marginal_far = good[good["km"] >= skip_km], marginal[marginal["km"] >= skip_km]
+        status = ("Open" if len(good_far) >= 3 else "Marginal" if len(good_far) + len(marginal_far) >= 2
+                  else "Local" if len(good) >= 3 or len(good) + len(marginal) >= 2 else "Quiet")
         far = good.sort_values("km", ascending=False).head(1)
         bands.append({"Band": band, "Status": status, "Spots": len(sb), "Stations near you": sb["tx"].nunique(),
                       "Receivers": len(r), "Good": len(good), "Marginal": len(marginal), "Trend": trend,

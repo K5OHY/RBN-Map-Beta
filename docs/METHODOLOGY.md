@@ -77,7 +77,7 @@ The 1 dB line is a practical convention chosen for this program, not a statistic
 
 ## 6. How it was checked, and what that does not show
 
-**Against Dale's study (N3HXZ, long blocks).** With his transmitter, date and schedule, the program's relative gain matches his table on the 27 stations of the first version of his table: 0.00 dB difference on average and 0.12 dB at most at any station. The 500 to 1,500 mile average was 3.87 dB against 3.86 dB. The program also counted four more stations that met his 40-spot rule; he traced that to a copy and paste slip in his spreadsheet and corrected his paper. This shows the linear-power calculation is implemented correctly. It does **not** show that the confidence ranges are right, that the short paired method works, or that a real antenna difference is recovered under changing conditions. The automated check is `tests/test_dale_study.py` (it needs the internet, so it only runs when `RBN_TEST_NETWORK=1` is set).
+**Against Dale's study (N3HXZ, long blocks).** With his transmitter, date and schedule, the program's relative gain matches his table on the 27 stations of the first version of his table: 0.00 dB difference on average and 0.12 dB at most at any station. The 500 to 1,500 mile average was 3.87 dB against 3.86 dB. The program also counted four more stations that met his 40-spot rule, and his updated paper includes them. This shows the linear-power calculation is implemented correctly. It does **not** show that the confidence ranges are right, that the short paired method works, or that a real antenna difference is recovered under changing conditions. The automated check is `tests/test_dale_study.py` (it needs the internet, so it only runs when `RBN_TEST_NETWORK=1` is set).
 
 **Same antenna as A and B ("null" tests).** Two checks, both on real WSPR data where the true difference is zero.
 
@@ -113,7 +113,8 @@ and works out the **margin** over the mode's threshold (2,500 Hz reference bandw
 - **Regional percentages** are averages over the receivers actually seen in each band and region. They describe those receivers, not every receiver in the region.
 - **"Power needed"** uses the 75th-percentile margin among a region's receivers, so it describes the power to reach a fairly favourable receiver, not a typical one.
 - **Cells with fewer than 3 receivers** show only a count, because the receivers that reported anything are the lucky exceptions and a figure from one or two would look far too easy.
-- **Band tiles:** "Open" needs at least 3 receivers rated good, "Marginal" needs at least 2 rated good or marginal, and otherwise "Quiet". These words describe the evidence in the WSPR sample, not an absolute state of the ionosphere.
+- **Band tiles:** "Open" needs at least 3 receivers rated good, and "Marginal" at least 2 rated good or marginal, counting only receivers beyond a minimum distance for that band (below). If receivers rate good or marginal but all of them are closer, the tile says "Local only", and otherwise "Quiet". The tile also shows how far away its best receiver was. These words describe the evidence in the WSPR sample, not an absolute state of the ionosphere.
+- **Minimum distance for a band to count as open** (rules of thumb, not measurements). A receiver nearby on the upper bands usually hears you by ground wave or local scatter, not the ionosphere, so it says nothing about the band being open: 160m to 40m none (local use by steep skywave is real), 30m 100 miles, 20m 250 miles, 17m and 15m 400 miles, 12m, 10m and 6m 500 miles.
 - **Space weather and MUF.** The sun readings come from NOAA and are described as tendencies, not forecasts for a band. The MUF comes from ionosonde data (GIRO, republished by KC2G) and is an estimate from the nearest working sounders, not a measurement along your path.
 
 ## 8. Known limitations
@@ -144,5 +145,6 @@ and works out the **margin** over the mode's threshold (2,500 Hz reference bandw
 | Weak-report floor (optional filter) | -27 dB |
 | Band conditions prediction spread | 8 dB |
 | Region needs this many receivers for a percentage | 3 |
+| Minimum distance for a receiver to count toward Open or Marginal | none on 160m to 40m; 100 mi on 30m; 250 mi on 20m; 400 mi on 17m and 15m; 500 mi on 12m, 10m and 6m |
 
 Questions and corrections are welcome. This page and the code in `compare_stats.py` and `conditions.py` should always agree, and if they do not, the code is the truth and the page is a bug.

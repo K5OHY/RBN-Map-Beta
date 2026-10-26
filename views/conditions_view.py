@@ -71,7 +71,7 @@ _LOCATE = st.components.v2.component(
 MAP_INCHES = 4.8  # the band conditions map, square; about 480 pixels
 
 
-_STATUS = {"Open": "\U0001F7E2 Open", "Marginal": "\U0001F7E1 Marginal", "Quiet": "\u26AA Quiet"}
+_STATUS = {"Open": "\U0001F7E2 Open", "Marginal": "\U0001F7E1 Marginal", "Local": "\U0001F535 Local only", "Quiet": "\u26AA Quiet"}
 
 
 _TREND = {"opening": "\u2197 opening", "fading": "\u2198 fading", "steady": "\u2192 steady", "new": "\u2197 just started", "unclear": "– too few to tell"}
@@ -134,7 +134,7 @@ def _conditions_body(result, power, mode, margin_db, units, k, lat, lon, who, wi
                          help="Pick one or more bands to show only those on the map, with a short summary of each, and to "
                               "outline them in the tiles and the table above.") or []
         with tiles_slot:
-            st.html(dash.tiles_html(bands, result["series"], focus))
+            st.html(dash.tiles_html(bands, result["series"], focus, units))
         with grid_slot:
             st.html(dash.grid_html(result["chance"], result["regions_n"], focus))
         if len(good):

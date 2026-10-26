@@ -77,6 +77,8 @@ def state(status, trend):
         return "Open" + (" \u2197" if rising else " \u2198" if falling else ""), "tg"
     if status == "Marginal":
         return "Marginal" + (" ↗" if rising else " ↘" if falling else ""), "ta"
+    if status == "Local":
+        return "Local only", "tm"
     return "Quiet", "tm"
 
 
@@ -103,7 +105,7 @@ def _confidence(receivers):
     return "High" if receivers >= 15 else "Moderate" if receivers >= 6 else "Low"
 
 
-def tiles_html(bands, series, focus=()):
+def tiles_html(bands, series, focus=(), units="mi"):
     """One tile per band: its name, state, how its strength moved, and how much data is behind it. The bands in `focus`
     are outlined and the others faded."""
     tiles = []
@@ -115,11 +117,19 @@ def tiles_html(bands, series, focus=()):
         bars = "".join(f'<i class="{"" if i < lit else "off"}" style="height:{5 + 5 * i}px"></i>' for i in range(4))
         tip = (f"{int(row['Receivers'])} receivers heard WSPR stations near you on {band}; {int(row['Good'])} are good for your "
                f"signal and {int(row['Marginal'])} marginal.")
+        if row["Status"] == "Local":
+            tip += " They are all close by, within the distance where the ionosphere is not needed, so the band is not open yet."
+        far_km = row.get("Farthest good (km)")
+        reach = ""
+        if far_km is not None and not math.isnan(far_km):
+            k = 1.609344 if units == "mi" else 1.0
+            reach = '<div class="cd-conf">to {:,.0f} {}</div>'.format(far_km / k, units)
+            tip += f" The farthest good receiver was {far_km / k:,.0f} {units} away."
         tiles.append(
             f'<div class="cd-tile {tone}-b{shade}" title="{_e(tip)}"><div class="cd-row"><div><div class="cd-band">{_e(band)}</div>'
             f'<div class="cd-mhz">{MHZ.get(band, "")} MHz</div></div><div class="cd-bars {tone}">{bars}</div></div>'
             f'<div class="cd-row"><span class="cd-pill {tone}">{_e(word)}</span>{_spark(series.get(band, []), tone)}</div>'
-            f'<div class="cd-conf">{_confidence(int(row["Receivers"]))} confidence</div></div>')
+            f'<div class="cd-conf">{_confidence(int(row["Receivers"]))} confidence</div>{reach}</div>')
     key = ('<div class="cd cd-key">\u2197 rising \u00b7 \u2198 fading \u00b7 the small bars are the band\'s signal strength at your '
            'power, oldest to newest</div>')
     return f'<div class="cd cd-tiles">{"".join(tiles)}</div>{key}'
