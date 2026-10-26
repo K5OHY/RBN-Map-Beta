@@ -134,6 +134,15 @@ class SimulationScript(unittest.TestCase):
         self.assertTrue(calls)
         self.assertEqual(set(calls), {"B"})  # a 6 dB gap is not missed, and never called the wrong way
 
+    def test_complete_data_can_be_simulated_too(self):
+        import numpy as np
+        import simulate_validation as sim
+        rng = np.random.default_rng(2)
+        names, locs = sim._receivers(rng)
+        r = sim.experiment(rng, names, locs, 3, 12, "ABBA", floor=None, listen=1.0, drift_sd=0.0)
+        self.assertIsNotNone(r)
+        self.assertGreater(r[4], 60)  # with nothing lost, nearly every receiver heard both antennas
+
 
 class LocalOnlyBands(unittest.TestCase):
     """A band is not open just because receivers a few miles away hear you: on the upper bands that is ground wave, not skip."""

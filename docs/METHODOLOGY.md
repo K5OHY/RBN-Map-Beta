@@ -97,7 +97,7 @@ At a nominal 5% level, a well-calibrated test should wrongly reject "the antenna
 
 *Dale's single-antenna run (N3HXZ, 40m, 25 October 2026, 30 two-minute transmissions).* Both A, B, A, B and A, B, B, A gave "too close to call", with the average gap about 0.6 dB (range -0.1 to +1.3 dB), and the receiver-by-receiver averages stayed within about 1 dB as the minimum reports rose. A 6-block test of 10 minutes gave a false "B stronger by 2.4 dB" on the same data, because the band changed between blocks and every receiver moved together.
 
-What these show: the paired method behaves close to its stated 95% and the long-block method with few blocks does not. What they do not show: one station, one band and one day each, with overlapping windows, so they are a good indication, not a calibration. A proper coverage study would repeat this over many days, bands and stations.
+What these suggest: the paired method gives fewer false winners than a test with only a few long blocks. They do not show that the intervals are calibrated, and the simulation below shows they sometimes are not. What they do not show: one station, one band and one day each, with overlapping windows, so they are a good indication, not a calibration. A proper coverage study would repeat this over many days, bands and stations.
 
 **Simulated tests with a known difference.** `simulate_validation.py` makes up antenna tests in which B is truly 0, 1, 3 or 6 dB stronger than A, runs them through the program's own analysis, and counts the verdicts. The made-up tests have 80 receivers, fading shared by every receiver in each transmission (0.6 dB), noise on every report (3 dB), a steady band drift (2 dB an hour), receivers that listen only 85% of the time, and reports below -28 dB lost. 300 tests per row:
 
@@ -111,6 +111,21 @@ What these show: the paired method behaves close to its stated 95% and the long-
 | 6 dB | 6 to 30 | 100% | 0% | 81 to 93% |
 
 Each range covers A, B, A, B and A, B, B, A. What it shows: with identical antennas there are almost no false winners from 12 transmissions up (0 to 3%), but with only 6 transmissions about 11 to 14% of tests name a winner; real differences of 3 dB or 6 dB were found every time and never called the wrong way; a real 1 dB difference is found about 40% of the time, because of the 1 dB rule; and the 95% range holds the truth about 81 to 95% of the time, usually around 90%, so it is a little narrow. What it does not show: the results depend on the noise and drift this makes up, so it tests the program's logic and not real HF propagation, and it does not cover receivers sharing a site.
+
+**Why the range runs a little narrow.** The table above has the 95% range holding the truth 81 to 95% of the time, usually about 90%. To see why, `python simulate_validation.py 250 ablation` starts from complete data and adds one problem at a time (a true gain of 3 dB, 250 tests per cell):
+
+| | 12 tx A,B,A,B | 12 tx A,B,B,A | 30 tx A,B,A,B | 30 tx A,B,B,A |
+| --- | --- | --- | --- | --- |
+| Complete data (nothing missing, no drift) | 93% | 91% | 92% | 91% |
+| + reports below -28 dB lost | 93% | 95% | 87% | 86% |
+| + receivers listen 85% of slots | 93% | 95% | 88% | 91% |
+| + steady band drift (2 dB an hour) | 94% | 93% | 89% | 93% |
+| + no shared fading | 92% | 96% | 95% | 94% |
+| Everything on (the main table) | 94% | 94% | 82% | 91% |
+
+With 250 tests a cell, a figure is uncertain by about 2 points either way. Two things stand out. Even with complete data the range holds the truth about 91 to 93% of the time, not 95%, so the interval itself is slightly narrow. And losing the weak reports costs the longer tests about 5 points: a receiver that can only just decode the weaker antenna is kept only when that antenna's reports happen to be strong enough, which shrinks the measured gap, so the range is centred a little short of the truth. That second effect is a selection effect (the comparison is among receivers that decoded both), not an error in the arithmetic. It is a reason to treat the range as slightly optimistic.
+
+The "chance this lead is real" figures in the verdict text (for example "a lead this big would still show up about 30% of the time if they were equal") are approximate. They come from the width of the final range, as if it were a t interval, so they are as rough as the range itself.
 
 **Band conditions against RBN.** See the README section "Band conditions now". In short, predicted signal margins were compared with what skimmers actually reported for four stations' activations, and the typical error was about 7 dB (6 dB within 1,000 miles, 9 dB at 1,000 to 2,000 miles, no DX paths in the sample).
 
@@ -152,7 +167,7 @@ and works out the **margin** over the mode's threshold (2,500 Hz reference bandw
 | Pair-to-pair fading spread used for few rounds | 0.85 dB |
 | Decisive rounds needed to call reach (paired) | 6 |
 | One-sided receivers needed to call reach (unpaired) | 4 |
-| Reach called "leaning" at | 60% likely real |
+| Reach described as "leaning" | a split that lopsided would happen by chance no more than about 40% of the time if the two reached equally |
 | Farthest-reach call | at least 25% and 1,000 km farther |
 | "Far" receiver count | beyond 5,000 miles |
 | Equal-time tolerance | 15% |
