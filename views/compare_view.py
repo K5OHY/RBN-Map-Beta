@@ -928,12 +928,20 @@ def compare_view(spots, locs, home, label, callsign, file_date, tiles, show_all,
                 times = pd.concat([spots_a["time"], spots_b["time"]])
                 try:
                     with st.spinner("Checking which receivers were listening\u2026"):
-                        listening, _ = load_listening(next(iter(bands)), times.min().to_pydatetime(),
-                                                      (times.max() + pd.Timedelta(minutes=2)).to_pydatetime())
-                    eligible = eligible_receivers(spots_a, spots_b, listening)
-                    heard = set(spots_a["spotter"]) | set(spots_b["spotter"])
-                    listening_note = {"kept": len(heard & eligible), "total": len(heard)}
-                    thin = _thin_slots(listening, set(times.unique()))
+                        listening, truncated = load_listening(next(iter(bands)), times.min().to_pydatetime(),
+                                                              (times.max() + pd.Timedelta(minutes=2)).to_pydatetime())
+                    if truncated:
+                        # a cut-off list would leave out receivers that really were listening, so it is not used to drop anyone
+                        notes.warning("wspr.live's list of which receivers were listening was cut off at its row limit, so I "
+                                      "could not check who was listening during both sides' transmissions. Every receiver that "
+                                      "heard you is counted, so a receiver that hops between bands can make one side look as if "
+                                      "it reached more. A shorter test, on one band and one day, avoids this.")
+                        eligible = set(spots_a["spotter"]) | set(spots_b["spotter"])
+                    else:
+                        eligible = eligible_receivers(spots_a, spots_b, listening)
+                        heard = set(spots_a["spotter"]) | set(spots_b["spotter"])
+                        listening_note = {"kept": len(heard & eligible), "total": len(heard)}
+                    thin = [] if truncated else _thin_slots(listening, set(times.unique()))
                     if thin:
                         notes.warning(f"wspr.live seems to be missing most of the reports for {len(thin)} of your "
                                    f"{times.nunique()} transmissions (for example {', '.join(f'{x:%H:%M}' for x in thin[:4])} UTC): far "

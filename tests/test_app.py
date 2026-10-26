@@ -211,6 +211,18 @@ class ComparePage(unittest.TestCase):
         self.assertNotIn("Similar farthest reach", text)
         self.assertIn("3 receivers beyond 5,000 mi heard Delta loop, 0 heard Vertical", text)
 
+    def test_a_cut_off_listening_list_is_reported_and_not_used(self):
+        import example_data
+        from unittest import mock
+        from views import compare_view
+        rows, _ = example_data.listening("20m", "2026-10-04 18:00:00", "2026-10-04 18:30:00")
+        cut_off = (rows, True)  # the saved listening list, reported as having hit its row limit
+        with mock.patch.object(compare_view, "load_listening", return_value=cut_off):
+            at = page("compare_page").run()
+            click(at, "Try an example")
+        self.assertEqual(errors(at), [])
+        self.assertTrue(any("cut off at its row limit" in w.value for w in at.warning))
+
     @needs_network
     def test_truly_similar_farthest_reach_still_says_similar(self):
         at = page("compare_page", call="M0XXT", cb="M0MCX", grid="IO92di", src="wspr", units="mi", date="2026-01-14",
