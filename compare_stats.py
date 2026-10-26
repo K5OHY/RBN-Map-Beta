@@ -35,6 +35,7 @@ SLOT_NOISE_DB = 0.85      # how far apart ONE pair of identical-antenna transmis
                           # hits every receiver at once (measured on real WSPR data: spread 0.84 dB over 43 pairs)
 REACH_LEAN_MIN = 0.6      # reach is only described as "leaning" a way when it is at least this likely to be real
 MIN_REACH_ROUNDS = 6      # reach is judged round by round; fewer decisive rounds than this can't be significant
+FAR_KM = 5000 * KM_PER_MILE  # a "far" receiver, for the plain count shown beside the farthest reach (5,000 miles)
 DX_MARGIN = 0.25          # one extreme receiver is noisy, so the farthest must be this much farther...
 DX_MIN_KM = 1000          # ...and at least this far (km) farther, before it is called a difference
 
@@ -834,9 +835,23 @@ def build_verdict(an, names, exposure=None, rounds=None, receiver_word="receiver
 
     if dx["a"] and dx["b"]:
         k = KM_PER_MILE if units == "mi" else 1
-        who = f"**{names[dx['call']]} reached farther.** " if dx["call"] else "Similar farthest reach. "
-        points.append(("\U0001F30D", f"{who}Farthest {receiver_word}: A {dx['a']['km'] / k:,.0f} {units} ({dx['a']['who']}), "
-                       f"B {dx['b']['km'] / k:,.0f} {units} ({dx['b']['who']})."))
+        big, small = max(dx["a"]["km"], dx["b"]["km"]), min(dx["a"]["km"], dx["b"]["km"])
+        differ = big - small >= DX_MIN_KM and big >= small * (1 + DX_MARGIN)
+        if dx["call"]:
+            who = f"**{names[dx['call']]} reached farther.** "
+        elif differ:  # far apart, but a short test cannot tell that from one lucky distant receiver, so it is not called
+            who = (f"The farthest {receiver_word}s differ a lot, but one distant {receiver_word} can be luck and this test is too "
+                   "short to tell. ")
+        else:
+            who = "Similar farthest reach. "
+        text = (f"{who}Farthest {receiver_word}: A {dx['a']['km'] / k:,.0f} {units} ({dx['a']['who']}), "
+                f"B {dx['b']['km'] / k:,.0f} {units} ({dx['b']['who']}).")
+        far_a, far_b = dx.get("far_a"), dx.get("far_b")
+        if far_a is not None and far_b is not None and (far_a or far_b):
+            threshold = "5,000 mi" if units == "mi" else f"{FAR_KM:,.0f} km"
+            text += (f" {_plural(far_a, receiver_word)} beyond {threshold} heard {names['A']}, "
+                     f"{far_b} heard {names['B']}.")
+        points.append(("\U0001F30D", text))
 
     dist = an["distance"]
     if len(dist):

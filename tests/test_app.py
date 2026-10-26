@@ -201,6 +201,25 @@ class ComparePage(unittest.TestCase):
         self.assertIn("bp=12%3A00-12%3A30+A%3B12%3A30-13%3A00+B", link)
 
     @needs_network
+    def test_a_short_test_with_very_different_farthest_reach_does_not_say_similar(self):
+        """Callum's 20m delta loop against a vertical: 10,582 mi against 3,827 mi, but only 3 pairs, so it is not called."""
+        at = page("compare_page", call="M0MCX", cb="M0XXT", grid="IO92di", src="wspr", units="mi", date="2026-01-14",
+                  band="20m", go="1", na="Delta loop", nb="Vertical", n="6", ts="13:38", mr="1").run()
+        self.assertEqual(errors(at), [])
+        text = " ".join(m.value for m in at.markdown)
+        self.assertIn("too short to tell", text)
+        self.assertNotIn("Similar farthest reach", text)
+        self.assertIn("3 receivers beyond 5,000 mi heard Delta loop, 0 heard Vertical", text)
+
+    @needs_network
+    def test_truly_similar_farthest_reach_still_says_similar(self):
+        at = page("compare_page", call="M0XXT", cb="M0MCX", grid="IO92di", src="wspr", units="mi", date="2026-01-14",
+                  band="40m", go="1", na="Vertical", nb="Delta loop", n="6", ts="21:34", mr="1").run()
+        self.assertEqual(errors(at), [])
+        text = " ".join(m.value for m in at.markdown)
+        self.assertIn("Similar farthest reach", text)
+
+    @needs_network
     def test_your_own_spots_wait_for_you_to_confirm_the_setup(self):
         at = page("compare_page", call="K5OHY", src="wspr", date="2026-10-04", band="20m", go="1").run()
         self.assertEqual(errors(at), [])

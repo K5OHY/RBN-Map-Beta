@@ -32,6 +32,7 @@ from charts import (
 )
 from compare_stats import (
     BIN_MIN_SHARED,
+    FAR_KM,
     DALE_MIN_SPOTS,
     DALE_SITE_MIN,
     station_gains,
@@ -979,6 +980,7 @@ def compare_view(spots, locs, home, label, callsign, file_date, tiles, show_all,
         far_all_a, far_all_b = _farthest(ta_all), _farthest(tb_all)
         if far_all_a and far_all_b:
             an["dx"] = {**an["dx"], "a": far_all_a, "b": far_all_b}
+        an["dx"] = {**an["dx"], "far_a": int((ta_all["km"] > FAR_KM).sum()), "far_b": int((tb_all["km"] > FAR_KM).sum())}
         rounds = None
         if sep.get("alternating") and "round" in spots_a:
             rounds = round_consistency(spots_a, spots_b, locs, home, an["power"]["offset"])
