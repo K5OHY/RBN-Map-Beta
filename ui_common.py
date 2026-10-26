@@ -2,6 +2,7 @@
 import json
 import re
 from pathlib import Path
+from urllib.parse import urlencode, urlparse
 
 import matplotlib.colors as mcolors
 import numpy as np
@@ -105,6 +106,20 @@ CSS = """
   iframe { border-radius: 12px; }
 </style>
 """
+
+
+NEW_HOME, NEW_BETA = "https://farfieldlab.streamlit.app", "https://farfieldlab-beta.streamlit.app"
+
+
+def moved_notice():
+    """A note at the top of every page: this app is now FarField Lab, with a link that opens the same page and settings there."""
+    here = urlparse(st.context.url or "")
+    base = NEW_BETA if "beta" in here.netloc.lower() else NEW_HOME
+    query = urlencode(dict(st.query_params))
+    target = base + (here.path if here.path.strip("/") else "") + ("?" + query if query else "")
+    st.info(f"**RBN Signal Mapper is now FarField Lab.** Same program, new name and a new address. "
+            f"[Open this same page in FarField Lab]({target}). This page keeps working so old links do not break, but all new "
+            "work goes to FarField Lab, so please update your bookmarks.", icon=":material/arrow_forward:")
 
 
 def running_locally():

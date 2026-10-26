@@ -1,7 +1,7 @@
 """The app: page setup and navigation. Each page lives in views/."""
 import streamlit as st
 
-from ui_common import CSS, github_url
+from ui_common import CSS, github_url, moved_notice
 from views.compare_page import compare_page
 from views.conditions_view import conditions_page
 from views.help_view import help_page
@@ -11,6 +11,7 @@ from views.spots_view import spots_page
 def main():
     st.set_page_config(layout="wide", page_title="RBN Signal Mapper", page_icon="\U0001F4E1")
     st.markdown(CSS, unsafe_allow_html=True)
+    moved_notice()
     pages = [st.Page(spots_page, title="My spots", icon="\U0001F4E1", url_path="spots", default=True),
              st.Page(compare_page, title="Compare antennas", icon="⚖️", url_path="compare"),
              st.Page(conditions_page, title="Band conditions", icon="\U0001F310", url_path="conditions"),

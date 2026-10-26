@@ -403,5 +403,14 @@ class WholeApp(unittest.TestCase):
         self.assertEqual(errors(at), [])
 
 
+class MovedNotice(unittest.TestCase):
+    def test_every_page_points_at_farfield_lab(self):
+        at = AppTest.from_file(os.path.join(HERE, "web.py"), default_timeout=600).run()
+        self.assertEqual(errors(at), [])
+        notice = [i.value for i in at.info if "now FarField Lab" in i.value]
+        self.assertEqual(len(notice), 1)
+        self.assertIn("farfieldlab.streamlit.app", notice[0])
+
+
 if __name__ == "__main__":
     unittest.main()

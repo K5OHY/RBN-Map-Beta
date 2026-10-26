@@ -1,5 +1,7 @@
 # RBN Signal Mapper
 
+> **RBN Signal Mapper is now FarField Lab.** The project has a new name, a new look and a new home: **[farfieldlab.streamlit.app](https://farfieldlab.streamlit.app/)** (code at [github.com/K5OHY/FarField-Lab](https://github.com/K5OHY/FarField-Lab); the test version is at [farfieldlab-beta.streamlit.app](https://farfieldlab-beta.streamlit.app/)). This repository and its apps stay online so old links keep working, but all new work happens in FarField Lab.
+
 See where your signal is heard, how strong it is, and how conditions change. Map the [Reverse Beacon Network](https://www.reversebeacon.net/) stations that spotted your CQ, or the [WSPR](https://wsprnet.org/) stations that heard your beacon. Compare which of two antennas, frequencies or power levels is getting out better, using real-world signal measurements. And check which bands are open and where you would be heard right now.
 
 **Jump to:** [Quick start](#quick-start) · [The map](#the-map) · [Compare two antennas](#compare-two-antennas) · [Band conditions](#band-conditions-now) · [Run it locally](#run-it-locally) · [Troubleshooting](#troubleshooting)
