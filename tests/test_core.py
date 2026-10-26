@@ -123,6 +123,18 @@ class BandConditions(unittest.TestCase):
         self.assertEqual({(b, r) for b, r, _ in hints}, {("20m", "Europe"), ("15m", "Europe")})
 
 
+class SimulationScript(unittest.TestCase):
+    def test_a_simulated_test_gives_a_verdict_and_a_big_gap_is_found(self):
+        import numpy as np
+        import simulate_validation as sim
+        rng = np.random.default_rng(1)
+        names, locs = sim._receivers(rng)
+        results = [sim.experiment(rng, names, locs, 6, 12, "ABBA") for _ in range(5)]
+        calls = [r[0] for r in results if r]
+        self.assertTrue(calls)
+        self.assertEqual(set(calls), {"B"})  # a 6 dB gap is not missed, and never called the wrong way
+
+
 class LocalOnlyBands(unittest.TestCase):
     """A band is not open just because receivers a few miles away hear you: on the upper bands that is ground wave, not skip."""
 

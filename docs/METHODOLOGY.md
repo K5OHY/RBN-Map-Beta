@@ -21,7 +21,8 @@ This is the detailed companion to the [README](../README.md). The README explain
 **Left out of the comparison**
 - A transmission heard by 2 or fewer receivers when ordinary ones are heard by 16 or more is treated as a skipped cycle (usually one receiver with a wrong clock).
 - An A or B transmission with no partner on the other antenna is left out of the comparison, though it still shows on the maps.
-- Optional filters you can set: reports at or below -27 dB (WSPR's decoding edge), receivers closer than a distance you choose, and receivers where more than a chosen share of reports sit at the floor.
+
+**Optional filters** (reports at or below -27 dB, which is WSPR's decoding edge; receivers closer than a distance you choose; receivers where more than a chosen share of reports sit at the floor) change the detailed averages on the Receiver by receiver and Linear average views. They do **not** change the main verdict, so a result can be reproduced from the verdict rules alone.
 
 ## 2. How A and B are told apart and paired
 
@@ -71,9 +72,9 @@ The 1 dB line is a practical convention chosen for this program, not a statistic
 **Reach**
 - Unpaired: an exact sign test on receivers that heard only A against only B, needing at least 4 one-sided receivers.
 - Paired: an exact sign (McNemar) test over rounds where one side was heard by more receivers, needing at least 6 such rounds. A paired test judges reach by round, because counting receivers as independent would turn fading into a false winner.
-- A side is said to be "leaning" ahead when the lean is at least 60% likely to be real.
+- When the split favours one side but does not reach the significance level, the page may say reach "leans" that way. That is when a split at least that lopsided would happen by chance no more than about 40% of the time if the two reached equally. It is descriptive, not a probability that that antenna truly reaches more.
 
-**Farthest receiver.** A side is called farther only when its farthest receiver is at least 25% and 1,000 km farther, and the test has at least 6 decisive rounds. A single far receiver can be luck, so a short test with very different distances says it is too short to tell. Beside it the page shows a plain count of receivers beyond 5,000 miles for each side.
+**Farthest receiver.** A side is called farther only when its farthest receiver is at least 25% and 1,000 km farther and, for a paired test, there are at least 6 paired rounds. That is a rule of thumb, not a significance test. A single far receiver can be luck, so a short test with very different distances says it is too short to tell. Beside it the page shows a plain count of receivers beyond 5,000 miles for each side.
 
 ## 6. How it was checked, and what that does not show
 
@@ -92,11 +93,24 @@ The 1 dB line is a practical convention chosen for this program, not a statistic
 | 30 transmissions, A, B, A, B | 2 of 47 (4%) |
 | 30 transmissions, A, B, B, A | 0 of 47 |
 
-A 95% range should be wrong about 5% of the time, so most shapes are at the expected rate, two blocks is the weak spot, and A, B, B, A did best. Typical gaps between identical antennas were 0.2 to 0.7 dB, but some windows showed 2 to 5 dB when the band was moving.
+At a nominal 5% level, a well-calibrated test should wrongly reject "the antennas are equal" in about 5% of independent trials, and the program's extra rule (a lead must be 1 dB or more) can push its false-winner rate lower still. So these counts are a preliminary check, not a measurement of how often the 95% range holds the truth, and the overlapping windows are not independent trials. With that said, most shapes are near the expected rate, two blocks is the weak spot, and A, B, B, A did best. Typical gaps between identical antennas were 0.2 to 0.7 dB, but some windows showed 2 to 5 dB when the band was moving.
 
 *Dale's single-antenna run (N3HXZ, 40m, 25 October 2026, 30 two-minute transmissions).* Both A, B, A, B and A, B, B, A gave "too close to call", with the average gap about 0.6 dB (range -0.1 to +1.3 dB), and the receiver-by-receiver averages stayed within about 1 dB as the minimum reports rose. A 6-block test of 10 minutes gave a false "B stronger by 2.4 dB" on the same data, because the band changed between blocks and every receiver moved together.
 
 What these show: the paired method behaves close to its stated 95% and the long-block method with few blocks does not. What they do not show: one station, one band and one day each, with overlapping windows, so they are a good indication, not a calibration. A proper coverage study would repeat this over many days, bands and stations.
+
+**Simulated tests with a known difference.** `simulate_validation.py` makes up antenna tests in which B is truly 0, 1, 3 or 6 dB stronger than A, runs them through the program's own analysis, and counts the verdicts. The made-up tests have 80 receivers, fading shared by every receiver in each transmission (0.6 dB), noise on every report (3 dB), a steady band drift (2 dB an hour), receivers that listen only 85% of the time, and reports below -28 dB lost. 300 tests per row:
+
+| True gain of B | Transmissions | Says B stronger | Says A stronger (wrong way) | 95% range holds the truth |
+| --- | --- | --- | --- | --- |
+| 0 dB | 6 | 6% | 5 to 8% | 84 to 87% |
+| 0 dB | 12 | 0 to 2% | 0 to 1% | 92 to 95% |
+| 0 dB | 30 | 0% | 0% | 86 to 88% |
+| 1 dB | 6 to 30 | 35 to 46% | 0% | 86 to 95% |
+| 3 dB | 6 to 30 | 100% | 0% | 85 to 94% |
+| 6 dB | 6 to 30 | 100% | 0% | 81 to 93% |
+
+Each range covers A, B, A, B and A, B, B, A. What it shows: with identical antennas there are almost no false winners from 12 transmissions up (0 to 3%), but with only 6 transmissions about 11 to 14% of tests name a winner; real differences of 3 dB or 6 dB were found every time and never called the wrong way; a real 1 dB difference is found about 40% of the time, because of the 1 dB rule; and the 95% range holds the truth about 81 to 95% of the time, usually around 90%, so it is a little narrow. What it does not show: the results depend on the noise and drift this makes up, so it tests the program's logic and not real HF propagation, and it does not cover receivers sharing a site.
 
 **Band conditions against RBN.** See the README section "Band conditions now". In short, predicted signal margins were compared with what skimmers actually reported for four stations' activations, and the typical error was about 7 dB (6 dB within 1,000 miles, 9 dB at 1,000 to 2,000 miles, no DX paths in the sample).
 
@@ -120,7 +134,7 @@ and works out the **margin** over the mode's threshold (2,500 Hz reference bandw
 ## 8. Known limitations
 
 - Receivers at one site count separately and can make the stated range too narrow.
-- The intervals have been checked against same-antenna data, not calibrated over many independent experiments.
+- The intervals have been checked against same-antenna data and against simulated tests, not calibrated over many independent real experiments.
 - Tests with very few blocks (especially 2) are the weakest, because the band can change between turns.
 - WSPR only reports what a receiver decoded, so a weaker antenna is decoded less often and a decoded-only comparison can look slightly better than the antenna is.
 - Whether a receiver was listening is inferred from it decoding other stations.

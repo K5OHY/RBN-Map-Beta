@@ -112,7 +112,7 @@ Differences are always shown as who is ahead and by how much (for example *B +2.
 
 ### How the comparison works
 
-This section is the short version. The [technical methodology](https://github.com/K5OHY/RBN_Map/blob/main/docs/METHODOLOGY.md) lists every rule and number, how the program was checked (including tests where A and B are the same antenna), and what it does not establish.
+This section is the short version. The [technical methodology](docs/METHODOLOGY.md) lists every rule and number, how the program was checked (including tests where A and B are the same antenna), and what it does not establish.
 
 The idea is simple: ask the same receivers about both antennas, so everything that stays the same for both antennas drops out. A receiver in Germany has its own noise level and its own path to you, and those stable effects are the same for A and B. Conditions that change over time are not the same, which is why the antennas are alternated and why a result is worth repeating on another day. Subtract the receiver's report for A from its report for B and what is left is the difference between the antennas at that receiver. That is the **relative gain** (B minus A, in dB, so A is the reference and B the test; the program works with A minus B internally and shows who is ahead and by how much). Do it for every receiver that heard both and average the results, and you have one number for how much better or worse B is than A, with a 95% range showing how uncertain that number is. WSPR reports move dB for dB with your power as a good approximation, so a difference in transmit power is simply added or subtracted first.
 
@@ -300,6 +300,7 @@ The **Help and README** page in the app shows this README, so the instructions a
 | `views/` | One file per page: `spots_view.py` (My spots), `compare_view.py` (comparing antennas), `conditions_view.py` (Band conditions), `compare_page.py`, `inputs.py` (the sidebar choices and loading both spots pages share), `test_link.py` (a whole test in a link), `help_view.py` (Help and README) |
 | `ui_common.py` | Settings, colours, constants and small helpers shared by the pages |
 | `data_sources.py` | Getting spots: the RBN download and pasted rows, WSPR from wspr.live, the skimmer list |
+| `simulate_validation.py` | Simulated tests with a known antenna difference, run through the program's own analysis, to check how often the verdict is right, wrong and how often the 95% range holds the truth |
 | `docs/METHODOLOGY.md` | The technical methodology: every rule and number behind a verdict, how it was checked, and its limits |
 | `disk_cache.py` | Remembers days that are over (the RBN file, WSPR spots and who was listening), so each is fetched once and wspr.live's limit of 20 requests a minute is not used up on repeats |
 | `maps.py` | The interactive map of who heard you |

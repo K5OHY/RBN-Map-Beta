@@ -393,6 +393,8 @@ class HelpPage(unittest.TestCase):
         text = "\n".join(m.value for m in at.markdown)
         self.assertIn("Quick start", text)
         self.assertIn("Try an example", text)
+        self.assertIn("/blob/main/docs/METHODOLOGY.md", text)  # the README's relative link, pointed at the repository
+        self.assertNotIn("](docs/METHODOLOGY.md)", text)
 
 
 class WholeApp(unittest.TestCase):

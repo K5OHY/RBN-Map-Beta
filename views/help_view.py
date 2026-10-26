@@ -46,5 +46,5 @@ def help_page():
             with st.expander(title):
                 st.markdown("\n".join(inside[1:]))
             continue
-        chunk.append(line)
+        chunk.append(line.replace("](docs/", f"]({github_url()}/blob/main/docs/"))  # a link that works on GitHub, made to work here
     flush()
